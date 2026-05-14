@@ -1,0 +1,31 @@
+<!-- source: https://developers.figma.com/docs/plugins/api/Video -->
+
+- Plugins
+- [Data Types](data-types.md)
+- Video
+
+On this page
+
+This object is handle to a video stored in Figma.
+
+Like images, instead of video layers, Figma has video fills [`VideoPaint`](Paint.md). In fact, dragging a video into Figma creates a rectangle with an video fill. Creating a video *on the canvas* requires creating a rectangle (or other shape), following by adding a video fill to it.
+
+New videos can be created via [`figma.createVideoAsync`](properties/figma-createvideoasync.md) from a `Uint8Array` containing the bytes of the video file.
+
+Figma supports MP4, MOV, and WebM files. Videos can be up to 100 MB in size. Video can only be added to files in a paid Education, Professional, and Organization team. Plugins running on files in free Starter teams can edit existing video in a file but not upload video to it.
+
+## Video[​](#video "Direct link to Video")
+
+### hash: string [readonly]
+
+A unique hash of the contents of the video file.
+
+---
+
+[Previous
+
+VectorNetwork](VectorNetwork.md)[Next
+
+BaseStyle](BaseStyle.md)
+
+- [Video](#video)
