@@ -1,0 +1,274 @@
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { resolve } from 'node:path';
+import type { DocumentEngine } from '../engine/DocumentEngine.js';
+import { designCompiler } from '../render/DesignCompiler.js';
+import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
+import { collectMetadataTree } from './metadata.js';
+import { mapUseFigmaToEngineOperations, toolErrorJson, toolJson } from './useFigmaMap.js';
+import { runUseFigmaScript } from './useFigmaScript.js';
+
+export interface RegisterToolsDeps {
+  engine: DocumentEngine;
+  screenshotTimeoutMs: number;
+  phase: 1 | 2 | 3 | 4 | 5;
+}
+
+export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterToolsDeps): void {
+  const { engine } = deps;
+
+  server.registerTool(
+    'create_new_file',
+    {
+      description:
+        "Creates a new blank Figma Design file in your drafts folder. If you belong to multiple plans, you'll be asked which team or organization to create the file in.",
+      inputSchema: {
+        name: z.string().min(1).max(256).optional(),
+        directory: z.string().optional(),
+      },
+    },
+    async (args) => {
+      const name = args.name ?? 'Untitled';
+      const r = await engine.createEmptyFile({
+        fileName: name,
+        directory: args.directory ? resolve(process.cwd(), args.directory) : undefined,
+      });
+      return { content: [{ type: 'text' as const, text: toolJson(r) }] };
+    }
+  );
+
+  server.registerTool(
+    'get_metadata',
+    {
+      description:
+        'Returns a sparse XML representation of your selection containing just basic properties such as the layer IDs, names, types, position and sizes. This is an outline that your Agent can then break down and call get_design_context on to retrieve only the styling information of the design it needs. Useful for very large designs where get_design_context produces output with a large context size. It also works with multiple selections or the whole page if you don\'t select anything.',
+      inputSchema: {
+        fileKey: z.string().optional(),
+        nodeId: z.string().optional(),
+        maxDepth: z.number().int().positive().optional(),
+      },
+    },
+    async (args) => {
+      const file = engine.getActiveFile();
+      if (!file) {
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('PHASE_LOCKED', 'No active file') }],
+          isError: true,
+        };
+      }
+      const firstPage = file.document.children[0];
+      const rootId = args.nodeId ?? firstPage?.id;
+      if (!rootId) {
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', 'No pages in document') }],
+          isError: true,
+        };
+      }
+      const node = engine.queryNode(rootId);
+      if (!node) {
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('UNKNOWN_NODE', `Unknown node ${rootId}`) }],
+          isError: true,
+        };
+      }
+      const root = collectMetadataTree(node, { maxDepth: args.maxDepth });
+      const payload = {
+        metadataFormatVersion: 1 as const,
+        childStacking: 'later-children-on-top' as const,
+        root,
+      };
+      return { content: [{ type: 'text' as const, text: toolJson(payload) }] };
+    }
+  );
+
+  server.registerTool(
+    'get_design_context',
+    {
+      description:
+        'Use the MCP server to get the design context for a layer or your selection in Figma. The output is HTML + CSS.',
+      inputSchema: {
+        nodeId: z.string().regex(/^I[0-9]+$/),
+        includeCss: z.boolean().optional().default(true),
+        inlineCss: z.boolean().optional().default(true),
+        viewportPaddingPx: z.number().optional().default(0),
+      },
+    },
+    async (args) => {
+      const file = engine.getActiveFile();
+      if (!file) {
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('PHASE_LOCKED', 'No active file') }],
+          isError: true,
+        };
+      }
+      const compiled = designCompiler.compileSubtree({
+        envelope: file,
+        rootNodeId: args.nodeId,
+        options: {
+          viewportPaddingPx: args.viewportPaddingPx,
+          includeCss: args.includeCss,
+          inlineCss: args.inlineCss,
+        },
+      });
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: toolJson({
+              html: compiled.html,
+              css: compiled.css,
+              warnings: compiled.warnings,
+            }),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    'get_screenshot',
+    {
+      description:
+        'Allows the agent to take a screenshot of your selection. This helps preserve layout fidelity in the generated code. Recommended to keep on (only turn off if you\'re concerned about token limits).',
+      inputSchema: {
+        nodeId: z.string().regex(/^I[0-9]+$/),
+        format: z.enum(['png', 'jpeg']).default('png'),
+        scale: z.number().positive().default(1),
+      },
+    },
+    async (args) => {
+      const file = engine.getActiveFile();
+      if (!file) {
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('PHASE_LOCKED', 'No active file') }],
+          isError: true,
+        };
+      }
+      const compiled = designCompiler.compileSubtree({
+        envelope: file,
+        rootNodeId: args.nodeId,
+        options: {
+          viewportPaddingPx: 0,
+          includeCss: true,
+          inlineCss: true,
+        },
+      });
+      const shot = await playwrightScreenshotService.capture({
+        compiled,
+        clipRect: compiled.rootClip,
+        format: args.format,
+        scale: args.scale,
+        deviceScaleFactor: args.scale,
+        timeoutMs: deps.screenshotTimeoutMs,
+      });
+      return {
+        content: [
+          {
+            type: 'image' as const,
+            data: shot.bytes.toString('base64'),
+            mimeType: shot.mimeType,
+            _meta: { width: shot.width, height: shot.height },
+          },
+        ],
+      };
+    }
+  );
+
+  const useFigmaInput = z
+    .object({
+      /** JavaScript executed like Figma remote MCP: async-wrapped body with top-level await and `return` for output. */
+      code: z.string().optional(),
+      /** Logging only (matches Figma); does not change execution. */
+      skillNames: z.string().max(512).optional(),
+      /** Legacy batch format; mutually exclusive with `code`. */
+      operations: z.array(z.unknown()).max(200).optional(),
+    })
+    .superRefine((val, ctx) => {
+      const hasCode = typeof val.code === 'string' && val.code.trim().length > 0;
+      const hasOps = Array.isArray(val.operations) && val.operations.length > 0;
+      if (hasCode && hasOps) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Provide either `code` or legacy `operations`, not both.',
+        });
+      }
+      if (!hasCode && !hasOps) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Provide non-empty `code` (Plugin API script) or legacy `operations` array.',
+        });
+      }
+    });
+
+  server.registerTool(
+    'use_figma',
+    {
+      description:
+        'The general-purpose tool for writing to Figma files. Use it to create, edit, delete, or inspect objects in Figma Design files. In Figma Design files, use_figma can be used to work with pages, frames, components, variants, variables, styles, text, images, and more. When relevant, the agent will first check your design system or existing file content before creating anything from scratch.',
+      inputSchema: useFigmaInput,
+    },
+    async (args) => {
+      try {
+        const hasCode = typeof args.code === 'string' && args.code.trim().length > 0;
+        let ops;
+        let scriptResult: unknown | undefined;
+        if (hasCode) {
+          void args.skillNames;
+          const run = await runUseFigmaScript(args.code!.trim(), engine);
+          if (run.kind === 'error') {
+            return {
+              content: [{ type: 'text' as const, text: toolErrorJson(run.errorCode, run.message) }],
+              isError: true,
+            };
+          }
+          ops = run.operations;
+          scriptResult = run.result;
+        } else {
+          ops = mapUseFigmaToEngineOperations(args.operations as unknown[]);
+        }
+        const r = await engine.applyTransaction(ops);
+        if (!r.success) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: toolErrorJson(r.errorCode, r.message, r.details),
+              },
+            ],
+            isError: true,
+          };
+        }
+        const data: Record<string, unknown> = {
+          touchedNodeIds: r.touchedNodeIds,
+          warnings: r.warnings,
+        };
+        if (hasCode) {
+          data.result = scriptResult;
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: toolJson(data),
+            },
+          ],
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', msg) }],
+          isError: true,
+        };
+      }
+    }
+  );
+}
+
+export function createHeadlessMcpServer(deps: RegisterToolsDeps): McpServer {
+  const server = new McpServer(
+    { name: 'headless-figma-clone', version: '1.0.0' },
+    { capabilities: { logging: {} } }
+  );
+  registerHeadlessFigmaTools(server, deps);
+  return server;
+}

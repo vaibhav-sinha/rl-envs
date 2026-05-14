@@ -142,12 +142,27 @@ export const GetScreenshotOutput = z.object({
 
 ## `use_figma`
 
+Aligned with Figma MCP **input shape**: primary path is a **JavaScript string** (`code`) run in an async context (top-level `await`, `return` for agent-visible output). Optional `skillNames` is accepted for parity with Figma (logging only). Legacy **`operations`** batch remains supported; **exactly one** of `code` or `operations` must be provided.
+
 **Input (normative envelope)**
 
 ```typescript
-export const UseFigmaInput = z.object({
-  operations: z.array(UseFigmaOperation).min(1).max(200),
-});
+export const UseFigmaInput = z
+  .object({
+    /** Plugin API–style script body; executed as `new AsyncFunction('figma', code)` (host wraps async). */
+    code: z.string().optional(),
+    /** Figma-compatible logging flag; does not affect execution. */
+    skillNames: z.string().max(512).optional(),
+    /** Legacy deterministic batch (mutually exclusive with `code`). */
+    operations: z.array(UseFigmaOperation).max(200).optional(),
+  })
+  .superRefine((v, ctx) => {
+    const hasCode = typeof v.code === 'string' && v.code.trim().length > 0;
+    const hasOps = Array.isArray(v.operations) && v.operations.length > 0;
+    if (hasCode === hasOps) {
+      ctx.addIssue({ code: 'custom', message: 'Provide either non-empty `code` or non-empty `operations`, not both or neither.' });
+    }
+  });
 
 export const UseFigmaOperation = z.discriminatedUnion('operation', [
   z.object({
@@ -177,7 +192,9 @@ export const UseFigmaOperation = z.discriminatedUnion('operation', [
 ]);
 ```
 
-**Dispatch mapping**
+**Script path (`code`)** — Phase 1 exposes a minimal `figma` global: `root`, `currentPage`, `setCurrentPageAsync`, `createFrame`, `notify` (throws `"not implemented"`), `closePlugin` (throws). Nested `RuntimeFrame.appendChild` is supported after the parent frame has been appended. The host applies queued engine ops in **one transaction** after the script completes (atomic on failure, matching Figma semantics).
+
+**Dispatch mapping** (legacy `operations`)
 
 | `operation` | Engine operation |
 |-------------|------------------|
@@ -194,6 +211,8 @@ export const UseFigmaOutput = z.object({
   data: z.object({
     touchedNodeIds: z.array(z.string()),
     warnings: z.array(z.string()),
+    /** Present when the call used `code`: JSON-serialized script `return` value. */
+    result: z.unknown().optional(),
   }),
 });
 ```

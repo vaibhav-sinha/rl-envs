@@ -1,0 +1,50 @@
+import { readFileSync } from 'node:fs';
+import type { FileEnvelope } from '../model/types.js';
+import { PersistenceError } from '../util/errors.js';
+import { atomicWriteFileUtf8 } from './atomicWriteFile.js';
+
+export interface PersistenceService {
+  save(params: { path: string; envelope: FileEnvelope }): Promise<void>;
+  load(params: { path: string }): Promise<FileEnvelope>;
+}
+
+export class JsonPersistence implements PersistenceService {
+  async save(params: { path: string; envelope: FileEnvelope }): Promise<void> {
+    const bytes = `${JSON.stringify(params.envelope, null, 2)}\n`;
+    await atomicWriteFileUtf8(params.path, bytes);
+  }
+
+  async load(params: { path: string }): Promise<FileEnvelope> {
+    let raw: string;
+    try {
+      raw = readFileSync(params.path, 'utf8');
+    } catch (e) {
+      throw new PersistenceError(
+        e instanceof Error ? e.message : String(e),
+        params.path,
+        e
+      );
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      throw new PersistenceError(
+        e instanceof Error ? e.message : 'Invalid JSON',
+        params.path,
+        e
+      );
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      throw new PersistenceError('Envelope is not an object', params.path);
+    }
+    const env = parsed as FileEnvelope;
+    if (env.schemaVersion !== 1) {
+      throw new PersistenceError(
+        `Unsupported schemaVersion: ${String(env.schemaVersion)}`,
+        params.path
+      );
+    }
+    return env;
+  }
+}
