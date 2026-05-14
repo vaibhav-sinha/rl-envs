@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style id="hfc-compiled-css">
+/* css attached separately */
+    </style>
+  </head>
+  <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">
+    <div id="hfc-root" style="position:relative;width:120px;height:80px;">
+      <div class="hfc-node-I3" data-hfc-id="I3" style="z-index:0"><div class="hfc-bg-layer" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:0"></div><div class="hfc-fill-layer" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:1"></div><div class="hfc-node-I4" data-hfc-id="I4" style="z-index:1"><div class="hfc-text-inner"><span style="font-size:12px;font-weight:400;color:rgba(0,0,0,1);">Hi </span><a class="hfc-hyperlink hfc-hyperlink-0" href="https://example.com/x" style="font-size:16px;font-weight:700;color:rgba(0,0,0,1);">link</a></div></div></div>
+    </div>
+  </body>
+</html>
+---CSS---
+#hfc-root{position:relative;width:120px;height:80px;}
+.hfc-node-I3{position:absolute;left:0px;top:0px;width:120px;height:80px;box-sizing:border-box;border:none;background-color:transparent;overflow:hidden;}
+.hfc-node-I3 > .hfc-bg-layer{background-color:rgba(217,230,255,1);}.hfc-node-I3 > .hfc-fill-layer{background-color:rgba(255,255,255,1);}
+.hfc-node-I4{position:absolute;left:8px;top:10px;width:100px;height:24px;box-sizing:border-box;white-space:pre-wrap;word-break:break-word;}

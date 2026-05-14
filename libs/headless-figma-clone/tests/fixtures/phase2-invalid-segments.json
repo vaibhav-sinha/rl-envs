@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "BADSEG",
+  "fileName": "Bad",
+  "nextInternalId": 9,
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "F",
+            "x": 0,
+            "y": 0,
+            "width": 10,
+            "height": 10,
+            "children": [
+              {
+                "id": "I4",
+                "type": "TEXT",
+                "name": "T",
+                "x": 0,
+                "y": 0,
+                "width": 10,
+                "height": 10,
+                "characters": "abcd",
+                "styledSegments": [
+                  { "start": 0, "end": 3, "style": {} },
+                  { "start": 2, "end": 4, "style": { "fontSize": 20 } }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

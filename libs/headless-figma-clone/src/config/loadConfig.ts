@@ -26,6 +26,12 @@ function envLogLevel(name: string, fallback: LogLevel): LogLevel {
   return LEVELS.includes(v as LogLevel) ? (v as LogLevel) : fallback;
 }
 
+function envScreenshotBackground(): 'white' | 'transparent' {
+  const v = process.env.HFC_SCREENSHOT_BACKGROUND?.trim().toLowerCase();
+  if (v === 'white' || v === 'transparent') return v;
+  return 'transparent';
+}
+
 export function loadConfig(params: {
   version: string;
   cliInitialFile?: string | null;
@@ -39,7 +45,6 @@ export function loadConfig(params: {
         : null;
 
   return {
-    phase: 1,
     httpHost: envString('HFC_HTTP_HOST', '127.0.0.1'),
     httpPort: envInt('HFC_HTTP_PORT', 3847),
     workspaceDir: envString('HFC_WORKSPACE_DIR', join(homedir(), '.headless-figma-clone', 'workspace')),
@@ -47,6 +52,8 @@ export function loadConfig(params: {
     allowDebug: envBool01('HFC_ALLOW_DEBUG'),
     logLevel: envLogLevel('HFC_LOG_LEVEL', 'info'),
     screenshotTimeoutMs: envInt('HFC_SCREENSHOT_TIMEOUT_MS', 30_000),
+    screenshotDefaultDeviceScaleFactor: envInt('HFC_SCREENSHOT_DPR', 1),
+    screenshotDefaultBackground: envScreenshotBackground(),
     version: params.version,
   };
 }

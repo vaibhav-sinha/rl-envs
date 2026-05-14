@@ -86,7 +86,7 @@ Replace the host and port with your listen address (for example `http://127.0.0.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | JSON: `status`, `version`, `phase`. Always available. |
+| `GET` | `/health` | JSON: `status`, `version`. Always available. |
 | `GET` | `/files` | JSON: workspace `.hfc.json` files with metadata; each entry includes **`setActiveUrl`** pointing at `/files/active` for that file. Always available. |
 | `GET` | `/files/active?path=…` | Loads the given absolute path as the active document. Query **`path`** must be URL-encoded, resolve under **`HFC_WORKSPACE_DIR`**, and end with **`.hfc.json`**. JSON: `ok`, `fileKey`, `filePath`, `fileName`. Always available. |
 | `POST` | `/mcp` | MCP Streamable HTTP (JSON-RPC bodies, `mcp-session-id` header after initialize). Always available. |

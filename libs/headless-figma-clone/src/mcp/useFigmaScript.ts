@@ -1,11 +1,8 @@
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
-import {
-  ValidationErr,
-  applyCreateNodeOp,
-  type EngineOperation,
-  type NewNodeSpec,
-} from '../engine/DocumentEngine.js';
-import type { FileEnvelope, FrameNode, PageNode } from '../model/types.js';
+import { applyCreateNodeOp, type EngineOperation, type NewNodeSpec } from '../engine/DocumentEngine.js';
+import type { Effect, FrameNode, PageNode, Paint, StyledSegment } from '../model/types.js';
+import { ValidationErr } from '../util/errors.js';
+import type { FileEnvelope } from '../model/types.js';
 
 function deepClone<T>(v: T): T {
   return structuredClone(v);
@@ -16,45 +13,38 @@ interface ScriptContext {
   ops: EngineOperation[];
 }
 
-class RuntimeFrame {
-  readonly type = 'FRAME' as const;
-  name = 'Frame';
+abstract class RuntimeSceneNode {
+  abstract readonly type: 'FRAME' | 'TEXT';
+  name = 'Node';
   x = 0;
   y = 0;
   width = 100;
   height = 100;
-  fills?: FrameNode['fills'];
-  strokes?: FrameNode['strokes'];
-  strokeWeight?: number;
-  private _id: string | null = null;
-  private attached = false;
+  visible?: boolean;
+  opacity?: number;
+  rotation?: number;
+  effects?: Effect[];
+  protected _id: string | null = null;
+  protected attached = false;
+  protected ctx!: ScriptContext;
 
   resize(w: number, h: number): void {
     this.width = w;
     this.height = h;
   }
 
-  get id(): string {
-    if (this._id === null) {
-      throw new Error(
-        'Frame id is not available until the node has been appended with parent.appendChild(frame)'
-      );
-    }
-    return this._id;
-  }
-
-  appendChild(child: RuntimeFrame, index?: number): void {
-    if (!this.attached || this._id === null) {
-      throw new Error('appendChild on a frame requires the frame to be appended to the page (or parent) first');
-    }
-    child.appendUnderParent(this._id, index, this.ctx);
-  }
-
-  private ctx!: ScriptContext;
-
   bindContext(ctx: ScriptContext): this {
     this.ctx = ctx;
     return this;
+  }
+
+  get id(): string {
+    if (this._id === null) {
+      throw new Error(
+        'Node id is not available until the node has been appended with parent.appendChild(node)'
+      );
+    }
+    return this._id;
   }
 
   appendUnderParent(parentId: string, index: number | undefined, ctx: ScriptContext): void {
@@ -73,6 +63,25 @@ class RuntimeFrame {
     this.attached = true;
   }
 
+  abstract toNewNodeSpec(): NewNodeSpec;
+}
+
+class RuntimeFrame extends RuntimeSceneNode {
+  readonly type = 'FRAME' as const;
+  name = 'Frame';
+  fills?: FrameNode['fills'];
+  strokes?: FrameNode['strokes'];
+  strokeWeight?: number;
+  backgrounds?: Paint[];
+  clipsContent?: boolean;
+
+  appendChild(child: RuntimeFrame | RuntimeText, index?: number): void {
+    if (!this.attached || this._id === null) {
+      throw new Error('appendChild requires the frame to be appended to the page (or parent) first');
+    }
+    child.appendUnderParent(this._id, index, this.ctx);
+  }
+
   toNewNodeSpec(): NewNodeSpec {
     return {
       type: 'FRAME',
@@ -81,10 +90,15 @@ class RuntimeFrame {
       y: this.y,
       width: this.width,
       height: this.height,
-      children: [],
       fills: this.fills,
+      backgrounds: this.backgrounds,
       strokes: this.strokes,
       strokeWeight: this.strokeWeight,
+      effects: this.effects,
+      clipsContent: this.clipsContent,
+      visible: this.visible,
+      opacity: this.opacity,
+      rotation: this.rotation,
     };
   }
 
@@ -101,6 +115,46 @@ class RuntimeFrame {
   }
 }
 
+class RuntimeText extends RuntimeSceneNode {
+  readonly type = 'TEXT' as const;
+  name = 'Text';
+  width = 200;
+  height = 32;
+  characters = '';
+  fontSize = 12;
+  fontWeight = 400;
+  fills?: FrameNode['fills'];
+  private segments: StyledSegment[] = [];
+
+  toNewNodeSpec(): NewNodeSpec {
+    return {
+      type: 'TEXT',
+      name: this.name,
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height,
+      characters: this.characters,
+      fontSize: this.fontSize,
+      fontWeight: this.fontWeight,
+      fills: this.fills,
+      styledSegments: this.segments.length ? this.segments : undefined,
+      effects: this.effects,
+      visible: this.visible,
+      opacity: this.opacity,
+      rotation: this.rotation,
+    };
+  }
+
+  setRangeFontSize(start: number, end: number, fontSize: number): void {
+    this.segments.push({ start, end, style: { fontSize } });
+  }
+
+  setRangeHyperlink(start: number, end: number, link: { type: 'URL'; url: string }): void {
+    this.segments.push({ start, end, style: { hyperlink: link } });
+  }
+}
+
 class RuntimePage {
   constructor(
     private readonly ctx: ScriptContext,
@@ -111,7 +165,7 @@ class RuntimePage {
     return this.pageId;
   }
 
-  appendChild(child: RuntimeFrame, index?: number): void {
+  appendChild(child: RuntimeFrame | RuntimeText, index?: number): void {
     child.appendUnderParent(this.pageId, index, this.ctx);
   }
 }
@@ -139,7 +193,7 @@ export async function runUseFigmaScript(
 ): Promise<RunUseFigmaScriptOk | RunUseFigmaScriptErr> {
   const file = engine.getActiveFile();
   if (!file) {
-    return { kind: 'error', errorCode: 'PHASE_LOCKED', message: 'No active file' };
+    return { kind: 'error', errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
   }
 
   const working = deepClone(file);
@@ -175,6 +229,9 @@ export async function runUseFigmaScript(
     },
     createFrame(): RuntimeFrame {
       return new RuntimeFrame().bindContext(ctx);
+    },
+    createText(): RuntimeText {
+      return new RuntimeText().bindContext(ctx);
     },
     notify: (): void => {
       throw new Error('not implemented');

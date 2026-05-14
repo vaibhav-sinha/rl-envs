@@ -11,7 +11,8 @@ import { runUseFigmaScript } from './useFigmaScript.js';
 export interface RegisterToolsDeps {
   engine: DocumentEngine;
   screenshotTimeoutMs: number;
-  phase: 1 | 2 | 3 | 4 | 5;
+  screenshotDefaultBackground: 'white' | 'transparent';
+  screenshotDefaultDeviceScaleFactor: number;
 }
 
 export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterToolsDeps): void {
@@ -38,6 +39,56 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
   );
 
   server.registerTool(
+    'open_file',
+    {
+      description:
+        'Loads an existing headless-figma-clone document (*.hfc.json) from disk and sets it as the active file for subsequent MCP tools.',
+      inputSchema: {
+        path: z.string().min(1),
+      },
+    },
+    async (args) => {
+      const abs = resolve(process.cwd(), args.path);
+      if (!abs.toLowerCase().endsWith('.hfc.json')) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: toolErrorJson('VALIDATION_ERROR', 'open_file path must end with .hfc.json'),
+            },
+          ],
+          isError: true,
+        };
+      }
+      try {
+        await engine.loadFromDisk({ absolutePath: abs });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', msg) }],
+          isError: true,
+        };
+      }
+      const f = engine.getActiveFile();
+      const fp = engine.getActiveFilePath();
+      if (!f || !fp) {
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file after load') }],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: toolJson({ fileKey: f.fileKey, filePath: fp }),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
     'get_metadata',
     {
       description:
@@ -52,7 +103,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       const file = engine.getActiveFile();
       if (!file) {
         return {
-          content: [{ type: 'text' as const, text: toolErrorJson('PHASE_LOCKED', 'No active file') }],
+          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
           isError: true,
         };
       }
@@ -97,7 +148,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       const file = engine.getActiveFile();
       if (!file) {
         return {
-          content: [{ type: 'text' as const, text: toolErrorJson('PHASE_LOCKED', 'No active file') }],
+          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
           isError: true,
         };
       }
@@ -134,13 +185,15 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
         nodeId: z.string().regex(/^I[0-9]+$/),
         format: z.enum(['png', 'jpeg']).default('png'),
         scale: z.number().positive().default(1),
+        deviceScaleFactor: z.number().positive().optional(),
+        background: z.enum(['white', 'transparent']).optional(),
       },
     },
     async (args) => {
       const file = engine.getActiveFile();
       if (!file) {
         return {
-          content: [{ type: 'text' as const, text: toolErrorJson('PHASE_LOCKED', 'No active file') }],
+          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
           isError: true,
         };
       }
@@ -153,12 +206,15 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           inlineCss: true,
         },
       });
+      const dpr = args.deviceScaleFactor ?? args.scale * deps.screenshotDefaultDeviceScaleFactor;
+      const bg = args.background ?? deps.screenshotDefaultBackground;
       const shot = await playwrightScreenshotService.capture({
         compiled,
         clipRect: compiled.rootClip,
         format: args.format,
         scale: args.scale,
-        deviceScaleFactor: args.scale,
+        deviceScaleFactor: dpr,
+        background: bg,
         timeoutMs: deps.screenshotTimeoutMs,
       });
       return {

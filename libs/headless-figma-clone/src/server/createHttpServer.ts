@@ -118,7 +118,6 @@ export async function createHttpServer(params: {
         sendJson(res, 200, {
           status: 'ok',
           version: config.version,
-          phase: config.phase,
         });
         return;
       }
@@ -227,7 +226,8 @@ export async function createHttpServer(params: {
             const mcpServer = createHeadlessMcpServer({
               engine,
               screenshotTimeoutMs: config.screenshotTimeoutMs,
-              phase: config.phase,
+              screenshotDefaultBackground: config.screenshotDefaultBackground,
+              screenshotDefaultDeviceScaleFactor: config.screenshotDefaultDeviceScaleFactor,
             });
             const transport = new StreamableHTTPServerTransport({
               sessionIdGenerator: () => randomUUID(),

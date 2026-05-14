@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   const config = loadConfig({ version, cliInitialFile: argvOpts.initialFile ?? null });
   const logger = createConsoleLogger(config.logLevel);
   const persistence = new JsonPersistence();
-  const engine = new DocumentEngine({ persistence, phase: 1, logger });
+  const engine = new DocumentEngine({ persistence, logger });
 
   if (config.initialFilePath) {
     await engine.loadFromDisk({ absolutePath: config.initialFilePath });
@@ -72,7 +72,8 @@ async function main(): Promise<void> {
     const mcp = createHeadlessMcpServer({
       engine,
       screenshotTimeoutMs: config.screenshotTimeoutMs,
-      phase: config.phase,
+      screenshotDefaultBackground: config.screenshotDefaultBackground,
+      screenshotDefaultDeviceScaleFactor: config.screenshotDefaultDeviceScaleFactor,
     });
     const transport = new StdioServerTransport();
     await mcp.connect(transport);

@@ -2,11 +2,16 @@ import { mkdirSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { ulid } from 'ulid';
-import type { BaseNodePhase1, DocumentNode, FileEnvelope, FrameNode, PageNode } from '../model/types.js';
-import type { Paint, SolidPaint } from '../model/types.js';
+import type { DocumentNode, FileEnvelope, FrameNode, PageNode, SceneNode, TextNode } from '../model/types.js';
+import type { Effect, Paint, SolidPaint, StyledSegment } from '../model/types.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
 import type { Logger } from '../util/logger.js';
-import { PHASE_MATRIX } from './phase-matrix.js';
+import type { EngineErrorCode } from '../util/errors.js';
+import { ValidationErr } from '../util/errors.js';
+import { ENGINE_MATRIX } from './phase-matrix.js';
+import { validateStyledSegments } from './utf16Segments.js';
+
+export type { EngineErrorCode } from '../util/errors.js';
 
 export interface TransactionResult {
   success: true;
@@ -21,15 +26,9 @@ export interface TransactionFailure {
   details?: Record<string, unknown>;
 }
 
-export type EngineErrorCode =
-  | 'VALIDATION_ERROR'
-  | 'UNKNOWN_NODE'
-  | 'UNSUPPORTED_OPERATION'
-  | 'UNSUPPORTED_PROPERTY'
-  | 'PHASE_LOCKED'
-  | 'CONSTRAINT_VIOLATION';
-
-export type NewNodeSpec = Omit<FrameNode, 'id'> & { type: 'FRAME' };
+export type NewNodeSpec =
+  | (Omit<FrameNode, 'id' | 'children'> & { type: 'FRAME'; children?: SceneNode[] })
+  | (Omit<TextNode, 'id'> & { type: 'TEXT' });
 
 export type EngineOperation =
   | { op: 'createNode'; parentId: string; index?: number; node: NewNodeSpec }
@@ -43,6 +42,7 @@ const EXCLUDED_PATCH_KEYS = new Set([
   'relaunchData',
   'id',
   'type',
+  'children',
 ]);
 
 function deepClone<T>(v: T): T {
@@ -53,7 +53,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-function findNode(root: DocumentNode, id: string): BaseNodePhase1 | null {
+export type AnyTreeNode = DocumentNode | PageNode | SceneNode;
+
+function findNode(root: DocumentNode, id: string): AnyTreeNode | null {
   if (root.id === id) return root;
   for (const p of root.children) {
     if (p.id === id) return p;
@@ -63,11 +65,13 @@ function findNode(root: DocumentNode, id: string): BaseNodePhase1 | null {
   return null;
 }
 
-function findInSceneList(nodes: FrameNode[], id: string): BaseNodePhase1 | null {
+function findInSceneList(nodes: SceneNode[], id: string): AnyTreeNode | null {
   for (const n of nodes) {
     if (n.id === id) return n;
-    const inner = findInSceneList(n.children, id);
-    if (inner) return inner;
+    if (n.type === 'FRAME') {
+      const inner = findInSceneList(n.children, id);
+      if (inner) return inner;
+    }
   }
   return null;
 }
@@ -82,14 +86,16 @@ function findParent(root: DocumentNode, id: string): DocumentNode | PageNode | F
 }
 
 function findParentInFrames(
-  nodes: FrameNode[],
+  nodes: SceneNode[],
   id: string,
   parent: PageNode | FrameNode
 ): PageNode | FrameNode | null {
   for (const n of nodes) {
     if (n.id === id) return parent;
-    const inner = findParentInFrames(n.children, id, n);
-    if (inner) return inner;
+    if (n.type === 'FRAME') {
+      const inner = findParentInFrames(n.children, id, n);
+      if (inner) return inner;
+    }
   }
   return null;
 }
@@ -103,19 +109,9 @@ function validateRgb(c: { r: unknown; g: unknown; b: unknown }, label: string): 
   }
 }
 
-export class ValidationErr extends Error {
-  constructor(
-    readonly code: EngineErrorCode,
-    message: string
-  ) {
-    super(message);
-    this.name = 'ValidationErr';
-  }
-}
-
 function assertSolidPaint(p: unknown, label: string): SolidPaint {
   if (!isRecord(p) || p.type !== 'SOLID') {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: only SOLID paints in phase 1`);
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: only SOLID paints supported`);
   }
   if (!isRecord(p.color)) throw new ValidationErr('VALIDATION_ERROR', `${label}: missing color`);
   validateRgb(p.color as { r: unknown; g: unknown; b: unknown }, `${label}.color`);
@@ -125,11 +121,46 @@ function assertSolidPaint(p: unknown, label: string): SolidPaint {
 function validatePaintArray(arr: unknown, label: string): Paint[] | undefined {
   if (arr === undefined) return undefined;
   if (!Array.isArray(arr)) throw new ValidationErr('VALIDATION_ERROR', `${label}: must be array`);
-  const max = PHASE_MATRIX[1].maxPaintsPerArray;
-  if (arr.length > max) {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: exceeds soft cap of ${String(max)}`);
-  }
   return arr.map((p, i) => assertSolidPaint(p, `${label}[${String(i)}]`));
+}
+
+function validateEffects(arr: unknown, label: string): Effect[] | undefined {
+  if (arr === undefined) return undefined;
+  if (!Array.isArray(arr)) throw new ValidationErr('VALIDATION_ERROR', `${label}: must be array`);
+  const out: Effect[] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const e = arr[i];
+    if (!isRecord(e) || e.type !== 'DROP_SHADOW') {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: only DROP_SHADOW is supported`);
+    }
+    if (!isRecord(e.offset) || typeof e.offset.x !== 'number' || typeof e.offset.y !== 'number') {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: DROP_SHADOW.offset {x,y} required`);
+    }
+    if (e.color !== undefined) {
+      if (!isRecord(e.color)) throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].color invalid`);
+      validateRgb(e.color as { r: unknown; g: unknown; b: unknown }, `${label}[${String(i)}].color`);
+    }
+    out.push(e as unknown as Effect);
+  }
+  return out;
+}
+
+function parseStyledSegments(raw: unknown): StyledSegment[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) throw new ValidationErr('VALIDATION_ERROR', 'styledSegments must be array');
+  const out: StyledSegment[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const s = raw[i];
+    if (!isRecord(s) || typeof s.start !== 'number' || typeof s.end !== 'number' || !isRecord(s.style)) {
+      throw new ValidationErr('VALIDATION_ERROR', `styledSegments[${String(i)}] invalid`);
+    }
+    out.push({
+      start: s.start,
+      end: s.end,
+      style: s.style as StyledSegment['style'],
+    });
+  }
+  return out;
 }
 
 function validateFrameGeometry(n: Pick<FrameNode, 'width' | 'height'>): void {
@@ -138,7 +169,13 @@ function validateFrameGeometry(n: Pick<FrameNode, 'width' | 'height'>): void {
   }
 }
 
-function normalizeNewFrame(spec: NewNodeSpec, id: string): FrameNode {
+function validateTextGeometry(n: Pick<TextNode, 'width' | 'height'>): void {
+  if (n.width < 0 || n.height < 0) {
+    throw new ValidationErr('CONSTRAINT_VIOLATION', 'TEXT width/height must be >= 0');
+  }
+}
+
+function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: string): FrameNode {
   const frame: FrameNode = {
     id,
     type: 'FRAME',
@@ -147,22 +184,80 @@ function normalizeNewFrame(spec: NewNodeSpec, id: string): FrameNode {
     y: typeof spec.y === 'number' ? spec.y : 0,
     width: typeof spec.width === 'number' ? spec.width : 100,
     height: typeof spec.height === 'number' ? spec.height : 100,
-    children: Array.isArray(spec.children) ? (spec.children as FrameNode[]) : [],
+    /** New nodes always start empty; subtrees are added via further ops. */
+    children: [],
     fills: spec.fills,
+    backgrounds: spec.backgrounds,
     strokes: spec.strokes,
     strokeWeight: spec.strokeWeight,
+    effects: spec.effects,
+    clipsContent: spec.clipsContent,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
   };
   validateFrameGeometry(frame);
   if (frame.fills) frame.fills = validatePaintArray(frame.fills, 'fills') ?? [];
+  if (frame.backgrounds) frame.backgrounds = validatePaintArray(frame.backgrounds, 'backgrounds') ?? [];
   if (frame.strokes) frame.strokes = validatePaintArray(frame.strokes, 'strokes') ?? [];
+  if (frame.effects) frame.effects = validateEffects(frame.effects, 'effects') ?? [];
   if (frame.strokeWeight !== undefined && (typeof frame.strokeWeight !== 'number' || frame.strokeWeight < 0)) {
     throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
+  }
+  if (frame.opacity !== undefined && (typeof frame.opacity !== 'number' || frame.opacity < 0 || frame.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (frame.rotation !== undefined && typeof frame.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (frame.visible !== undefined && typeof frame.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  if (frame.clipsContent !== undefined && typeof frame.clipsContent !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'clipsContent must be boolean');
   }
   return frame;
 }
 
-function parentAllowsChild(parentType: string, childType: string, phase: 1): boolean {
-  const rules = PHASE_MATRIX[phase].createNode.allowedChildPairs;
+function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: string): TextNode {
+  const characters = typeof spec.characters === 'string' ? spec.characters : '';
+  const styledSegments = spec.styledSegments;
+  validateStyledSegments(characters, styledSegments);
+  const text: TextNode = {
+    id,
+    type: 'TEXT',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Text',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 24,
+    characters,
+    fontSize: typeof spec.fontSize === 'number' ? spec.fontSize : 12,
+    fontWeight: typeof spec.fontWeight === 'number' ? spec.fontWeight : 400,
+    fills: spec.fills,
+    effects: spec.effects,
+    styledSegments: styledSegments ?? [],
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+  };
+  validateTextGeometry(text);
+  if (text.fills) text.fills = validatePaintArray(text.fills, 'fills') ?? [];
+  if (text.effects) text.effects = validateEffects(text.effects, 'effects') ?? [];
+  if (text.opacity !== undefined && (typeof text.opacity !== 'number' || text.opacity < 0 || text.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (text.rotation !== undefined && typeof text.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (text.visible !== undefined && typeof text.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  return text;
+}
+
+function parentAllowsChild(parentType: string, childType: string): boolean {
+  const rules = ENGINE_MATRIX.createNode.allowedChildPairs;
   return rules.some((r) => r.parent === parentType && r.child === childType);
 }
 
@@ -192,7 +287,7 @@ function removeNodeById(root: DocumentNode, nodeId: string): void {
   list.splice(idx, 1);
 }
 
-function detachSubtree(root: DocumentNode, nodeId: string): FrameNode {
+function detachSubtree(root: DocumentNode, nodeId: string): SceneNode {
   const parent = findParent(root, nodeId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
   if (parent.type === 'DOCUMENT') {
@@ -205,7 +300,7 @@ function detachSubtree(root: DocumentNode, nodeId: string): FrameNode {
   return node;
 }
 
-function attachFrame(root: DocumentNode, parentId: string, index: number | undefined, node: FrameNode): void {
+function attachSceneNode(root: DocumentNode, parentId: string, index: number | undefined, node: SceneNode): void {
   const parent = findNode(root, parentId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown parent ${parentId}`);
   if (parent.type === 'PAGE') {
@@ -216,25 +311,32 @@ function attachFrame(root: DocumentNode, parentId: string, index: number | undef
     insertAt(parent.children, index, node);
     return;
   }
-  throw new ValidationErr('VALIDATION_ERROR', `Invalid parent type ${parent.type} for FRAME`);
+  throw new ValidationErr('VALIDATION_ERROR', `Invalid parent type ${parent.type}`);
 }
 
 /** Applies a single createNode on a working envelope (mutates). Returns the new node id. */
 export function applyCreateNodeOp(working: FileEnvelope, op: Extract<EngineOperation, { op: 'createNode' }>): string {
   const parent = findNode(working.document, op.parentId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown parent ${op.parentId}`);
-  if (!parentAllowsChild(parent.type, op.node.type, 1)) {
+  if (!parentAllowsChild(parent.type, op.node.type)) {
     throw new ValidationErr('VALIDATION_ERROR', `Cannot create ${op.node.type} under ${parent.type}`);
   }
   const id = `I${String(working.nextInternalId)}`;
   working.nextInternalId += 1;
-  const node = normalizeNewFrame(op.node as NewNodeSpec, id);
+  let node: SceneNode;
+  if (op.node.type === 'FRAME') {
+    node = normalizeNewFrame(op.node, id);
+  } else if (op.node.type === 'TEXT') {
+    node = normalizeNewText(op.node, id);
+  } else {
+    throw new ValidationErr('VALIDATION_ERROR', `Unsupported node type ${(op.node as { type: string }).type}`);
+  }
   if (parent.type === 'PAGE') {
     insertAt(parent.children, op.index, node);
   } else if (parent.type === 'FRAME') {
     insertAt(parent.children, op.index, node);
   } else {
-    throw new ValidationErr('VALIDATION_ERROR', 'Invalid parent for FRAME');
+    throw new ValidationErr('VALIDATION_ERROR', 'Invalid parent for scene node');
   }
   return id;
 }
@@ -258,7 +360,6 @@ export class DocumentEngine {
   constructor(
     private readonly deps: {
       persistence: PersistenceService;
-      phase: 1 | 2 | 3 | 4 | 5;
       logger: Logger;
     }
   ) {}
@@ -282,7 +383,7 @@ export class DocumentEngine {
     return this.activeFilePath;
   }
 
-  queryNode(nodeId: string): BaseNodePhase1 | null {
+  queryNode(nodeId: string): AnyTreeNode | null {
     if (!this.activeFile) return null;
     return findNode(this.activeFile.document, nodeId);
   }
@@ -365,13 +466,8 @@ export class DocumentEngine {
 
   async applyTransaction(ops: EngineOperation[]): Promise<TransactionResult | TransactionFailure> {
     if (!this.activeFile || !this.activeFilePath) {
-      return { success: false, errorCode: 'PHASE_LOCKED', message: 'No active file' };
+      return { success: false, errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
     }
-    const phase = this.deps.phase;
-    if (phase !== 1) {
-      return { success: false, errorCode: 'PHASE_LOCKED', message: 'Only phase 1 implemented' };
-    }
-
     const working = deepClone(this.activeFile);
     const touched = new Set<string>();
     const warnings: string[] = [];
@@ -384,7 +480,8 @@ export class DocumentEngine {
         } else if (op.op === 'updateNode') {
           const node = findNode(working.document, op.nodeId);
           if (!node) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${op.nodeId}`);
-          const allowed = PHASE_MATRIX[1].patchKeysByType[node.type as 'FRAME' | 'PAGE' | 'DOCUMENT'];
+          const matrix = ENGINE_MATRIX.patchKeysByType as Record<string, Set<string> | undefined>;
+          const allowed = matrix[node.type];
           if (!allowed) throw new ValidationErr('UNSUPPORTED_OPERATION', `Patches on ${node.type} not supported`);
           const patch: Record<string, unknown> = {};
           for (const [k, v] of Object.entries(op.patch)) {
@@ -405,10 +502,10 @@ export class DocumentEngine {
           const subtree = detachSubtree(working.document, op.nodeId);
           const newParent = findNode(working.document, op.newParentId);
           if (!newParent) throw new ValidationErr('UNKNOWN_NODE', `Unknown new parent ${op.newParentId}`);
-          if (!parentAllowsChild(newParent.type, subtree.type, 1)) {
-            throw new ValidationErr('VALIDATION_ERROR', `Cannot move FRAME under ${newParent.type}`);
+          if (!parentAllowsChild(newParent.type, subtree.type)) {
+            throw new ValidationErr('VALIDATION_ERROR', `Cannot move ${subtree.type} under ${newParent.type}`);
           }
-          attachFrame(working.document, op.newParentId, op.index, subtree);
+          attachSceneNode(working.document, op.newParentId, op.index, subtree);
           touched.add(op.nodeId);
         }
       }
@@ -430,7 +527,7 @@ export class DocumentEngine {
   }
 }
 
-function applyPatch(node: BaseNodePhase1, patch: Record<string, unknown>): void {
+function applyPatch(node: AnyTreeNode, patch: Record<string, unknown>): void {
   if (node.type === 'FRAME') {
     const f = node;
     if ('name' in patch) {
@@ -450,6 +547,74 @@ function applyPatch(node: BaseNodePhase1, patch: Record<string, unknown>): void 
     }
     if ('strokes' in patch) {
       f.strokes = validatePaintArray(patch.strokes, 'strokes');
+    }
+    if ('backgrounds' in patch) {
+      f.backgrounds = validatePaintArray(patch.backgrounds, 'backgrounds');
+    }
+    if ('effects' in patch) {
+      f.effects = validateEffects(patch.effects, 'effects');
+    }
+    if ('clipsContent' in patch) {
+      if (typeof patch.clipsContent !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'clipsContent must be boolean');
+      f.clipsContent = patch.clipsContent;
+    }
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      f.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      f.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      f.rotation = patch.rotation;
+    }
+    return;
+  }
+  if (node.type === 'TEXT') {
+    const t = node;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      t.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height', 'fontSize', 'fontWeight'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (t as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    validateTextGeometry(t);
+    if ('characters' in patch) {
+      if (typeof patch.characters !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'characters must be string');
+      t.characters = patch.characters;
+    }
+    if ('styledSegments' in patch) {
+      t.styledSegments = parseStyledSegments(patch.styledSegments) ?? [];
+      validateStyledSegments(t.characters, t.styledSegments);
+    }
+    if ('fills' in patch) {
+      t.fills = validatePaintArray(patch.fills, 'fills');
+    }
+    if ('effects' in patch) {
+      t.effects = validateEffects(patch.effects, 'effects');
+    }
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      t.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      t.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      t.rotation = patch.rotation;
     }
     return;
   }
