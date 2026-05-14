@@ -1,0 +1,26 @@
+<!-- source: https://developers.figma.com/docs/rest-api/comments-types -->
+
+- REST API
+- Comments
+- Commenting types
+
+On this page
+
+Figma’s Commenting mode allows users to leave comments directly on layers or objects on the canvas. This is useful for collaboration when you want to suggest an adjustment, provide feedback, or critique a specific object or layout. You can use the Figma API to access a whole host of information about a comment, from when the comment was made and by whom, to its exact location on the canvas.
+
+## Commenting types[​](#commenting-types "Direct link to Commenting types")
+
+There are a number of different properties associated with a comment and comment reactions, that help to give us more context. The following contains all of the properties comments and their reactions will have:
+
+| Type | Properties |
+| --- | --- |
+| Comment[​](#comment-type "Direct link to Comment") A comment or reply left by a user. | `id`String  Unique identifier for comment.  `client_meta`[Vector](file-property-types.md#vector-type) | [FrameOffset](comments-property-types.md#frameoffset-type) | [Region](comments-property-types.md#region-type) | [FrameOffsetRegion](comments-property-types.md#frameoffsetregion-type)  Positioning information of the comment. Includes information on the location of the comment pin, which is either the absolute coordinates on the canvas or a relative offset within a frame. If the comment is a region, it will also contain the region height, width, and position of the anchor in regards to the region.  `file_key`String  The file in which the comment lives.  `parent_id`String  If present, the id of the comment to which this is the reply.  `user`[User](users-types.md#user-type)  The user who left the comment.  `created_at`String  The UTC ISO 8601 time at which the comment was left.  `resolved_at`String  If set, the UTC ISO 8601 time the comment was resolved.  `order_id`Number  Only set for top level comments. The number displayed with the comment in the UI.  `reactions`[Reaction](#reaction-type)[]  An array of reactions to the comment. |
+| Reaction[​](#reaction-type "Direct link to Reaction") A reaction left by a user. | `user`[User](users-types.md#user-type)  The user who left the reaction.  `emoji`String  The emoji type of reaction as shortcode (e.g. `:heart:`, `:+1::skin-tone-2:`). The list of accepted emoji shortcodes can be found in [this file](https://raw.githubusercontent.com/missive/emoji-mart/main/packages/emoji-mart-data/sets/14/native.json) under the top-level `emojis` and `aliases` fields, with optional skin tone modifiers when applicable.  `created_at`String  The UTC ISO 8601 time at which the reaction was left. |
+
+[Next
+
+Property types](comments-property-types.md)
+
+- [Commenting types](#commenting-types)
+  - [Comment](#comment-type)
+  - [Reaction](#reaction-type)

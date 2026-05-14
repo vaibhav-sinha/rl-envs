@@ -1,0 +1,40 @@
+<!-- source: https://developers.figma.com/docs/plugins/api/properties/figma-createframe -->
+
+- Plugins
+- [Global Objects](../global-objects.md)
+- [figma](../figma.md)
+- createFrame
+
+On this page
+
+Creates a new frame. The behavior is similar to using the `F` shortcut followed by a click.
+
+## Signature[​](#signature "Direct link to Signature")
+
+### [createFrame](figma-createframe.md)(): [FrameNode](../FrameNode.md)
+
+## Remarks[​](#remarks "Direct link to Remarks")
+
+By default, the new node has a white background, width and height both at 100, and is parented under `figma.currentPage`.
+
+Create a frame
+
+```
+const frame = figma.createFrame()  
+  
+// Move to (50, 50)  
+frame.x = 50  
+frame.y = 50  
+  
+// Set size to 1280 x 720  
+frame.resize(1280, 720)
+```
+
+[Previous
+
+createText](figma-createtext.md)[Next
+
+createAutoLayout](figma-createautolayout.md)
+
+- [Signature](#signature)
+- [Remarks](#remarks)

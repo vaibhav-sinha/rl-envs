@@ -1,0 +1,37 @@
+<!-- source: https://developers.figma.com/docs/plugins/api/properties/figma-createimage -->
+
+- Plugins
+- [Global Objects](../global-objects.md)
+- [figma](../figma.md)
+- createImage
+
+On this page
+
+Creates an `Image` object from the raw bytes of a file content. Note that `Image` objects **are not nodes**. They are handles to images stored by Figma. Frame backgrounds, or fills of shapes (e.g. a rectangle) may contain images.
+[Example: how to work with images](../../working-with-images.md).
+
+## Signature[​](#signature "Direct link to Signature")
+
+### [createImage](figma-createimage.md)(data: Uint8Array): [Image](../Image.md)
+
+## Remarks[​](#remarks "Direct link to Remarks")
+
+The `data` passed in must be encoded as a PNG, JPEG, or GIF. Images have a maximum size of 4096 pixels (4K) in width and height. Invalid images will throw an error.
+
+## Possible error cases[​](#possible-error-cases "Direct link to Possible error cases")
+
+`Image is too small`
+
+`Image is too large`
+
+`Image type is unsupported`
+
+[Previous
+
+loadFontAsync](figma-loadfontasync.md)[Next
+
+createImageAsync](figma-createimageasync.md)
+
+- [Signature](#signature)
+- [Remarks](#remarks)
+- [Possible error cases](#possible-error-cases)

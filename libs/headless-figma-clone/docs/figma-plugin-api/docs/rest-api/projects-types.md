@@ -1,0 +1,26 @@
+<!-- source: https://developers.figma.com/docs/rest-api/projects-types -->
+
+- REST API
+- Projects
+- Types
+
+On this page
+
+Projects are collections of files that belong to a user or, more commonly, a team. They can be accessed by collaborators and can be made up of multiple files.
+
+warning
+
+**IMPORTANT:** Figma does not permit companies to index or ingest Figma files that belong to other companies. Use these APIs only to access projects and files in your own Figma organization.
+
+## Types[​](#types "Direct link to Types")
+
+| Type | Properties |
+| --- | --- |
+| Project[​](#project-type "Direct link to Project") A Project can be identified by both the Project name, and the ProjectID. | `id`Number  The ID of the project.  `name`String  The name of the project. |
+
+[Next
+
+Endpoints](projects-endpoints.md)
+
+- [Types](#types)
+  - [Project](#project-type)
