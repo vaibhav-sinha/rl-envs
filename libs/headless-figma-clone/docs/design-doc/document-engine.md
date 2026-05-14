@@ -6,7 +6,7 @@
 
 The `DocumentEngine` class is the **only** module allowed to mutate `FileEnvelope`. It:
 
-1. Validates all incoming operations against the **current phase capability matrix**.
+1. Validates all incoming operations against the **engine capability matrix** (`ENGINE_MATRIX` in `phase-matrix.ts`).
 2. Allocates node IDs (`I{n}`) using `nextInternalId`.
 3. Applies mutations in a **transaction** (all-or-nothing).
 4. Invokes `PersistenceService.save` after successful commit.
@@ -33,13 +33,12 @@ export type EngineErrorCode =
   | 'UNKNOWN_NODE'
   | 'UNSUPPORTED_OPERATION'
   | 'UNSUPPORTED_PROPERTY'
-  | 'PHASE_LOCKED'
+  | 'NO_ACTIVE_FILE'
   | 'CONSTRAINT_VIOLATION';
 
 export class DocumentEngine {
   constructor(deps: {
     persistence: PersistenceService;
-    phase: 1 | 2 | 3 | 4 | 5;
     logger: Logger;
   });
 
@@ -74,26 +73,18 @@ export type EngineOperation =
 export type NewNodeSpec = Omit<BaseNode, 'id'> & { type: NodeType };
 ```
 
-**Rule:** `patch` keys **must** be whitelisted per node type and phase in `PHASE_MATRIX` (see below). Unknown keys → `UNSUPPORTED_PROPERTY`.
+**Rule:** `patch` keys **must** be whitelisted per node type in `ENGINE_MATRIX`. Unknown keys → `UNSUPPORTED_PROPERTY`.
 
-## Phase capability matrix (normative excerpt)
+## Capability matrix
 
-| Phase | Allowed `type` in `createNode` | Allowed patch top-level keys (representative) |
-|-------|-------------------------------|--------------------------------------------------|
-| 1 | `FRAME` under `PAGE` | `name`, `x`, `y`, `width`, `height`, `fills`, `strokes`, `strokeWeight` |
-| 2 | `FRAME`, `TEXT` | + frame `backgrounds`, `clipsContent`; text fields per [data model](./data-model.md); node `opacity`, `visible`, `rotation`, `effects` shadow types |
-| 3 | + `GROUP`, shapes… | + paints all kinds, stroke geometry, corners, `styledSegments` lists/OpenType, `upload_assets` not here (separate tool) |
-| 4 | + layout, VECTOR, BOOLEAN… | auto layout keys, masks, blur effects |
-| 5 | + COMPONENT*, TABLE… | variables, styles, instance props |
-
-The implementation **must** ship `phase-matrix.ts` exporting machine-readable rules consumed by tests.
+`phase-matrix.ts` exports `ENGINE_MATRIX`: allowed parent–child pairs for `createNode`, and allowed `updateNode` patch keys per node type. Roadmap phases in the implementation plan describe delivery order only; the running engine does not gate features by a runtime “phase” flag.
 
 ## Critical logic — transaction apply (pseudocode)
 
 ```text
 function applyTransaction(ops: EngineOperation[]):
   if activeFile is null:
-    return failure(PHASE_LOCKED, "no active file")
+    return failure(NO_ACTIVE_FILE, "no active file")
 
   working = deepClone(activeFile)           // full envelope clone (JSON round-trip acceptable Phase 1–2)
   touched = empty set
@@ -104,16 +95,16 @@ function applyTransaction(ops: EngineOperation[]):
       match op:
         case createNode:
           parent = findNode(working.document, op.parentId) or throw UNKNOWN_NODE
-          validateParentAllowsChild(parent.type, op.node.type, phase)
+          validateParentAllowsChild(parent.type, op.node.type)
           id = allocateId(working)
           node = normalizeNewNode(op.node, id)
-          validateNodeForPhase(node, phase)
+          validateNode(node)
           insertChild(parent, op.index, node)
           touched.add(id)
 
         case updateNode:
           node = findNode(working.document, op.nodeId) or throw UNKNOWN_NODE
-          patch = whitelistPatch(op.patch, node.type, phase)
+          patch = whitelistPatch(op.patch, node.type)
           validatePatch(node, patch)
           applyPatch(node, patch)   // fills/strokes: replace entire arrays when provided
           touched.add(node.id)
@@ -157,7 +148,7 @@ function allocateId():
 |-------|------------|
 | `width` or `height` < 0 | `CONSTRAINT_VIOLATION` |
 | Unknown `parentId` | `UNKNOWN_NODE` |
-| `FRAME` not under `PAGE` or `FRAME` in Phase 1 | `VALIDATION_ERROR` |
+| `FRAME` not under `PAGE` or `FRAME` | `VALIDATION_ERROR` |
 | `TEXT` with `end <= start` in any segment | `VALIDATION_ERROR` |
 | Excluded domain keys in patch (`pluginData`, …) | `VALIDATION_ERROR` |
 

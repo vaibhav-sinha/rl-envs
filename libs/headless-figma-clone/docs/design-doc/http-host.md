@@ -10,7 +10,7 @@
 
 | Method | Path | Auth | Body | Response |
 |--------|------|------|------|----------|
-| GET | `/health` | none | — | `200 application/json` `{"status":"ok","version":"<semver>","phase":<1-5>}` |
+| GET | `/health` | none | — | `200 application/json` `{"status":"ok","version":"<semver>"}` |
 | POST | `/mcp` | none (local) | Streamable HTTP per SDK | per SDK |
 | POST | `/debug/load-file` | requires `HFC_ALLOW_DEBUG=1` | `{ "path": "<abs>" }` | `200` `{ "fileKey","filePath" }` or `4xx` error JSON |
 

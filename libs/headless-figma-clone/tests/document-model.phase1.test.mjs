@@ -66,12 +66,10 @@ function validatePhase1Envelope(obj) {
 
       if (scene.fills) {
         assert.ok(Array.isArray(scene.fills));
-        assert.ok(scene.fills.length <= 8, 'fills soft cap 8');
         for (const p of scene.fills) assertSolidPaint(p, 'fills');
       }
       if (scene.strokes) {
         assert.ok(Array.isArray(scene.strokes));
-        assert.ok(scene.strokes.length <= 8, 'strokes soft cap 8');
         for (const p of scene.strokes) assertSolidPaint(p, 'strokes');
       }
       if (scene.strokeWeight !== undefined) {

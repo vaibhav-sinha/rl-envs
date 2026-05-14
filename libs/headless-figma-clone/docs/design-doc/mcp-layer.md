@@ -15,7 +15,6 @@ export function createMcpServer(deps: {
   engine: DocumentEngine;
   compiler: DesignCompiler;
   screenshots: PlaywrightScreenshotService;
-  phase: 1 | 2 | 3 | 4 | 5;
   logger: Logger;
 }): McpServer;
 ```
