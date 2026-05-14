@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "fileName": "Phase1-Minimal",
+  "nextInternalId": 4,
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Hero",
+            "x": 10,
+            "y": 20,
+            "width": 120,
+            "height": 80,
+            "children": [],
+            "fills": [
+              {
+                "type": "SOLID",
+                "color": { "r": 0.2, "g": 0.4, "b": 0.9 }
+              }
+            ],
+            "strokes": [
+              {
+                "type": "SOLID",
+                "color": { "r": 0, "g": 0, "b": 0 }
+              }
+            ],
+            "strokeWeight": 2
+          }
+        ]
+      }
+    ]
+  }
+}
