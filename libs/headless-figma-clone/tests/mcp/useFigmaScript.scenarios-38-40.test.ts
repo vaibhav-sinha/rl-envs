@@ -52,6 +52,12 @@ return { pathId: path.id, textOnPath: text.textOnPath };
       pathId: data.pathId,
       startOffset: 0,
     });
+    if (textOp?.op === 'createNode' && textOp.node.type === 'TEXT') {
+      expect(textOp.node.x).toBe(0);
+      expect(textOp.node.y).toBe(0);
+      expect(textOp.node.width).toBe(80);
+      expect(textOp.node.height).toBe(10);
+    }
   });
 
   it('transformGroup requires modifiers (Figma parity)', async () => {

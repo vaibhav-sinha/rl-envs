@@ -85,6 +85,9 @@ export type Paint = SolidPaint | GradientPaint | ImagePaint | PatternPaint | Var
 /** Figma parity: `createFrame()` / `createAutoLayout()` default to a white fill when fills are omitted. */
 export const DEFAULT_FRAME_FILLS: Paint[] = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
 
+/** Figma default solid fill for new shapes and boolean nodes without an explicit fill (#D9D9D9). */
+export const DEFAULT_SHAPE_FILLS: Paint[] = [{ type: 'SOLID', color: { r: 0.851, g: 0.851, b: 0.851 } }];
+
 export interface VariableMode {
   id: string;
   name: string;
@@ -355,6 +358,10 @@ export interface RectangleNode extends NodeBase, LayoutSelfFields {
   miterLimit?: number;
   dashPattern?: number[];
   cornerRadius?: number;
+  topLeftRadius?: number;
+  topRightRadius?: number;
+  bottomRightRadius?: number;
+  bottomLeftRadius?: number;
   effects?: Effect[];
   /** References {@link FileEnvelope.paintStyles} id (first paint merged as fill when node fills absent). */
   fillStyleId?: string;
