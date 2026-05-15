@@ -9,6 +9,7 @@ import {
   type NewNodeSpec,
 } from '../engine/DocumentEngine.js';
 import { boundsOfNodes, queueFlattenNodes, queueGroupNodes, queueUngroup } from '../engine/graphOps.js';
+import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
 import { hasMissingFont, listAvailableFonts, loadFontAsync } from '../fonts/fontCatalog.js';
 import { createNodeSpecFromSvg } from '../images/svgImport.js';
 import { fetchBytes, loadNetworkPolicyFromEnv } from '../images/networkPolicy.js';
@@ -652,6 +653,10 @@ class RuntimeRectangle extends RuntimeSceneNode {
   miterLimit?: number;
   dashPattern?: number[];
   cornerRadius?: number;
+  topLeftRadius?: number;
+  topRightRadius?: number;
+  bottomRightRadius?: number;
+  bottomLeftRadius?: number;
   fillStyleId?: string;
 
   toNewNodeSpec(): NewNodeSpec {
@@ -671,6 +676,10 @@ class RuntimeRectangle extends RuntimeSceneNode {
       miterLimit: this.miterLimit,
       dashPattern: this.dashPattern,
       cornerRadius: this.cornerRadius,
+      topLeftRadius: this.topLeftRadius,
+      topRightRadius: this.topRightRadius,
+      bottomRightRadius: this.bottomRightRadius,
+      bottomLeftRadius: this.bottomLeftRadius,
       effects: this.effects,
       visible: this.visible,
       opacity: this.opacity,
@@ -1234,9 +1243,6 @@ function figmaBooleanCombine(
     operands.push(live as SceneNode);
   }
   const box = boundsOfNodes(operands);
-  const minuend = operands[0];
-  const minuendFills =
-    minuend && 'fills' in minuend ? (minuend as { fills?: Paint[] }).fills : undefined;
   const createOp: EngineOperation = {
     op: 'createNode',
     parentId,
@@ -1249,7 +1255,6 @@ function figmaBooleanCombine(
       y: box.y,
       width: box.width,
       height: box.height,
-      fills: minuendFills,
     },
   };
   ctx.ops.push(createOp);
@@ -1700,8 +1705,17 @@ export async function runUseFigmaScript(
       t.name = 'Text Path';
       t.x = live.x;
       t.y = live.y;
-      t.width = live.width;
-      t.height = live.height;
+      t.x = live.x;
+      t.y = live.y;
+      const pathData = live.vectorPaths?.[0]?.data;
+      if (pathData) {
+        const norm = normalizePathDataToOrigin(pathData);
+        t.width = norm.width;
+        t.height = norm.height;
+      } else {
+        t.width = live.width;
+        t.height = live.height;
+      }
       t.textOnPath = { pathId, startOffset: startPosition };
       return wrapRuntimeNode(t, ctx);
     },

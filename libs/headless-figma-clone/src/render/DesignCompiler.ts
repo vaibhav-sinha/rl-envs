@@ -1,3 +1,5 @@
+import { computeBooleanPathData, rectCornerRadii, resolveBooleanDisplayFill } from './booleanPaths.js';
+import { ellipseArcPathD, ellipsePathD, isPlainFullEllipse } from './shapePaths.js';
 import { linearGradientCss, radialGradientCss, svgLinearGradientEndpoints, svgRadialGradientAttrs } from './gradientCss.js';
 import {
   buildPatternTileSvgDataUrl,
@@ -7,6 +9,7 @@ import {
   patternRepeatCellSize,
 } from './patternTiles.js';
 import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
+import { svgViewportForPathData } from './vectorPathBounds.js';
 import { fontFamilyCss } from '../fonts/fontCatalog.js';
 import {
   buildRootCssVariableBlock,
@@ -671,36 +674,9 @@ function operandPathD(op: SceneNode): string {
   if (op.type === 'POLYGON') return polygonPointsD(op.pointCount, op.width, op.height);
   if (op.type === 'STAR') return starPathD(op.pointCount, op.innerRadius, op.width, op.height);
   if (op.type === 'ELLIPSE') {
-    const w = op.width;
-    const h = op.height;
-    return `M${String(w / 2)},0 A${String(w / 2)},${String(h / 2)} 0 1,1 ${String(w / 2)},${String(h)} A${String(w / 2)},${String(h / 2)} 0 1,1 ${String(w / 2)},0 Z`;
+    return ellipsePathD(op.width, op.height, op.arcData);
   }
   return 'M0,0';
-}
-
-function subtractMaskRect(r: RectangleNode, fill: 'white' | 'black'): string {
-  return `<rect x="${String(r.x)}" y="${String(r.y)}" width="${String(r.width)}" height="${String(r.height)}" fill="${fill}"/>`;
-}
-
-function subtractMaskEllipse(e: EllipseNode, fill: 'white' | 'black'): string {
-  const cx = e.x + e.width / 2;
-  const cy = e.y + e.height / 2;
-  return `<ellipse cx="${String(cx)}" cy="${String(cy)}" rx="${String(e.width / 2)}" ry="${String(e.height / 2)}" fill="${fill}"/>`;
-}
-
-function emitSubtractMaskSvg(
-  b: BooleanOperationNode,
-  w: number,
-  h: number,
-  fillAttr: string,
-  outerMask: string,
-  innerMask: string,
-  htmlParts: string[]
-): void {
-  const mid = `hfc-bool-sub-${b.id}`;
-  htmlParts.push(
-    `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="0" y="0" width="${String(w)}" height="${String(h)}">${outerMask}${innerMask}</mask></defs><rect x="0" y="0" width="${String(w)}" height="${String(h)}" ${fillAttr} mask="url(#${mid})"/></svg>`
-  );
 }
 
 function emitBooleanOperation(
@@ -717,12 +693,9 @@ function emitBooleanOperation(
 ): void {
   const w = b.width;
   const h = b.height;
-  const firstOperand = b.children[0];
-  const operandFill =
-    firstOperand && 'fills' in firstOperand ? firstOperand.fills?.[0] : undefined;
-  const fill = b.fills?.[0] ?? operandFill;
+  const fill = resolveBooleanDisplayFill(b);
   const fillAttr =
-    fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)
+    fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)
       ? `fill="${escapeAttr(rgbaFromSolid(fill))}"`
       : 'fill="rgba(0,100,200,0.85)"';
   const shadow = dropShadowCss(b.effects);
@@ -732,35 +705,19 @@ function emitBooleanOperation(
   htmlParts.push(`<div class="hfc-node-${b.id}" data-hfc-id="${b.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`.hfc-node-${b.id}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
 
-  const a0 = b.children[0];
-  const a1 = b.children[1];
-  if (b.booleanOperation === 'SUBTRACT' && b.children.length === 2) {
-    if (a0?.type === 'RECTANGLE' && a1?.type === 'RECTANGLE') {
-      emitSubtractMaskSvg(
-        b,
-        w,
-        h,
-        fillAttr,
-        subtractMaskRect(a0, 'white'),
-        subtractMaskRect(a1, 'black'),
-        htmlParts
-      );
-      htmlParts.push('</div>');
-      return;
-    }
-    if (a0?.type === 'RECTANGLE' && a1?.type === 'ELLIPSE') {
-      emitSubtractMaskSvg(
-        b,
-        w,
-        h,
-        fillAttr,
-        subtractMaskRect(a0, 'white'),
-        subtractMaskEllipse(a1, 'black'),
-        htmlParts
-      );
-      htmlParts.push('</div>');
-      return;
-    }
+  const boolPaths = computeBooleanPathData(b);
+  if (!boolPaths.failed && boolPaths.pathData.length > 0) {
+    const pathHtml = boolPaths.pathData
+      .map((d) => `<path d="${escapeAttr(d)}" ${fillAttr} fill-rule="nonzero"/>`)
+      .join('');
+    htmlParts.push(
+      `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${pathHtml}</svg></div>`
+    );
+    return;
+  }
+
+  if (boolPaths.failed) {
+    warnings.push(`boolean_op_failed:${b.id}:${b.booleanOperation}`);
   }
 
   const chunks = b.children
@@ -772,9 +729,7 @@ function emitBooleanOperation(
   htmlParts.push(
     `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${chunks}</svg></div>`
   );
-  if (b.booleanOperation === 'INTERSECT' || b.booleanOperation === 'EXCLUDE') {
-    warnings.push(`boolean_op_simplified:${b.id}:${b.booleanOperation}`);
-  }
+  warnings.push(`boolean_op_fallback:${b.id}:${b.booleanOperation}`);
 }
 
 function emitVector(
@@ -789,8 +744,11 @@ function emitVector(
   _warnings: string[],
   insideFlex: boolean
 ): void {
-  const w = v.width;
-  const h = v.height;
+  const pathData = v.vectorPaths[0]?.data;
+  const vp = pathData ? svgViewportForPathData(pathData) : null;
+  const w = vp?.width ?? v.width;
+  const h = vp?.height ?? v.height;
+  const viewBox = vp?.viewBox ?? `0 0 ${String(w)} ${String(h)}`;
   const fill = v.fills?.[0];
   let fillAttr = 'fill="transparent"';
   if (fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)) {
@@ -834,7 +792,7 @@ function emitVector(
     )
     .join('');
   htmlParts.push(
-    `<svg class="hfc-vector-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}${pathHtml}</svg></div>`
+    `<svg class="hfc-vector-svg" viewBox="${viewBox}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}${pathHtml}</svg></div>`
   );
 }
 
@@ -1031,19 +989,24 @@ function emitScene(
       const vp = pathNode?.type === 'VECTOR' ? pathNode.vectorPaths?.[0] : undefined;
       if (vp?.data) {
         const shadow = dropShadowCss(t.effects);
+        const vpBox = svgViewportForPathData(vp.data);
+        const w = Math.max(t.width, vpBox.width);
+        const h = Math.max(t.height, vpBox.height);
+        const startOff = t.textOnPath.startOffset ?? 0;
         const pos = insideFlex
-          ? `position:relative;left:0;top:0;width:${String(t.width)}px;height:${String(t.height)}px;flex:${String(t.layoutGrow ?? 0)} 1 auto;min-width:0;`
-          : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
+          ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(t.layoutGrow ?? 0)} 1 auto;min-width:0;overflow:visible;`
+          : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;overflow:visible;`;
         const base = effectiveTextBase(t, env);
         const pid = `hfc-tp-${t.id}`;
         const fsAttr = fontSizeForSvgText(env, t, base.fontSize);
         const fw = base.fontWeight;
+        const ff = escapeAttr(t.fontName?.family ?? 'Inter');
         const col = paintColorCss(base.fills?.[0], env, '#000', warnings, `textpath:${t.id}`);
         const tpText = effectiveTextCharacters(t, env);
         htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
         cssParts.push(`.hfc-node-${t.id}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
         htmlParts.push(
-          `<svg class="hfc-textpath-svg" viewBox="0 0 ${String(t.width)} ${String(t.height)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><path id="${pid}" d="${escapeAttr(vp.data)}"/></defs><text font-size="${fsAttr}" font-weight="${String(fw)}" fill="${escapeAttr(col)}"><textPath href="#${pid}">${escapeHtmlText(tpText)}</textPath></text></svg></div>`
+          `<svg class="hfc-textpath-svg" viewBox="${vpBox.viewBox}" width="100%" height="100%" overflow="visible" xmlns="http://www.w3.org/2000/svg"><defs><path id="${pid}" d="${escapeAttr(vp.data)}"/></defs><text font-family="${ff}" font-size="${fsAttr}" font-weight="${String(fw)}" fill="${escapeAttr(col)}"><textPath href="#${pid}" startOffset="${String(startOff)}">${escapeHtmlText(tpText)}</textPath></text></svg></div>`
         );
         return;
       }
@@ -1150,7 +1113,11 @@ function emitScene(
   }
 
   if (n.type === 'VECTOR') {
-    emitVector(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    const isTextPathGuide =
+      parentChildren?.some((p) => p.type === 'TEXT' && p.textOnPath?.pathId === n.id) ?? false;
+    if (!isTextPathGuide) {
+      emitVector(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    }
     return;
   }
 
@@ -1520,7 +1487,13 @@ function emitRectangle(
     stroke && stroke.type === 'SOLID' && sw > 0 && !(r.dashPattern && r.dashPattern.length)
       ? `${String(sw)}px solid ${rgbaFromSolid(stroke)}`
       : 'none';
-  const radius = r.cornerRadius !== undefined ? `border-radius:${String(r.cornerRadius)}px;` : '';
+  const [tl, tr, br, bl] = rectCornerRadii(r);
+  const radius =
+    tl > 0 || tr > 0 || br > 0 || bl > 0
+      ? tl === tr && tr === br && br === bl
+        ? `border-radius:${String(tl)}px;`
+        : `border-radius:${String(tl)}px ${String(tr)}px ${String(br)}px ${String(bl)}px;`
+      : '';
   const pos = insideFlex
     ? sceneChildPos(r, insideFlex, absX, absY, parentFrame)
     : r.constraints && parentFrame
@@ -1554,6 +1527,24 @@ function emitEllipse(
   env: FileEnvelope,
   parentFrame?: FrameNode
 ): void {
+  if (e.arcData && !isPlainFullEllipse(e.arcData)) {
+    emitEllipseArcSvg(
+      e,
+      absX,
+      absY,
+      zIndex,
+      opRot,
+      htmlParts,
+      cssParts,
+      imgMap,
+      patternTiles,
+      warnings,
+      insideFlex,
+      env,
+      parentFrame
+    );
+    return;
+  }
   const shadow = dropShadowCss(e.effects);
   const fillCss = fillBackgroundStyles(e.fills?.[0], imgMap, patternTiles, warnings, `ellipse:${e.id}`, env);
   const pos = insideFlex
@@ -1571,6 +1562,75 @@ function emitEllipse(
     );
   }
   htmlParts.push('</div>');
+}
+
+function emitEllipseArcSvg(
+  e: EllipseNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  imgMap: Record<string, string>,
+  _patternTiles: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean,
+  _env: FileEnvelope,
+  parentFrame?: FrameNode
+): void {
+  const w = e.width;
+  const h = e.height;
+  const d = ellipseArcPathD(w, h, e.arcData!);
+  const fill = e.fills?.[0];
+  let fillAttr = 'fill="transparent"';
+  if (fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)) {
+    fillAttr = `fill="${escapeAttr(rgbaFromSolid(fill))}"`;
+  } else if (fill && (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL')) {
+    fillAttr = `fill="url(#grad-${e.id})"`;
+  } else if (fill?.type === 'IMAGE') {
+    fillAttr = `fill="url(#img-${e.id})"`;
+  }
+  const shadow = dropShadowCss(e.effects);
+  const pos = insideFlex
+    ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
+  htmlParts.push(`<div class="hfc-node-${e.id}" data-hfc-id="${e.id}" style="z-index:${String(zIndex)}">`);
+  cssParts.push(`.hfc-node-${e.id}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
+  let defs = '';
+  if (fill?.type === 'GRADIENT_LINEAR') {
+    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
+    defs += `<linearGradient id="grad-${e.id}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
+    for (const s of fill.gradientStops) {
+      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
+    }
+    defs += `</linearGradient>`;
+  } else if (fill?.type === 'GRADIENT_RADIAL') {
+    const ra = svgRadialGradientAttrs(fill);
+    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
+    defs += `<radialGradient id="grad-${e.id}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
+    for (const s of fill.gradientStops) {
+      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
+    }
+    defs += `</radialGradient>`;
+  }
+  if (fill?.type === 'IMAGE') {
+    const url = imgMap[fill.imageHash];
+    if (url) {
+      defs += `<pattern id="img-${e.id}" patternUnits="userSpaceOnUse" width="${String(w)}" height="${String(h)}"><image href="${escapeAttr(url)}" width="${String(w)}" height="${String(h)}" preserveAspectRatio="xMidYMid slice"/></pattern>`;
+    } else {
+      warnings.push(`missing_image_data_url:ellipse:${fill.imageHash}`);
+    }
+  }
+  const sw = e.strokeWeight ?? 0;
+  const sp = e.strokes?.[0];
+  const strokePart =
+    sp && sp.type === 'SOLID' && sw > 0
+      ? ` ${svgStrokeAttrs({ strokes: e.strokes, strokeWeight: sw, strokeCap: e.strokeCap, strokeJoin: e.strokeJoin })}${dashArrayAttr(e)}`
+      : '';
+  htmlParts.push(
+    `<svg class="hfc-shape-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}<path d="${escapeAttr(d)}" ${fillAttr}${strokePart}/></svg></div>`
+  );
 }
 
 /** SVG layout for LINE: bake rotation into endpoints; pad viewBox for stroke caps. */

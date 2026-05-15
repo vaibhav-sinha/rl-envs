@@ -39,6 +39,7 @@ import type { Logger } from '../util/logger.js';
 import type { EngineErrorCode } from '../util/errors.js';
 import { ValidationErr } from '../util/errors.js';
 import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } from './envelopeOps.js';
+import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
 import { normalizeLayoutGrids } from './figmaInterop.js';
 import { ENGINE_MATRIX, sceneShapeTypes } from './phase-matrix.js';
 import {
@@ -544,6 +545,10 @@ function normalizeNewRectangle(spec: Extract<NewNodeSpec, { type: 'RECTANGLE' }>
     miterLimit: spec.miterLimit,
     dashPattern: spec.dashPattern,
     cornerRadius: spec.cornerRadius,
+    topLeftRadius: spec.topLeftRadius,
+    topRightRadius: spec.topRightRadius,
+    bottomRightRadius: spec.bottomRightRadius,
+    bottomLeftRadius: spec.bottomLeftRadius,
     effects: spec.effects,
     visible: spec.visible,
     opacity: spec.opacity,
@@ -558,8 +563,11 @@ function normalizeNewRectangle(spec: Extract<NewNodeSpec, { type: 'RECTANGLE' }>
   if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
     throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
   }
-  if (n.cornerRadius !== undefined && (typeof n.cornerRadius !== 'number' || n.cornerRadius < 0)) {
-    throw new ValidationErr('VALIDATION_ERROR', 'cornerRadius must be number >= 0');
+  for (const key of ['cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomRightRadius', 'bottomLeftRadius'] as const) {
+    const v = n[key];
+    if (v !== undefined && (typeof v !== 'number' || v < 0)) {
+      throw new ValidationErr('VALIDATION_ERROR', `${key} must be number >= 0`);
+    }
   }
   if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
     throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
@@ -791,15 +799,22 @@ function normalizeNewVector(spec: Extract<NewNodeSpec, { type: 'VECTOR' }>, id: 
       throw new ValidationErr('VALIDATION_ERROR', `vectorPaths[${String(i)}].data must be non-empty string`);
     }
   }
+  const firstPath = vps[0] as { windingRule: string; data: string };
+  const normalized = normalizePathDataToOrigin(firstPath.data);
   const n: VectorNode = {
     id,
     type: 'VECTOR',
     name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Vector',
     x: typeof spec.x === 'number' ? spec.x : 0,
     y: typeof spec.y === 'number' ? spec.y : 0,
-    width: typeof spec.width === 'number' ? spec.width : 100,
-    height: typeof spec.height === 'number' ? spec.height : 100,
-    vectorPaths: vps as VectorNode['vectorPaths'],
+    width: normalized.width,
+    height: normalized.height,
+    vectorPaths: [
+      {
+        windingRule: firstPath.windingRule === 'EVENODD' ? 'EVENODD' : 'NONZERO',
+        data: normalized.data,
+      },
+    ],
     fills: spec.fills,
     strokes: spec.strokes,
     strokeWeight: spec.strokeWeight,
@@ -2182,7 +2197,18 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
       r.name = patch.name;
     }
-    for (const g of ['x', 'y', 'width', 'height', 'strokeWeight', 'cornerRadius'] as const) {
+    for (const g of [
+      'x',
+      'y',
+      'width',
+      'height',
+      'strokeWeight',
+      'cornerRadius',
+      'topLeftRadius',
+      'topRightRadius',
+      'bottomRightRadius',
+      'bottomLeftRadius',
+    ] as const) {
       if (g in patch) {
         const v = patch[g];
         if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
@@ -2440,7 +2466,16 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
           throw new ValidationErr('VALIDATION_ERROR', `vectorPaths[${String(i)}].data must be non-empty string`);
         }
       }
-      v.vectorPaths = arr as VectorNode['vectorPaths'];
+      const first = arr[0] as { windingRule: string; data: string };
+      const normalized = normalizePathDataToOrigin(first.data);
+      v.vectorPaths = [
+        {
+          windingRule: first.windingRule === 'EVENODD' ? 'EVENODD' : 'NONZERO',
+          data: normalized.data,
+        },
+      ];
+      v.width = normalized.width;
+      v.height = normalized.height;
     }
     validateShapeBox(v);
     if ('fills' in patch) v.fills = validatePaintArray(patch.fills, 'fills', env);

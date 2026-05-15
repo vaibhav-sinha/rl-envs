@@ -32,7 +32,7 @@ function findBooleanUnderFrame(envelope: FileEnvelope): BooleanOperationNode | n
 }
 
 describe('boolean SUBTRACT (two rectangles)', () => {
-  it('emits SVG mask for rectangle pair', () => {
+  it('emits computed SVG path for rectangle pair', () => {
     const env = JSON.parse(
       readFileSync(join(__dirname, '../fixtures/phase4-nav-grid-mask.json'), 'utf8')
     ) as FileEnvelope;
@@ -41,9 +41,9 @@ describe('boolean SUBTRACT (two rectangles)', () => {
       rootNodeId: 'I3',
       options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
     });
-    expect(out.html).toContain('hfc-bool-sub-I10');
-    expect(out.html).toContain('<mask id="hfc-bool-sub-I10"');
-    expect(out.html).toContain('mask="url(#hfc-bool-sub-I10)"');
+    expect(out.html).toContain('hfc-boolean-svg');
+    expect(out.html).toContain('<path d=');
+    expect(out.html).not.toContain('boolean_op_fallback');
   });
 });
 
@@ -68,20 +68,16 @@ describe('boolean SUBTRACT (rectangle + ellipse)', () => {
     expect(subtractNode.booleanOperation).toBe('SUBTRACT');
     expect(subtractNode.children[0]?.type).toBe('RECTANGLE');
     expect(subtractNode.children[1]?.type).toBe('ELLIPSE');
-    expect(subtractNode.fills?.[0]?.type).toBe('SOLID');
+    expect(subtractNode.fills).toBeUndefined();
 
     const out = designCompiler.compileSubtree({
       envelope: env,
       rootNodeId: (run.result as { rootId: string }).rootId,
       options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
     });
-    const maskId = `hfc-bool-sub-${subtractNode.id}`;
-    expect(out.html).toContain(maskId);
-    expect(out.html).toContain(`<mask id="${maskId}"`);
-    expect(out.html).toContain('fill="black"');
-    expect(out.html).toMatch(/<ellipse[^>]+fill="black"/);
-    expect(out.html).not.toMatch(
-      /<g transform="translate\([^)]+\)"><path d="M\d+,0 A/
-    );
+    expect(out.html).toContain('hfc-boolean-svg');
+    expect(out.html).toContain('<path d=');
+    expect(out.html).not.toContain('boolean_op_fallback');
+    expect(out.warnings.filter((w) => w.startsWith('boolean_op_'))).toHaveLength(0);
   });
 });
