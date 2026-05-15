@@ -366,12 +366,13 @@
       ]
     },
     {
-      "id": "40-table",
-      "title": "Table",
+      "id": "40-arc-ellipse",
+      "title": "Arc ellipse",
       "order": 40,
       "tier": "foundational",
       "tags": [
-        "table"
+        "arc",
+        "ellipse"
       ]
     },
     {
@@ -929,7 +930,8 @@
         "composite",
         "table",
         "variables"
-      ]
+      ],
+      "figjamOnly": true
     },
     {
       "id": "100-mega-ui-screen",

@@ -26,7 +26,7 @@ const a = figma.createRectangle();
 a.resize(40, 40);
 a.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.2, b: 0.2 } }];
 root.appendChild(a);
-const tg = figma.transformGroup([content, mask, a], root);
+const tg = figma.transformGroup([content, mask, a], root, 0, []);
 tg.x = 150;
 tg.y = 110;
 tg.rotation = 15;

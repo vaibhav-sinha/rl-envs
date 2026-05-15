@@ -21,7 +21,7 @@ b.x = 40;
 b.y = 40;
 b.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.7, b: 0.3 } }];
 root.appendChild(b);
-const tg = figma.transformGroup([a, b], root);
+const tg = figma.transformGroup([a, b], root, 0, []);
 tg.x = 180;
 tg.y = 120;
 tg.rotation = 20;
