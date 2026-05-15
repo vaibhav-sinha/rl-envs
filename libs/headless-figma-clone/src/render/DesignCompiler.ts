@@ -1,3 +1,4 @@
+import { linearGradientCss, radialGradientCss, svgLinearGradientEndpoints, svgRadialGradientAttrs } from './gradientCss.js';
 import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
 import { fontFamilyCss } from '../fonts/fontCatalog.js';
 import {
@@ -21,7 +22,6 @@ import type {
   DocumentNode,
   FrameNode,
   PageNode,
-  GradientPaint,
   LineNode,
   Paint,
   PolygonNode,
@@ -333,18 +333,6 @@ function overflowClipCss(clips: boolean | undefined): string {
   return clips ? 'overflow:hidden;' : '';
 }
 
-function linearGradientCss(g: GradientPaint): string {
-  const stops = [...g.gradientStops].sort((a, b) => a.position - b.position);
-  const parts = stops.map((s) => `${rgbaFromRgba(s.color)} ${String(Math.round(s.position * 100))}%`);
-  return `linear-gradient(90deg,${parts.join(',')})`;
-}
-
-function radialGradientCss(g: GradientPaint): string {
-  const stops = [...g.gradientStops].sort((a, b) => a.position - b.position);
-  const parts = stops.map((s) => `${rgbaFromRgba(s.color)} ${String(Math.round(s.position * 100))}%`);
-  return `radial-gradient(circle at center,${parts.join(',')})`;
-}
-
 function fillBackgroundStyles(
   fill: Paint | undefined,
   imgMap: Record<string, string>,
@@ -650,11 +638,20 @@ function emitVector(
   cssParts.push(`.hfc-node-${v.id}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
   let defs = '';
   if (fill?.type === 'GRADIENT_LINEAR') {
-    defs += `<linearGradient id="grad-${v.id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${String(w)}" y2="0">`;
+    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
+    defs += `<linearGradient id="grad-${v.id}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
     for (const s of fill.gradientStops) {
       defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
     }
     defs += `</linearGradient>`;
+  } else if (fill?.type === 'GRADIENT_RADIAL') {
+    const ra = svgRadialGradientAttrs(fill);
+    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
+    defs += `<radialGradient id="grad-${v.id}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
+    for (const s of fill.gradientStops) {
+      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
+    }
+    defs += `</radialGradient>`;
   }
   const pathHtml = v.vectorPaths
     .map((p) => `<path d="${escapeAttr(p.data)}" fill-rule="${p.windingRule.toLowerCase()}" ${fillAttr}/>`)
@@ -1435,13 +1432,16 @@ function emitPolygon(
   cssParts.push(`.hfc-node-${p.id}{${pos}${opRot}${shadow}}`);
   let defs = '';
   if (fill?.type === 'GRADIENT_LINEAR') {
-    defs += `<linearGradient id="grad-${p.id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${String(w)}" y2="0">`;
+    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
+    defs += `<linearGradient id="grad-${p.id}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
     for (const s of fill.gradientStops) {
       defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
     }
     defs += `</linearGradient>`;
   } else if (fill?.type === 'GRADIENT_RADIAL') {
-    defs += `<radialGradient id="grad-${p.id}" gradientUnits="userSpaceOnUse" cx="50%" cy="50%" r="50%">`;
+    const ra = svgRadialGradientAttrs(fill);
+    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
+    defs += `<radialGradient id="grad-${p.id}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
     for (const s of fill.gradientStops) {
       defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
     }
@@ -1498,13 +1498,16 @@ function emitStar(
   cssParts.push(`.hfc-node-${s.id}{${pos}${opRot}${shadow}}`);
   let defs = '';
   if (fill?.type === 'GRADIENT_LINEAR') {
-    defs += `<linearGradient id="grad-${s.id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${String(w)}" y2="0">`;
+    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
+    defs += `<linearGradient id="grad-${s.id}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
     for (const st of fill.gradientStops) {
       defs += `<stop offset="${String(st.position)}" stop-color="${escapeAttr(rgbaFromRgba(st.color))}"/>`;
     }
     defs += `</linearGradient>`;
   } else if (fill?.type === 'GRADIENT_RADIAL') {
-    defs += `<radialGradient id="grad-${s.id}" gradientUnits="userSpaceOnUse" cx="50%" cy="50%" r="50%">`;
+    const ra = svgRadialGradientAttrs(fill);
+    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
+    defs += `<radialGradient id="grad-${s.id}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
     for (const st of fill.gradientStops) {
       defs += `<stop offset="${String(st.position)}" stop-color="${escapeAttr(rgbaFromRgba(st.color))}"/>`;
     }
