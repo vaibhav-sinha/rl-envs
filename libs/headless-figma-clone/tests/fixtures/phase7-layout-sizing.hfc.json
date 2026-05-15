@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "fileKey": "phase7-layout",
   "fileName": "phase7-layout",
-  "nextInternalId": 53,
+  "nextInternalId": 65,
   "document": {
     "id": "I1",
     "type": "DOCUMENT",
@@ -482,6 +482,146 @@
               },
               {
                 "id": "I52",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          },
+          {
+            "id": "I53",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I54",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I55",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          },
+          {
+            "id": "I56",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I57",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I58",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          },
+          {
+            "id": "I59",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I60",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I61",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          },
+          {
+            "id": "I62",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I63",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I64",
                 "type": "RECTANGLE",
                 "name": "Hug",
                 "x": 0,

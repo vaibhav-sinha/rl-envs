@@ -1,4 +1,3 @@
-import { applyCompileOnlyAutoLayout } from '../layout/autoLayoutPass.js';
 import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
 import { fontFamilyCss } from '../fonts/fontCatalog.js';
 import {
@@ -1547,7 +1546,6 @@ export const designCompiler: DesignCompiler = {
       throw new Error(`compileSubtree: unknown scene node id ${rootNodeId}`);
     }
     const env = structuredClone(envelope);
-    applyCompileOnlyAutoLayout(env);
     const rootCloned = findSceneNode(env, rootNodeId);
     if (!rootCloned) {
       throw new Error(`compileSubtree: unknown scene node id ${rootNodeId} after clone`);
@@ -1557,7 +1555,6 @@ export const designCompiler: DesignCompiler = {
 
   compileFirstPage({ envelope, options }): CompiledDesign {
     const env = structuredClone(envelope);
-    applyCompileOnlyAutoLayout(env);
     const page = env.document.children[0];
     if (!page || page.children.length === 0) {
       throw new Error('compileFirstPage: no scene nodes on first page');

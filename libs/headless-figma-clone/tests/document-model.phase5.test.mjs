@@ -15,9 +15,25 @@ function readFixture(name) {
 }
 
 const NODE_ID = /^I[0-9]+$/;
+const COMPONENT_ID = /^(I[0-9]+|COMP[0-9]+)$/;
 
 function walkScene(scene, depth = 0) {
   assert.ok(depth < 200, 'depth guard');
+  if (scene.type === 'COMPONENT') {
+    assert.ok(COMPONENT_ID.test(scene.id));
+    assert.equal(typeof scene.rootFrameId, 'string');
+    assert.ok(NODE_ID.test(scene.rootFrameId));
+    return;
+  }
+  if (scene.type === 'COMPONENT_SET') {
+    assert.ok(COMPONENT_ID.test(scene.id) || NODE_ID.test(scene.id));
+    return;
+  }
+  if (scene.type === 'INSTANCE') {
+    assert.ok(NODE_ID.test(scene.id));
+    assert.equal(typeof scene.mainComponentId, 'string');
+    return;
+  }
   assert.ok(NODE_ID.test(scene.id));
   assert.equal(typeof scene.name, 'string');
   for (const g of ['x', 'y', 'width', 'height']) {
