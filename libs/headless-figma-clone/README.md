@@ -1,6 +1,27 @@
 # headless-figma-clone
 
-Phase 1 headless document service with an MCP server (HTTP or stdio).
+Local-first **Figma Design–shaped** document service: persisted **`.hfc.json`** trees, **MCP** tools (`create_new_file`, `open_file`, `use_figma`, `get_metadata`, `get_design_context`, `get_screenshot`, …), and a **Plugin API–style** sandbox for `use_figma` **`code`** so agents can reuse familiar patterns without Figma Desktop or cloud files.
+
+**Delivery roadmap:** [Nine-phase implementation and testing plan](./docs/design-doc/implementation-plan-phases.md) (Phases 1–6: core pipeline; Phase 6: script ↔ engine parity; **Phases 7–9**: broader Plugin API parity—traversal, layout sizing, fonts/images, variables, styles, graph-native components).
+
+## What we intentionally do **not** support
+
+This clone targets **automation and compile-to-HTML/CSS/screenshot** workflows, not a full Figma product. The following are **out of scope by design** (unless the PRD explicitly changes). Many align with [Vision and scope — Non-goals](./docs/prd/vision-and-scope.md):
+
+| Category | Excluded (examples) |
+|----------|---------------------|
+| **Product surface** | Interactive Figma-like editor UI; WebGL/canvas editor renderer matching Figma’s engine; multiplayer / live cursors / comments. |
+| **Figma org & cloud** | Figma **REST API**, org admin, cloud file sync, **published team libraries**, **`importComponentByKeyAsync` / `importStyleByKeyAsync` / `importVariableByKeyAsync`** (remote keys require Figma). |
+| **Other Figma editors** | **FigJam**, **Slides**, **Buzz**-only nodes and tools (`createSticky`, `createConnector`, slide grid APIs, `timer`, …). This repo is **Figma Design–centric** per PRD. |
+| **Dev Mode & plugins host** | **Dev Mode** plugins (`codegen`, `vscode`, `devResources`, Inspect-only APIs), **`showUI` / `figma.ui`**, plugin parameters mode, payments, `currentUser` / `activeUsers` as real collaboration identities. |
+| **Prototyping & motion** | **Prototyping** (`reactions`, transitions, overlays, flows). |
+| **Media & embeds** | **Video** fills/nodes; **`EMBED`** and **`LINK_UNFURL`** node types. |
+| **Plugin persistence on nodes** | **`pluginData`**, **`sharedPluginData`**, **`relaunchData`**. |
+| **Code Connect** | Code Connect MCP tools and mapping workflows (`add_code_connect_map`, …). |
+| **Network from sandbox (default)** | **`fetch`** and **`createImageAsync(url)`** are **off** by default; Phases 7+ allow **opt-in**, allowlisted, SSRF-hardened access only—never “open internet” from plugin code by default. |
+| **Pixel-perfect Figma** | **Byte-identical** rendering vs Figma; proprietary blend/vector/boolean internals. We document **simplifications** (e.g. some boolean ops) where the compiler approximates. |
+
+If you need a capability that looks similar to an excluded API, check **`implementation-plan-phases.md`** for the **Phases 7–9** parity track vs the **intentional exclusion** list above.
 
 ## Requirements
 

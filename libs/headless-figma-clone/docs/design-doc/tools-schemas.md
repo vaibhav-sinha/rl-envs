@@ -192,11 +192,23 @@ export const UseFigmaOperation = z.discriminatedUnion('operation', [
 ]);
 ```
 
-**Script path (`code`)** — Phase 1 exposes a minimal `figma` global: `root`, `currentPage`, `setCurrentPageAsync`, `createFrame`, `notify` (throws `"not implemented"`), `closePlugin` (throws). Nested `RuntimeFrame.appendChild` is supported after the parent frame has been appended. The host applies queued engine ops in **one transaction** after the script completes (atomic on failure, matching Figma semantics).
+**Script path (`code`)** — Phase 6 exposes a **Plugin-API-shaped** `figma` global aligned with `ENGINE_MATRIX` / legacy `operations` for the supported subset (no `pluginData`, no remote libraries, no Dev Mode UI). The host still applies queued engine ops in **one transaction** after the script completes (atomic on failure).
+
+**`figma` members (Phase 6)**
+
+| Area | Members |
+|------|---------|
+| Document / pages | `root` (`id`, `children` pages), `currentPage`, `setCurrentPageAsync`, `createPage()` |
+| Discovery | `getNodeById(id)` → handle or `null`; `getNodeByIdAsync(id)` (same behavior) |
+| Factories | `createFrame`, `createText`, `createRectangle`, `createEllipse`, `createLine`, `createPolygon`, `createStar`, `createVector`, `createTransformGroup`, `createBooleanOperation`, `createTable(rows?, cols?)`, `createComponentInstance` |
+| Booleans | `union`, `subtract`, `intersect`, `exclude` — `(nodes, parent, index?)` per Figma; operands must be `RECTANGLE`, `ELLIPSE`, `POLYGON`, `STAR`, or `VECTOR` already in the document |
+| Stubs | `notify` (throws `"not implemented"`), `closePlugin` (throws; host handles lifecycle) |
+
+**Detached runtime nodes** (`create*` results): set geometry, paints, and other fields **before** `appendChild`, or **after** attach via the same object — post-append writes to whitelisted `ENGINE_MATRIX` keys are mirrored as `updateNode` ops (in-memory working copy + queued ops stay in sync).
+
+**Handles** (`getNodeById`): read live fields from the document; assign to whitelisted keys → `updateNode`; `remove()` → `deleteNode`; `appendChild` / `insertChild` reparent with `moveNode` when the child is already attached. **Stale ids:** after `remove()`, further reads return `undefined`; sets throw `UNKNOWN_NODE` (same code as the engine for missing nodes).
 
 **Dispatch mapping** (legacy `operations`)
-
-| `operation` | Engine operation |
 |-------------|------------------|
 | `createNode` | `{ op: 'createNode', ... }` |
 | `updateNode` | `{ op: 'updateNode', patch: properties }` |
