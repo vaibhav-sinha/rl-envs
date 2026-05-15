@@ -83,10 +83,38 @@ export function searchDesignSystem(env: FileEnvelope, query: string, limit: numb
     if (sc <= 0 && qLower !== '') continue;
     hits.push({ kind: 'gridStyle', id: s.id, name: s.name, score: sc });
   }
+  // Phase 9: components can live either in legacy `env.components[]` or as `COMPONENT` nodes
+  // in the scene graph. We index both.
   for (const c of env.components ?? []) {
     const sc = qLower === '' ? 1 : scoreForMatch(c.name, qLower);
     if (sc <= 0 && qLower !== '') continue;
     hits.push({ kind: 'component', id: c.id, name: c.name, score: sc });
+  }
+
+  function walkSceneNodes(nodes: any[]): void {
+    for (const n of nodes) {
+      if (!n || typeof n !== 'object') continue;
+      if (n.type === 'COMPONENT' && typeof n.name === 'string' && typeof n.id === 'string') {
+        const sc = qLower === '' ? 1 : scoreForMatch(n.name, qLower);
+        if (sc > 0 || qLower === '') {
+          if (!(hits as unknown as any[]).some((h) => h.kind === 'component' && h.id === n.id)) {
+            hits.push({ kind: 'component', id: n.id, name: n.name, score: sc });
+          }
+        }
+      }
+      if (Array.isArray(n.children)) {
+        // Only recurse into known container node types (keep it cheap/deterministic).
+        if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
+          walkSceneNodes(n.children as any[]);
+        } else if (n.type === 'BOOLEAN_OPERATION') {
+          walkSceneNodes(n.children as any[]);
+        }
+      }
+    }
+  }
+
+  for (const p of env.document.children) {
+    walkSceneNodes(p.children as unknown as any[]);
   }
 
   hits.sort(compareHits);

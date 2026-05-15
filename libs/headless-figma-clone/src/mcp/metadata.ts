@@ -131,6 +131,15 @@ export function collectMetadataTree(
       if (ci.rotation !== undefined) dto.rotation = ci.rotation;
       if (ci.blendMode !== undefined) dto.blendMode = ci.blendMode;
     }
+  if (node.type === 'INSTANCE') {
+    const inst = node as import('../model/types.js').InstanceNode;
+    dto.bounds = { x: inst.x, y: inst.y, width: inst.width, height: inst.height };
+    dto.mainComponentId = inst.mainComponentId;
+    if (inst.visible !== undefined) dto.visible = inst.visible;
+    if (inst.opacity !== undefined) dto.opacity = inst.opacity;
+    if (inst.rotation !== undefined) dto.rotation = inst.rotation;
+    if (inst.blendMode !== undefined) dto.blendMode = inst.blendMode;
+  }
     if (depth >= max) return dto;
     if (node.type === 'DOCUMENT') {
       dto.children = node.children.map((c) => walk(c, depth + 1));

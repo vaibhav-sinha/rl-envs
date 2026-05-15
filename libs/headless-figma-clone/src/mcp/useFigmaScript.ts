@@ -17,6 +17,7 @@ import type {
   BlendMode,
   BooleanOperationNode,
   Effect,
+  ComponentPropertyValue,
   FileEnvelope,
   FontName,
   FrameNode,
@@ -122,6 +123,92 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
             variable
           );
           queueUpdate(ctx, id, patch);
+        };
+      }
+      if (prop === 'mainComponent') {
+        const live = findEnvelopeNode(ctx.working, id);
+        if (!live || ctx.deletedIds.has(id) || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) return null;
+        if (live.type === 'COMPONENT_INSTANCE') return createHandleProxy(ctx, live.mainComponentId);
+        const inst = live as import('../model/types.js').InstanceNode;
+        const main = findEnvelopeNode(ctx.working, inst.mainComponentId);
+        if (!main) return null;
+        if (main.type === 'COMPONENT') return createHandleProxy(ctx, main.id);
+        if (main.type === 'COMPONENT_SET') {
+          const set = main as import('../model/types.js').ComponentSetNode;
+          const key = set.variantPropertyKey ?? 'variant';
+          const selectedValue = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
+          const options = set.variantOptions ?? set.componentIds;
+          const idx = options.indexOf(String(selectedValue));
+          const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];
+          return createHandleProxy(ctx, selectedComponentId);
+        }
+        return null;
+      }
+      if (prop === 'variantProperties') {
+        const live = findEnvelopeNode(ctx.working, id);
+        if (!live || ctx.deletedIds.has(id) || live.type !== 'INSTANCE') return null;
+        const inst = live as import('../model/types.js').InstanceNode;
+        const main = findEnvelopeNode(ctx.working, inst.mainComponentId);
+        if (!main || main.type !== 'COMPONENT_SET') return null;
+        const set = main as import('../model/types.js').ComponentSetNode;
+        const key = set.variantPropertyKey ?? 'variant';
+        const value = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0] ?? null;
+        return value === null ? null : { [key]: value };
+      }
+      if (prop === 'swapComponent') {
+        return (componentNode: { id: string }): void => {
+          const live = findEnvelopeNode(ctx.working, id);
+          if (!live || ctx.deletedIds.has(id) || live.type !== 'INSTANCE') {
+            throw new ValidationErr('UNSUPPORTED_OPERATION', 'swapComponent currently supports INSTANCE nodes');
+          }
+          const inst = live as import('../model/types.js').InstanceNode;
+          const main = findEnvelopeNode(ctx.working, inst.mainComponentId);
+          if (!main) throw new Error('swapComponent: missing main component');
+          const componentId = componentNode.id;
+
+          if (main.type === 'COMPONENT_SET') {
+            const set = main as import('../model/types.js').ComponentSetNode;
+            const idx = set.componentIds.indexOf(componentId);
+            if (idx < 0) throw new Error('swapComponent: componentNode not in set');
+            const key = set.variantPropertyKey ?? 'variant';
+            const option =
+              set.variantOptions?.[idx] ??
+              (findEnvelopeNode(ctx.working, componentId) as any)?.name ??
+              componentId;
+            const nextProps = {
+              ...(inst.componentProperties ?? {}),
+              [key]: { type: 'VARIANT', value: String(option) },
+            } as any;
+            const op: EngineOperation = { op: 'updateNode', nodeId: id, patch: { componentProperties: nextProps } };
+            ctx.ops.push(op);
+            applyEngineOp(ctx.working, op);
+            return;
+          }
+
+          if (main.type === 'COMPONENT') {
+            const op: EngineOperation = {
+              op: 'updateNode',
+              nodeId: id,
+              patch: { mainComponentId: componentId, componentProperties: undefined },
+            };
+            ctx.ops.push(op);
+            applyEngineOp(ctx.working, op);
+            return;
+          }
+
+          throw new Error('swapComponent: unsupported mainComponent type');
+        };
+      }
+      if (prop === 'detachInstance') {
+        return (): unknown[] => {
+          if (ctx.deletedIds.has(id)) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
+          const live = findEnvelopeNode(ctx.working, id);
+          if (!live || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) return [];
+          const op: EngineOperation = { op: 'deleteNode', nodeId: id };
+          ctx.ops.push(op);
+          applyEngineOp(ctx.working, op);
+          ctx.deletedIds.add(id);
+          return [];
         };
       }
       const live = findEnvelopeNode(ctx.working, id);
@@ -822,20 +909,100 @@ class RuntimeTable extends RuntimeSceneNode {
 }
 
 class RuntimeComponentInstance extends RuntimeSceneNode {
-  readonly type = 'COMPONENT_INSTANCE' as const;
+  readonly type = 'INSTANCE' as const;
   name = 'Instance';
   mainComponentId = '';
+  componentProperties?: Record<string, ComponentPropertyValue>;
   overrides?: Record<string, { fills?: Paint[]; characters?: string; fontSize?: number; fontWeight?: number }>;
+
+  private getCurrentComponentSet(): import('../model/types.js').ComponentSetNode | null {
+    const main = findEnvelopeNode(this.ctx.working, this.mainComponentId);
+    return main && main.type === 'COMPONENT_SET' ? (main as import('../model/types.js').ComponentSetNode) : null;
+  }
+
+  private getSelectedComponentIdFromSet(set: import('../model/types.js').ComponentSetNode): string {
+    const key = set.variantPropertyKey ?? 'variant';
+    const raw = this.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
+    const options = set.variantOptions ?? set.componentIds;
+    const idx = options.indexOf(String(raw));
+    return set.componentIds[idx] ?? set.componentIds[0];
+  }
+
+  get mainComponent(): unknown {
+    const main = findEnvelopeNode(this.ctx.working, this.mainComponentId);
+    if (!main) return null;
+    if (main.type === 'COMPONENT') return createHandleProxy(this.ctx, main.id);
+    if (main.type === 'COMPONENT_SET') {
+      const selectedId = this.getSelectedComponentIdFromSet(main as import('../model/types.js').ComponentSetNode);
+      return createHandleProxy(this.ctx, selectedId);
+    }
+    return null;
+  }
+
+  get variantProperties(): unknown | null {
+    const set = this.getCurrentComponentSet();
+    if (!set) return null;
+    const key = set.variantPropertyKey ?? 'variant';
+    const value = this.componentProperties?.[key]?.value ?? set.variantOptions?.[0] ?? null;
+    if (value === null) return null;
+    return { [key]: value };
+  }
+
+  swapComponent(componentNode: { id: string }): void {
+    const componentId = componentNode.id;
+    const main = findEnvelopeNode(this.ctx.working, this.mainComponentId);
+    if (!main || (main.type !== 'COMPONENT_SET' && main.type !== 'COMPONENT')) {
+      throw new Error(`swapComponent: unknown main component ${this.mainComponentId}`);
+    }
+
+    if (main.type === 'COMPONENT_SET') {
+      const set = main as import('../model/types.js').ComponentSetNode;
+      const idx = set.componentIds.indexOf(componentId);
+      if (idx < 0) throw new Error('swapComponent: componentNode not in component set');
+      const option = set.variantOptions?.[idx] ?? (findEnvelopeNode(this.ctx.working, componentId) as any)?.name ?? componentId;
+      const key = set.variantPropertyKey ?? 'variant';
+      const nextProps: Record<string, ComponentPropertyValue> = {
+        ...(this.componentProperties ?? {}),
+        [key]: { type: 'VARIANT', value: String(option) },
+      };
+      this.componentProperties = nextProps;
+      const nid = this.getAttachedIdOrNull();
+      if (nid !== null) queueUpdate(this.ctx, nid, { componentProperties: nextProps });
+      return;
+    }
+
+    // Swapping directly between components (outside a set): update main component id and clear selection.
+    this.mainComponentId = componentId;
+    this.componentProperties = undefined;
+    const nid = this.getAttachedIdOrNull();
+    if (nid !== null) {
+      queueUpdate(this.ctx, nid, { mainComponentId: componentId, componentProperties: undefined });
+    }
+  }
+
+  detachInstance(): unknown[] {
+    const nid = this.getAttachedIdOrNull();
+    if (!nid) {
+      // In Figma this would be illegal; we keep it simple.
+      throw new Error('detachInstance requires an attached INSTANCE node');
+    }
+    const op: EngineOperation = { op: 'deleteNode', nodeId: nid };
+    this.ctx.ops.push(op);
+    applyEngineOp(this.ctx.working, op);
+    this.ctx.deletedIds.add(nid);
+    return [];
+  }
 
   toNewNodeSpec(): NewNodeSpec {
     return {
-      type: 'COMPONENT_INSTANCE',
+      type: 'INSTANCE',
       name: this.name,
       x: this.x,
       y: this.y,
       width: this.width,
       height: this.height,
       mainComponentId: this.mainComponentId,
+      componentProperties: this.componentProperties,
       overrides: this.overrides,
       visible: this.visible,
       opacity: this.opacity,
@@ -1110,9 +1277,147 @@ export async function runUseFigmaScript(
       }
       return wrapRuntimeNode(t, ctx);
     },
+    createComponent(): unknown {
+      // Component masters are represented as:
+      // - a hidden FRAME (rootFrameId)
+      // - a visible COMPONENT wrapper node that points at that FRAME.
+      const rootOp: EngineOperation = {
+        op: 'createNode',
+        parentId: currentPageId,
+        index: undefined,
+        node: { type: 'FRAME', name: 'Component Root', x: 0, y: 0, width: 100, height: 100, visible: false },
+      } as any;
+      ctx.ops.push(rootOp);
+      const rootFrameId = applyCreateNodeOp(ctx.working, rootOp as any);
+
+      const compOp: EngineOperation = {
+        op: 'createNode',
+        parentId: currentPageId,
+        index: undefined,
+        node: { type: 'COMPONENT', name: 'Component', x: 0, y: 0, width: 100, height: 100, rootFrameId },
+      } as any;
+      ctx.ops.push(compOp);
+      const compId = applyCreateNodeOp(ctx.working, compOp as any);
+      return createHandleProxy(ctx, compId);
+    },
+    createComponentFromNode(node: RuntimeSceneNode | { id: string }): unknown {
+      const nid = node instanceof RuntimeSceneNode ? node.getAttachedIdOrNull() ?? node.id : node.id;
+      const live = findEnvelopeNode(ctx.working, nid);
+      if (!live || live.type !== 'FRAME') {
+        throw new Error('createComponentFromNode currently supports only FRAME nodes');
+      }
+
+      const frame = live as FrameNode;
+      const compOp: EngineOperation = {
+        op: 'createNode',
+        parentId: currentPageId,
+        index: undefined,
+        node: {
+          type: 'COMPONENT',
+          name: frame.name,
+          x: frame.x,
+          y: frame.y,
+          width: frame.width,
+          height: frame.height,
+          rootFrameId: frame.id,
+        },
+      } as any;
+      ctx.ops.push(compOp);
+      const compId = applyCreateNodeOp(ctx.working, compOp as any);
+
+      // Hide the original node; the component wrapper is the first-class representation.
+      const hideOp: EngineOperation = { op: 'updateNode', nodeId: frame.id, patch: { visible: false } };
+      ctx.ops.push(hideOp);
+      applyEngineOp(ctx.working, hideOp);
+
+      return createHandleProxy(ctx, compId);
+    },
+    combineAsVariants(
+      nodes: ReadonlyArray<{ id: string }>,
+      parent: RuntimePage | RuntimeFrame | RuntimeTransformGroup | { id: string },
+      index?: number
+    ): unknown {
+      if (nodes.length < 1) throw new Error('combineAsVariants requires at least one component node');
+      const parentId = 'pageId' in parent ? parent.pageId : parent.id;
+
+      const componentIds = nodes.map((n) => n.id);
+      const components = componentIds.map((cid) => {
+        const c = findEnvelopeNode(ctx.working, cid);
+        if (!c || c.type !== 'COMPONENT') throw new Error(`combineAsVariants: ${cid} is not a COMPONENT`);
+        return c as import('../model/types.js').ComponentNode;
+      });
+
+      const base = components[0]!;
+      const baseRoot = findEnvelopeNode(ctx.working, base.rootFrameId);
+      if (!baseRoot || baseRoot.type !== 'FRAME') throw new Error('combineAsVariants: base.rootFrameId must be FRAME');
+
+      function preorder(frame: FrameNode): Array<{ id: string; type: string; children?: string[] }> {
+        const out: Array<{ id: string; type: string }> = [];
+        const stack: Array<any> = [frame];
+        while (stack.length) {
+          const n = stack.pop()!;
+          out.push({ id: n.id, type: n.type });
+          if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
+            for (let i = n.children.length - 1; i >= 0; i--) stack.push(n.children[i]!);
+          } else if (n.type === 'BOOLEAN_OPERATION') {
+            const ch = n.children as Array<any>;
+            for (let i = ch.length - 1; i >= 0; i--) stack.push(ch[i]!);
+          }
+        }
+        return out;
+      }
+
+      const baseList = preorder(baseRoot as FrameNode);
+      const nodeIdMapByComponentId: Record<string, Record<string, string>> = {};
+      for (const comp of components) {
+        const variantRoot = findEnvelopeNode(ctx.working, comp.rootFrameId);
+        if (!variantRoot || variantRoot.type !== 'FRAME') throw new Error('combineAsVariants: variant root must be FRAME');
+        const variantList = preorder(variantRoot as FrameNode);
+        const map: Record<string, string> = {};
+        const len = Math.min(baseList.length, variantList.length);
+        for (let i = 0; i < len; i++) {
+          if (baseList[i]!.type === variantList[i]!.type) {
+            map[baseList[i]!.id] = variantList[i]!.id;
+          }
+        }
+        nodeIdMapByComponentId[comp.id] = map;
+      }
+
+      const setOp: EngineOperation = {
+        op: 'createNode',
+        parentId,
+        index,
+        node: {
+          type: 'COMPONENT_SET',
+          name: 'Component Set',
+          x: base.x,
+          y: base.y,
+          width: base.width,
+          height: base.height,
+          componentIds,
+          variantPropertyKey: 'variant',
+          variantOptions: components.map((c) => c.name),
+          nodeIdMapByComponentId,
+          baseComponentId: base.id,
+        },
+      } as any;
+      ctx.ops.push(setOp);
+      const setId = applyCreateNodeOp(ctx.working, setOp as any);
+      return createHandleProxy(ctx, setId);
+    },
     createComponentInstance(mainComponentId: string): RuntimeComponentInstance {
       const n = new RuntimeComponentInstance().bindContext(ctx);
       n.mainComponentId = mainComponentId;
+      const main = findEnvelopeNode(ctx.working, mainComponentId);
+      if (main && main.type === 'COMPONENT_SET') {
+        const set = main as import('../model/types.js').ComponentSetNode;
+        const key = set.variantPropertyKey ?? 'variant';
+        const firstOption =
+          set.variantOptions?.[0] ??
+          (findEnvelopeNode(ctx.working, set.componentIds[0]) as any)?.name ??
+          (set.componentIds[0] ?? '');
+        n.componentProperties = { [key]: { type: 'VARIANT', value: String(firstOption) } };
+      }
       return wrapRuntimeNode(n, ctx);
     },
     loadAllPagesAsync: async (): Promise<void> => {},

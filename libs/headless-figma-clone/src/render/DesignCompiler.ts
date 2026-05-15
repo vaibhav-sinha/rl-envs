@@ -12,11 +12,16 @@ import type {
   BlendMode,
   BooleanOperationNode,
   ComponentInstanceNode,
+  ComponentNode,
+  ComponentSetNode,
+  InstanceNode,
   DropShadowEffect,
   Effect,
   EllipseNode,
   FileEnvelope,
+  DocumentNode,
   FrameNode,
+  PageNode,
   GradientPaint,
   LineNode,
   Paint,
@@ -936,6 +941,10 @@ function emitScene(
     emitComponentInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
     return;
   }
+  if (n.type === 'INSTANCE') {
+    emitInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+    return;
+  }
 }
 
 function emitTable(
@@ -1039,6 +1048,185 @@ function emitComponentInstance(
   htmlParts.push(`<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
   emitScene(root, originX + inst.x, originY + inst.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env, root.children);
+  htmlParts.push('</div>');
+}
+
+function findNodeInDocument(document: DocumentNode, id: string): SceneNode | PageNode | null {
+  for (const p of document.children) {
+    if (p.id === id) return p;
+    for (const n of p.children) {
+      const hit = findInSceneList(n, id);
+      if (hit) return hit;
+    }
+  }
+  return null;
+
+  function findInSceneList(node: SceneNode, needle: string): SceneNode | null {
+    if (node.id === needle) return node;
+    if (
+      node.type === 'FRAME' ||
+      node.type === 'TRANSFORM_GROUP' ||
+      node.type === 'GROUP' ||
+      node.type === 'SECTION'
+    ) {
+      for (const ch of node.children) {
+        const inner = findInSceneList(ch, needle);
+        if (inner) return inner;
+      }
+    } else if (node.type === 'BOOLEAN_OPERATION') {
+      for (const ch of node.children as unknown as SceneNode[]) {
+        const inner = findInSceneList(ch, needle);
+        if (inner) return inner;
+      }
+    }
+    return null;
+  }
+}
+
+function remapOverridesForVariant(
+  overrides: InstanceNode['overrides'],
+  nodeIdMap?: Record<string, string>
+): InstanceNode['overrides'] {
+  if (!overrides) return overrides;
+  if (!nodeIdMap) return overrides;
+  const out: NonNullable<InstanceNode['overrides']> = {};
+  for (const [stableId, ov] of Object.entries(overrides)) {
+    const variantId = nodeIdMap[stableId];
+    if (variantId) out[variantId] = ov;
+  }
+  return out;
+}
+
+function emitInstance(
+  inst: InstanceNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number
+): void {
+  // Resolve component graph masters.
+  const target = findNodeInDocument(env.document, inst.mainComponentId);
+
+  // Back-compat for legacy `env.components[]`.
+  if (!target && env.components) {
+    const main = env.components?.find((c) => c.id === inst.mainComponentId);
+    if (main) {
+      const root = cloneComponentRoot(main.root);
+      applyComponentOverrides(root, inst.overrides as any);
+      const pos = insideFlex
+        ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
+            inst.layoutGrow ?? 0
+          )} 1 auto;min-width:0;`
+        : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(
+            inst.width
+          )}px;height:${String(inst.height)}px;`;
+      htmlParts.push(
+        `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
+      );
+      cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
+      emitScene(
+        root,
+        originX + inst.x,
+        originY + inst.y,
+        shiftX,
+        shiftY,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        warnings,
+        false,
+        env,
+        root.children
+      );
+      htmlParts.push('</div>');
+      return;
+    }
+  }
+
+  if (!target || (target.type !== 'COMPONENT' && target.type !== 'COMPONENT_SET')) {
+    warnings.push(`missing_component:${inst.mainComponentId}`);
+    return;
+  }
+
+  let root: FrameNode;
+  let appliedOverrides: InstanceNode['overrides'] = inst.overrides;
+
+  if (target.type === 'COMPONENT') {
+    const component = target as ComponentNode;
+    const rootNode = findNodeInDocument(env.document, component.rootFrameId);
+    if (!rootNode || rootNode.type !== 'FRAME') {
+      warnings.push(`missing_component_root:${component.rootFrameId}`);
+      return;
+    }
+    root = cloneComponentRoot(rootNode as FrameNode);
+  } else {
+    const set = target as ComponentSetNode;
+    const key = set.variantPropertyKey ?? 'variant';
+    const selectedValue = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
+    const options = set.variantOptions ?? set.componentIds;
+    const idx = options.indexOf(String(selectedValue));
+    const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];
+
+    const selectedComponent = findNodeInDocument(env.document, selectedComponentId);
+    if (!selectedComponent || selectedComponent.type !== 'COMPONENT') {
+      warnings.push(`missing_component_variant:${selectedComponentId}`);
+      return;
+    }
+    const comp = selectedComponent as ComponentNode;
+    const rootNode = findNodeInDocument(env.document, comp.rootFrameId);
+    if (!rootNode || rootNode.type !== 'FRAME') {
+      warnings.push(`missing_component_root:${comp.rootFrameId}`);
+      return;
+    }
+    root = cloneComponentRoot(rootNode as FrameNode);
+
+    const nodeIdMap = set.nodeIdMapByComponentId?.[selectedComponentId];
+    appliedOverrides = remapOverridesForVariant(inst.overrides, nodeIdMap);
+  }
+
+  if (root.x !== 0 || root.y !== 0) warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
+
+  applyComponentOverrides(root, appliedOverrides as any);
+
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
+        inst.layoutGrow ?? 0
+      )} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(
+        inst.height
+      )}px;`;
+
+  htmlParts.push(
+    `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
+  );
+  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
+  emitScene(
+    root,
+    originX + inst.x,
+    originY + inst.y,
+    shiftX,
+    shiftY,
+    htmlParts,
+    cssParts,
+    z,
+    imgMap,
+    warnings,
+    false,
+    env,
+    root.children
+  );
   htmlParts.push('</div>');
 }
 
