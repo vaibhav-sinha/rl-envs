@@ -8,7 +8,7 @@ exports[`text path compile > emits textPath SVG fragment 1`] = `
     <style id="hfc-compiled-css">
 #hfc-root{position:relative;width:360px;height:40px;isolation:isolate;}
 :root{--hfc-var-VV1:rgba(31,89,235,1);}
-.hfc-node-I5{position:absolute;left:0px;top:0px;width:360px;height:40px;box-sizing:border-box;white-space:pre-wrap;word-break:break-word;}
+.hfc-node-I5{position:absolute;left:0px;top:0px;width:360px;height:40px;box-sizing:border-box;white-space:pre-wrap;word-break:break-word;font-family:'Inter',ui-sans-serif,system-ui,sans-serif;}
     </style>
   </head>
   <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">

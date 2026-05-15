@@ -11,7 +11,9 @@ const CREATE_NODE_TYPES = new Set([
   'STAR',
   'VECTOR',
   'BOOLEAN_OPERATION',
-  'TRANSFORM_GROUP',
+  'GROUP',
+  'SLICE',
+  'SECTION',
   'TABLE',
   'COMPONENT_INSTANCE',
 ]);

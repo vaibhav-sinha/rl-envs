@@ -1,4 +1,6 @@
 import { applyCompileOnlyAutoLayout } from '../layout/autoLayoutPass.js';
+import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
+import { fontFamilyCss } from '../fonts/fontCatalog.js';
 import { buildRootCssVariableBlock, cssVarNameForVariable, resolveVariableToRgb } from '../variables/resolution.js';
 import type {
   BlendMode,
@@ -21,6 +23,8 @@ import type {
   TableNode,
   TextNode,
   TransformGroupNode,
+  SectionNode,
+  SliceNode,
   VectorNode,
 } from '../model/types.js';
 
@@ -69,9 +73,19 @@ function findSceneNode(envelope: FileEnvelope, id: string): SceneNode | null {
 }
 
 function sceneChildList(n: SceneNode): SceneNode[] | null {
-  if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP') return n.children;
+  if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') return n.children;
   if (n.type === 'BOOLEAN_OPERATION') return n.children;
   return null;
+}
+
+function sceneChildPos(
+  n: SceneNode,
+  insideFlex: boolean,
+  absX: number,
+  absY: number,
+  parentFrame?: FrameNode
+): string {
+  return flexChildLayoutCss(n, insideFlex, { absX, absY, width: n.width, height: n.height }, parentFrame);
 }
 
 function findSceneInList(nodes: SceneNode[], id: string): SceneNode | null {
@@ -738,7 +752,7 @@ function emitScene(
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
     htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${t.id}{${pos}box-sizing:border-box;white-space:pre-wrap;word-break:break-word;${opRot}${shadow}}`
+      `.hfc-node-${t.id}{${pos}box-sizing:border-box;white-space:pre-wrap;word-break:break-word;${fontFamilyCss(t.fontName)}${opRot}${shadow}}`
     );
     htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings)}</div></div>`);
     return;
@@ -813,8 +827,33 @@ function emitScene(
     return;
   }
 
-  if (n.type === 'TRANSFORM_GROUP') {
-    emitTransformGroup(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, originX, originY, shiftX, shiftY, insideFlex, env);
+  if (n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP') {
+    emitTransformGroup(n as TransformGroupNode, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, originX, originY, shiftX, shiftY, insideFlex, env);
+    return;
+  }
+
+  if (n.type === 'SLICE') {
+    const s = n as SliceNode;
+    const pos = sceneChildPos(s, insideFlex, absX, absY);
+    htmlParts.push(`<div class="hfc-node-${s.id} hfc-slice" data-hfc-id="${s.id}" style="z-index:${String(zIndex)}">`);
+    cssParts.push(
+      `.hfc-node-${s.id}{${pos}box-sizing:border-box;outline:1px dashed rgba(120,80,255,0.7);outline-offset:-1px;${opRot}}`
+    );
+    htmlParts.push('</div>');
+    return;
+  }
+
+  if (n.type === 'SECTION') {
+    const sec = n as SectionNode;
+    const fill = sec.fills?.[0];
+    const fillCss = fillBackgroundStyles(fill, imgMap, warnings, `section_fill:${sec.id}`, env);
+    const pos = sceneChildPos(sec, insideFlex, absX, absY);
+    htmlParts.push(`<div class="hfc-node-${sec.id} hfc-section" data-hfc-id="${sec.id}" style="z-index:${String(zIndex)}">`);
+    cssParts.push(`.hfc-node-${sec.id}{${pos}box-sizing:border-box;${fillCss}${opRot}}`);
+    for (const ch of sec.children) {
+      emitScene(ch, originX + sec.x, originY + sec.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env, sec.children);
+    }
+    htmlParts.push('</div>');
     return;
   }
 
@@ -986,8 +1025,10 @@ function emitRectangle(
       : 'none';
   const radius = r.cornerRadius !== undefined ? `border-radius:${String(r.cornerRadius)}px;` : '';
   const pos = insideFlex
-    ? `position:relative;left:0;top:0;width:${String(r.width)}px;height:${String(r.height)}px;flex:${String(r.layoutGrow ?? 0)} 1 auto;min-width:0;`
-    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;`;
+    ? sceneChildPos(r, insideFlex, absX, absY)
+    : r.constraints
+      ? constraintPositionCss(r, 200, 100)
+      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${r.id}" data-hfc-id="${r.id}" style="z-index:${String(zIndex)}">`);
   if (r.dashPattern?.length && stroke?.type === 'SOLID' && sw > 0) {
     cssParts.push(

@@ -18,6 +18,9 @@ import type {
   StarNode,
   TextNode,
   TransformGroupNode,
+  GroupNode,
+  SliceNode,
+  SectionNode,
   VectorNode,
   TableNode,
   ComponentInstanceNode,
@@ -30,6 +33,7 @@ import type { Logger } from '../util/logger.js';
 import type { EngineErrorCode } from '../util/errors.js';
 import { ValidationErr } from '../util/errors.js';
 import { ENGINE_MATRIX } from './phase-matrix.js';
+import { applyLayoutSelfPatch, validateFontName, validateLayoutSizing } from './phase7Fields.js';
 import { validatePaintArray } from './validatePaints.js';
 import { validateStyledSegments } from './utf16Segments.js';
 
@@ -59,6 +63,9 @@ export type NewNodeSpec =
   | Omit<VectorNode, 'id'> & { type: 'VECTOR' }
   | (Omit<BooleanOperationNode, 'id' | 'children'> & { type: 'BOOLEAN_OPERATION'; children?: SceneNode[] })
   | (Omit<TransformGroupNode, 'id' | 'children'> & { type: 'TRANSFORM_GROUP'; children?: SceneNode[] })
+  | (Omit<GroupNode, 'id' | 'children'> & { type: 'GROUP'; children?: SceneNode[] })
+  | Omit<SliceNode, 'id'> & { type: 'SLICE' }
+  | (Omit<SectionNode, 'id' | 'children'> & { type: 'SECTION'; children?: SceneNode[] })
   | Omit<TableNode, 'id'>
   | Omit<ComponentInstanceNode, 'id'>
   | (Omit<PageNode, 'id' | 'children'> & { type: 'PAGE' });
@@ -101,7 +108,7 @@ function findNode(root: DocumentNode, id: string): AnyTreeNode | null {
 function findInSceneList(nodes: SceneNode[], id: string): AnyTreeNode | null {
   for (const n of nodes) {
     if (n.id === id) return n;
-    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP') {
+    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
       const inner = findInSceneList(n.children, id);
       if (inner) return inner;
     }
@@ -113,7 +120,10 @@ function findInSceneList(nodes: SceneNode[], id: string): AnyTreeNode | null {
   return null;
 }
 
-function findParent(root: DocumentNode, id: string): DocumentNode | PageNode | FrameNode | TransformGroupNode | BooleanOperationNode | null {
+function findParent(
+  root: DocumentNode,
+  id: string
+): DocumentNode | PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode | null {
   for (const page of root.children) {
     if (page.id === id) return root;
     const hit = findParentInFrames(page.children, id, page);
@@ -125,11 +135,11 @@ function findParent(root: DocumentNode, id: string): DocumentNode | PageNode | F
 function findParentInFrames(
   nodes: SceneNode[],
   id: string,
-  parent: PageNode | FrameNode | TransformGroupNode | BooleanOperationNode
-): PageNode | FrameNode | TransformGroupNode | BooleanOperationNode | null {
+  parent: PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode
+): PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode | null {
   for (const n of nodes) {
     if (n.id === id) return parent;
-    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP') {
+    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
       const inner = findParentInFrames(n.children, id, n);
       if (inner) return inner;
     }
@@ -303,6 +313,8 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
     primaryAxisAlignItems: spec.primaryAxisAlignItems,
     counterAxisAlignItems: spec.counterAxisAlignItems,
     layoutGrids: spec.layoutGrids,
+    primaryAxisSizingMode: spec.primaryAxisSizingMode,
+    counterAxisSizingMode: spec.counterAxisSizingMode,
   };
   validateFrameGeometry(frame);
   if (frame.fills) frame.fills = validatePaintArray(frame.fills, 'fills', env) ?? [];
@@ -973,6 +985,71 @@ function normalizeNewTransformGroup(
   return n;
 }
 
+function normalizeNewGroup(spec: Extract<NewNodeSpec, { type: 'GROUP' }>, id: string, _env: FileEnvelope): GroupNode {
+  const n: GroupNode = {
+    id,
+    type: 'GROUP',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Group',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    children: [],
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  validateBlendMode(spec.blendMode, 'GROUP.blendMode');
+  return n;
+}
+
+function normalizeNewSlice(spec: Extract<NewNodeSpec, { type: 'SLICE' }>, id: string, _env: FileEnvelope): SliceNode {
+  const n: SliceNode = {
+    id,
+    type: 'SLICE',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Slice',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  validateBlendMode(spec.blendMode, 'SLICE.blendMode');
+  return n;
+}
+
+function normalizeNewSection(
+  spec: Extract<NewNodeSpec, { type: 'SECTION' }>,
+  id: string,
+  env: FileEnvelope
+): SectionNode {
+  const n: SectionNode = {
+    id,
+    type: 'SECTION',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Section',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 400,
+    height: typeof spec.height === 'number' ? spec.height : 300,
+    children: [],
+    fills: spec.fills,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
+  validateBlendMode(spec.blendMode, 'SECTION.blendMode');
+  return n;
+}
+
 function parentAllowsChild(parentType: string, childType: string): boolean {
   const rules = ENGINE_MATRIX.createNode.allowedChildPairs;
   return rules.some((r) => r.parent === parentType && r.child === childType);
@@ -1031,7 +1108,7 @@ function attachSceneNode(root: DocumentNode, parentId: string, index: number | u
     insertAt(parent.children, index, node);
     return;
   }
-  if (parent.type === 'FRAME' || parent.type === 'TRANSFORM_GROUP') {
+  if (parent.type === 'FRAME' || parent.type === 'TRANSFORM_GROUP' || parent.type === 'GROUP' || parent.type === 'SECTION') {
     insertAt(parent.children, index, node);
     return;
   }
@@ -1075,6 +1152,12 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<EngineOpera
     node = normalizeNewBooleanOperation(op.node, id, working);
   } else if (op.node.type === 'TRANSFORM_GROUP') {
     node = normalizeNewTransformGroup(op.node, id, working);
+  } else if (op.node.type === 'GROUP') {
+    node = normalizeNewGroup(op.node, id, working);
+  } else if (op.node.type === 'SLICE') {
+    node = normalizeNewSlice(op.node, id, working);
+  } else if (op.node.type === 'SECTION') {
+    node = normalizeNewSection(op.node, id, working);
   } else if (op.node.type === 'TABLE') {
     node = normalizeNewTable(op.node, id, working);
   } else if (op.node.type === 'COMPONENT_INSTANCE') {
@@ -1118,6 +1201,28 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
       patch[k] = v;
     }
     applyPatch(working, node, patch);
+    if (
+      node.type !== 'DOCUMENT' &&
+      node.type !== 'PAGE' &&
+      'layoutAlign' in node
+    ) {
+      applyLayoutSelfPatch(node, patch);
+    }
+    if (node.type === 'FRAME') {
+      const f = node;
+      if ('primaryAxisSizingMode' in patch) {
+        f.primaryAxisSizingMode = validateLayoutSizing(patch.primaryAxisSizingMode, 'primaryAxisSizingMode');
+      }
+      if ('counterAxisSizingMode' in patch) {
+        f.counterAxisSizingMode = validateLayoutSizing(patch.counterAxisSizingMode, 'counterAxisSizingMode');
+      }
+    }
+    if (node.type === 'TEXT' && 'fontName' in patch) {
+      const t = node;
+      const fn = patch.fontName;
+      if (fn === undefined || fn === null) delete t.fontName;
+      else t.fontName = validateFontName(fn, 'fontName');
+    }
     return undefined;
   }
   if (op.op === 'deleteNode') {
@@ -1146,6 +1251,26 @@ function defaultWorkspaceDir(): string {
     '.headless-figma-clone',
     'workspace'
   );
+}
+
+/** Register image bytes on an in-memory envelope (script sandbox; no disk write). */
+export function registerAssetBytesInEnvelope(
+  working: FileEnvelope,
+  buf: Buffer,
+  mime: AssetRecord['mimeType']
+): { hash: string; assetId: string } {
+  const sha256 = createHash('sha256').update(buf).digest('hex');
+  if (!working.assets) working.assets = { byId: {} };
+  if (!working.assets.byId[sha256]) {
+    working.assets.byId[sha256] = {
+      id: sha256,
+      mimeType: mime,
+      byteLength: buf.length,
+      sha256,
+      relativePath: `sandbox/${sha256}.${mime === 'image/png' ? 'png' : 'bin'}`,
+    };
+  }
+  return { hash: sha256, assetId: sha256 };
 }
 
 export class DocumentEngine {
@@ -1980,6 +2105,43 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     return;
   }
+  if (node.type === 'GROUP' || node.type === 'SLICE' || node.type === 'SECTION') {
+    const cn = node as GroupNode | SliceNode | SectionNode;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      cn.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height'] as const) {
+      if (g in patch) {
+        const val = patch[g];
+        if (typeof val !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (cn as unknown as Record<string, number>)[g] = val;
+      }
+    }
+    validateShapeBox(cn);
+    if (node.type === 'SECTION' && 'fills' in patch) {
+      (node as SectionNode).fills = validatePaintArray(patch.fills, 'fills', env);
+    }
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      cn.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      cn.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      cn.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, `${node.type}.blendMode`);
+      cn.blendMode = patch.blendMode as GroupNode['blendMode'];
+    }
+    return;
+  }
   if (node.type === 'TABLE') {
     const tb = node as TableNode;
     if ('name' in patch) {
@@ -2136,6 +2298,12 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
         if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
         (p as unknown as Record<string, number>)[g] = v;
       }
+    }
+    if ('isPageDivider' in patch) {
+      if (typeof patch.isPageDivider !== 'boolean') {
+        throw new ValidationErr('VALIDATION_ERROR', 'isPageDivider must be boolean');
+      }
+      p.isPageDivider = patch.isPageDivider;
     }
     return;
   }
