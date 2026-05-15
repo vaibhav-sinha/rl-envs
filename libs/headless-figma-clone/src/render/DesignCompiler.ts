@@ -1,4 +1,4 @@
-import { computeBooleanPathData, rectCornerRadii, resolveBooleanDisplayFill } from './booleanPaths.js';
+import { booleanOperandPathD, computeBooleanPathData, rectCornerRadii, resolveBooleanDisplayFill } from './booleanPaths.js';
 import { ellipseArcPathD, ellipsePathD, isPlainFullEllipse } from './shapePaths.js';
 import { linearGradientCss, radialGradientCss, svgLinearGradientEndpoints, svgRadialGradientAttrs } from './gradientCss.js';
 import {
@@ -264,43 +264,7 @@ function patternPaintCss(
   return `background-image:url("${escapeAttr(tileUrl)}");background-size:${String(stepX)}px ${String(stepY)}px;background-repeat:repeat;background-position:${pos};background-color:transparent;`;
 }
 
-function singleFillLayerCss(
-  fill: Paint,
-  imgMap: Record<string, string>,
-  warnings: string[],
-  label: string,
-  env: FileEnvelope
-): string | null {
-  if (fill.visible === false) return null;
-  if (fill.type === 'SOLID') return rgbaFromSolid(fill);
-  if (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL') {
-    return fill.type === 'GRADIENT_LINEAR' ? linearGradientCss(fill) : radialGradientCss(fill);
-  }
-  if (fill.type === 'IMAGE') {
-    const url = imgMap[fill.imageHash];
-    if (!url) {
-      warnings.push(`missing_image_data_url:${label}:${fill.imageHash}`);
-      return null;
-    }
-    let size = 'cover';
-    if (fill.scaleMode === 'FIT') size = 'contain';
-    if (fill.scaleMode === 'STRETCH') size = '100% 100%';
-    if (fill.scaleMode === 'TILE') size = 'auto';
-    const repeat = fill.scaleMode === 'TILE' ? 'repeat' : 'no-repeat';
-    return `url("${escapeAttr(url)}") center / ${size} ${repeat}`;
-  }
-  if (fill.type === 'VARIABLE_COLOR') {
-    const v = resolveVariableToRgb(env, fill.variableId);
-    if (!v) {
-      warnings.push(`missing_variable_color:${label}:${fill.variableId}`);
-      return null;
-    }
-    return `var(${cssVarNameForVariable(fill.variableId)})`;
-  }
-  return null;
-}
-
-/** Figma stacks fills bottom-to-top; CSS paints the first background layer on top. */
+/** Figma stacks fills bottom-to-top; CSS lists the first background-image on top. */
 function stackedFillsCss(
   fills: Paint[],
   imgMap: Record<string, string>,
@@ -313,22 +277,63 @@ function stackedFillsCss(
   if (!visible.length) return 'background-color:transparent;';
   if (visible.length === 1) return fillBackgroundStyles(visible[0]!, imgMap, patternTiles, warnings, label, env);
 
-  let bgColor = 'transparent';
   const images: string[] = [];
-  for (const fill of visible) {
-    if (fill.type === 'SOLID') {
-      bgColor = rgbaFromSolid(fill);
-      continue;
-    }
-    const layer = singleFillLayerCss(fill, imgMap, warnings, label, env);
+  const sizes: string[] = [];
+  const positions: string[] = [];
+  const repeats: string[] = [];
+
+  const pushPaintLayer = (img: string) => {
+    images.push(img);
+    sizes.push('100% 100%');
+    positions.push('0% 0%');
+    repeats.push('no-repeat');
+  };
+
+  for (let i = visible.length - 1; i >= 0; i--) {
+    const fill = visible[i]!;
     if (fill.type === 'PATTERN') {
       return patternPaintCss(fill, env, patternTiles, warnings, label);
     }
-    if (layer) images.push(layer);
+    if (fill.type === 'SOLID') {
+      pushPaintLayer(`linear-gradient(${rgbaFromSolid(fill)}, ${rgbaFromSolid(fill)})`);
+      continue;
+    }
+    if (fill.type === 'GRADIENT_LINEAR') {
+      pushPaintLayer(linearGradientCss(fill));
+      continue;
+    }
+    if (fill.type === 'GRADIENT_RADIAL') {
+      pushPaintLayer(radialGradientCss(fill));
+      continue;
+    }
+    if (fill.type === 'IMAGE') {
+      const url = imgMap[fill.imageHash];
+      if (!url) {
+        warnings.push(`missing_image_data_url:${label}:${fill.imageHash}`);
+        continue;
+      }
+      let size = 'cover';
+      if (fill.scaleMode === 'FIT') size = 'contain';
+      if (fill.scaleMode === 'STRETCH') size = '100% 100%';
+      if (fill.scaleMode === 'TILE') size = 'auto';
+      const repeat = fill.scaleMode === 'TILE' ? 'repeat' : 'no-repeat';
+      images.push(`url("${escapeAttr(url)}")`);
+      sizes.push(size);
+      positions.push('center');
+      repeats.push(repeat);
+      continue;
+    }
+    if (fill.type === 'VARIABLE_COLOR') {
+      const v = resolveVariableToRgb(env, fill.variableId);
+      const layerColor = v
+        ? `rgba(${String(Math.round(v.r * 255))},${String(Math.round(v.g * 255))},${String(Math.round(v.b * 255))},1)`
+        : `var(${cssVarNameForVariable(fill.variableId)})`;
+      if (!v) warnings.push(`missing_variable_color:${label}:${fill.variableId}`);
+      pushPaintLayer(`linear-gradient(${layerColor}, ${layerColor})`);
+    }
   }
-  if (!images.length) return `background-color:${bgColor};`;
-  const topToBottom = [...images].reverse();
-  return `background-image:${topToBottom.join(',')};background-color:${bgColor};`;
+  if (!images.length) return 'background-color:transparent;';
+  return `background-image:${images.join(',')};background-size:${sizes.join(',')};background-position:${positions.join(',')};background-repeat:${repeats.join(',')};background-color:transparent;`;
 }
 
 interface Bounds {
@@ -525,6 +530,29 @@ function svgStrokeAttrs(n: {
   const cap = mapStrokeCapSvg(n.strokeCap);
   const jn = mapStrokeJoinSvg(n.strokeJoin);
   return `stroke="${escapeAttr(rgbaFromSolid(sp))}" stroke-width="${String(sw)}" stroke-linecap="${cap}" stroke-linejoin="${jn}"`;
+}
+
+function svgStrokeGradientDefs(stroke: Paint, gradId: string, w: number, h: number): string | null {
+  if (stroke.type === 'GRADIENT_LINEAR') {
+    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(stroke, w, h);
+    let defs = `<linearGradient id="${escapeAttr(gradId)}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
+    for (const st of stroke.gradientStops) {
+      defs += `<stop offset="${String(st.position)}" stop-color="${escapeAttr(rgbaFromRgba(st.color))}"/>`;
+    }
+    defs += '</linearGradient>';
+    return defs;
+  }
+  if (stroke.type === 'GRADIENT_RADIAL') {
+    const ra = svgRadialGradientAttrs(stroke);
+    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
+    let defs = `<radialGradient id="${escapeAttr(gradId)}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
+    for (const st of stroke.gradientStops) {
+      defs += `<stop offset="${String(st.position)}" stop-color="${escapeAttr(rgbaFromRgba(st.color))}"/>`;
+    }
+    defs += '</radialGradient>';
+    return defs;
+  }
+  return null;
 }
 
 function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): string {
@@ -1555,8 +1583,13 @@ function emitRectangle(
   const fillCss = stackedFillsCss(effectiveRectFills(r, env), imgMap, patternTiles, warnings, `rect:${r.id}`, env);
   const stroke = r.strokes?.[0];
   const sw = r.strokeWeight ?? 0;
+  const gradientStroke =
+    stroke &&
+    sw > 0 &&
+    stroke.visible !== false &&
+    (stroke.type === 'GRADIENT_LINEAR' || stroke.type === 'GRADIENT_RADIAL');
   const border =
-    stroke && stroke.type === 'SOLID' && sw > 0 && !(r.dashPattern && r.dashPattern.length)
+    !gradientStroke && stroke && stroke.type === 'SOLID' && sw > 0 && !(r.dashPattern && r.dashPattern.length)
       ? `${String(sw)}px solid ${rgbaFromSolid(stroke)}`
       : 'none';
   const [tl, tr, br, bl] = rectCornerRadii(r);
@@ -1572,7 +1605,7 @@ function emitRectangle(
       ? constraintPositionCss(r, parentFrame.width, parentFrame.height)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${r.id}" data-hfc-id="${r.id}" style="z-index:${String(zIndex)}">`);
-  if (r.dashPattern?.length && stroke?.type === 'SOLID' && sw > 0) {
+  if (!gradientStroke && r.dashPattern?.length && stroke?.type === 'SOLID' && sw > 0) {
     cssParts.push(
       `.hfc-node-${r.id}{${pos}box-sizing:border-box;${fillCss}border:${String(sw)}px dashed ${rgbaFromSolid(stroke)};${radius}${opRot}${shadow}}`
     );
@@ -1580,6 +1613,24 @@ function emitRectangle(
     cssParts.push(
       `.hfc-node-${r.id}{${pos}box-sizing:border-box;${fillCss}border:${border};${radius}${opRot}${shadow}}`
     );
+  }
+  if (gradientStroke) {
+    const gradId = `stroke-grad-${r.id}`;
+    const defs = svgStrokeGradientDefs(stroke, gradId, r.width, r.height);
+    if (defs) {
+      const d = booleanOperandPathD(r);
+      const cap = mapStrokeCapSvg(r.strokeCap);
+      const jn = mapStrokeJoinSvg(r.strokeJoin);
+      const dash = r.dashPattern?.length ? dashArrayAttr(r) : '';
+      const pad = sw / 2;
+      const vbW = r.width + sw;
+      const vbH = r.height + sw;
+      htmlParts.push(
+        `<svg class="hfc-rect-stroke-svg" viewBox="${String(-pad)} ${String(-pad)} ${String(vbW)} ${String(vbH)}" width="100%" height="100%" style="position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>${defs}</defs><path d="${escapeAttr(d)}" fill="none" stroke="url(#${gradId})" stroke-width="${String(sw)}" stroke-linecap="${cap}" stroke-linejoin="${jn}"${dash}/></svg>`
+      );
+    } else {
+      warnings.push(`rect_gradient_stroke_unsupported:rect:${r.id}`);
+    }
   }
   htmlParts.push('</div>');
 }
