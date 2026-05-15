@@ -50,8 +50,9 @@ describe('stacked fills', () => {
       rootNodeId: 'I2',
       options: { viewportPaddingPx: 0, includeCss: true, inlineCss: false },
     });
-    expect(out.css).toContain('background-color:rgba(51,77,204');
-    expect(out.css).toContain('background-image:linear-gradient');
+    expect(out.css).toContain('linear-gradient(rgba(51,77,204,1), rgba(51,77,204,1))');
+    expect(out.css).toMatch(/background-image:linear-gradient\(180deg/);
+    expect(out.css).toContain('background-color:transparent');
   });
 
   it('renders pattern fill from ellipse source (scenario 20)', () => {

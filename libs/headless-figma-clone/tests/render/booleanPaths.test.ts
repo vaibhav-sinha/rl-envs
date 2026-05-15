@@ -20,6 +20,7 @@ import { createConsoleLogger } from '../../src/util/logger.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const scenario36 = join(__dirname, '../../verification/scenarios/36-boolean-union/script.js');
 const scenario37 = join(__dirname, '../../verification/scenarios/37-boolean-subtract/script.js');
+const scenario69 = join(__dirname, '../../verification/scenarios/69-boolean-intersect/script.js');
 
 function applyAll(envelope: FileEnvelope, ops: EngineOperation[]): void {
   for (const op of ops) applyEngineOp(envelope, op);
@@ -74,6 +75,24 @@ describe('computeBooleanPathData', () => {
     const { pathData, failed } = computeBooleanPathData(bool);
     expect(failed).toBe(false);
     expect(pathData.length).toBeGreaterThan(0);
+  });
+
+  it('intersect rectangle + ellipse (scenario 69) emits non-empty path', async () => {
+    const { bool, env, rootId } = await runScenarioScript(scenario69);
+    expect(bool.children.length).toBe(2);
+    const { pathData, failed } = computeBooleanPathData(bool);
+    expect(failed).toBe(false);
+    expect(pathData.length).toBeGreaterThan(0);
+    expect(pathData[0]?.length).toBeGreaterThan(10);
+    // Arc–rect intersect used to degenerate to a full operand bbox; poly-ellipse yields many segments.
+    expect((pathData[0]!.match(/\bL\b/g) ?? []).length).toBeGreaterThan(24);
+    const out = designCompiler.compileSubtree({
+      envelope: env,
+      rootNodeId: rootId,
+      options: { viewportPaddingPx: 0, includeCss: false, inlineCss: false },
+    });
+    expect(out.html).toContain('<path');
+    expect(out.warnings.filter((w) => w.startsWith('boolean_op_'))).toHaveLength(0);
   });
 
   it('intersect two overlapping rectangles yields smaller region', () => {

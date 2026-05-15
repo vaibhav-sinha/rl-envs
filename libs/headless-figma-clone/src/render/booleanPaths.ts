@@ -14,7 +14,7 @@ import type {
   VectorPathData,
 } from '../model/types.js';
 import { DEFAULT_SHAPE_FILLS } from '../model/types.js';
-import { ellipsePathD } from './shapePaths.js';
+import { ellipsePathD, isPlainFullEllipse } from './shapePaths.js';
 
 type BoolPath = ReturnType<typeof pathFromPathData>;
 type Vector = [number, number];
@@ -233,6 +233,26 @@ function unionPathDataInLocalSpace(parts: VectorPathData[]): string {
   return pathToPathData(acc);
 }
 
+/** Full-ellipse polygon for INTERSECT only — path-bool can fail to intersect arc ellipses with rects reliably. */
+const ELLIPSE_INTERSECT_POLYGON_SEGMENTS = 72;
+
+function booleanOperandPathDForIntersect(op: BooleanOperandNode): string {
+  if (op.type === 'RECTANGLE') return rectPathD(op);
+  if (op.type === 'VECTOR') {
+    const paths = op.vectorPaths ?? [];
+    return unionPathDataInLocalSpace(paths);
+  }
+  if (op.type === 'POLYGON') return polygonPointsD(op.pointCount, op.width, op.height);
+  if (op.type === 'STAR') return starPathD(op.pointCount, op.innerRadius, op.width, op.height);
+  if (op.type === 'ELLIPSE') {
+    if (isPlainFullEllipse(op.arcData)) {
+      return polygonPointsD(ELLIPSE_INTERSECT_POLYGON_SEGMENTS, op.width, op.height);
+    }
+    return ellipsePathD(op.width, op.height, op.arcData);
+  }
+  return 'M0,0';
+}
+
 export function booleanOperandPathD(op: BooleanOperandNode): string {
   if (op.type === 'RECTANGLE') return rectPathD(op);
   if (op.type === 'VECTOR') {
@@ -247,8 +267,9 @@ export function booleanOperandPathD(op: BooleanOperandNode): string {
   return 'M0,0';
 }
 
-function operandPathInBooleanSpace(op: BooleanOperandNode): BoolPath {
-  let path = pathFromPathData(booleanOperandPathD(op));
+function operandPathInBooleanSpace(op: BooleanOperandNode, intersectMode: boolean): BoolPath {
+  const d = intersectMode ? booleanOperandPathDForIntersect(op) : booleanOperandPathD(op);
+  let path = pathFromPathData(d);
   path = translatePath(path, op.x, op.y);
   const rot = op.rotation ?? 0;
   if (rot !== 0) {
@@ -349,10 +370,12 @@ export function computeBooleanPathData(node: BooleanOperationNode): BooleanPathR
     return { pathData: children.map((ch) => booleanOperandPathD(ch)), failed: false };
   }
   try {
-    const operands = children.map((ch) => operandPathInBooleanSpace(ch));
+    const operands = children.map((ch) => operandPathInBooleanSpace(ch, node.booleanOperation === 'INTERSECT'));
     const result = foldBooleanPaths(operands, node.booleanOperation);
     if (result.length === 0) return { pathData: [], failed: false };
-    return { pathData: result.map((p) => pathToPathData(p)), failed: false };
+    const pathData = result.map((p) => pathToPathData(p)).filter((d) => d.length > 0);
+    if (pathData.length === 0) return { pathData: [], failed: false };
+    return { pathData, failed: false };
   } catch {
     return { pathData: [], failed: true };
   }
