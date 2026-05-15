@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { resolve } from 'node:path';
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import { designCompiler } from '../render/DesignCompiler.js';
+import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
 import { collectMetadataTree } from './metadata.js';
 import { mapUseFigmaToEngineOperations, toolErrorJson, toolJson } from './useFigmaMap.js';
@@ -17,6 +18,13 @@ export interface RegisterToolsDeps {
 
 export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterToolsDeps): void {
   const { engine } = deps;
+
+  function imageDataUrlMapForActiveFile(): Record<string, string> {
+    const file = engine.getActiveFile();
+    const fp = engine.getActiveFilePath();
+    if (!file || !fp) return {};
+    return buildImageDataUrlByHash(file, fp);
+  }
 
   server.registerTool(
     'create_new_file',
@@ -82,6 +90,57 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           {
             type: 'text' as const,
             text: toolJson({ fileKey: f.fileKey, filePath: fp }),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    'upload_assets',
+    {
+      description:
+        'Uploads a supported raster image (PNG, JPEG, GIF, WebP) into the active file asset registry for use in ImagePaint fills. Provide exactly one of dataUrl (data:image/...;base64,...) or filePath (relative to cwd).',
+      inputSchema: z
+        .object({
+          dataUrl: z.string().min(32).optional(),
+          filePath: z.string().min(1).optional(),
+        })
+        .refine((a) => Boolean(a.dataUrl) !== Boolean(a.filePath), {
+          message: 'Provide exactly one of dataUrl or filePath',
+        }),
+    },
+    async (args) => {
+      if (args.filePath) {
+        const abs = resolve(process.cwd(), args.filePath);
+        const r = await engine.uploadAssetFromFile({ absolutePath: abs });
+        if (!r.ok) {
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson(r.errorCode, r.message) }],
+            isError: true,
+          };
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: toolJson({ assetId: r.assetId, sha256: r.sha256, mimeType: r.mimeType }),
+            },
+          ],
+        };
+      }
+      const r = await engine.uploadAssetFromDataUrl({ dataUrl: args.dataUrl! });
+      if (!r.ok) {
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson(r.errorCode, r.message) }],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: toolJson({ assetId: r.assetId, sha256: r.sha256, mimeType: r.mimeType }),
           },
         ],
       };
@@ -159,6 +218,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           viewportPaddingPx: args.viewportPaddingPx,
           includeCss: args.includeCss,
           inlineCss: args.inlineCss,
+          imageDataUrlByHash: imageDataUrlMapForActiveFile(),
         },
       });
       return {
@@ -204,6 +264,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           viewportPaddingPx: 0,
           includeCss: true,
           inlineCss: true,
+          imageDataUrlByHash: imageDataUrlMapForActiveFile(),
         },
       });
       const dpr = args.deviceScaleFactor ?? args.scale * deps.screenshotDefaultDeviceScaleFactor;

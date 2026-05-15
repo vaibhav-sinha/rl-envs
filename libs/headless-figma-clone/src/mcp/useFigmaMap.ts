@@ -1,5 +1,14 @@
 import type { EngineOperation, NewNodeSpec } from '../engine/DocumentEngine.js';
-import type { FrameNode, TextNode } from '../model/types.js';
+
+const CREATE_NODE_TYPES = new Set([
+  'FRAME',
+  'TEXT',
+  'RECTANGLE',
+  'ELLIPSE',
+  'LINE',
+  'POLYGON',
+  'STAR',
+]);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -20,48 +29,12 @@ export function mapUseFigmaToEngineOperations(operations: unknown[]): EngineOper
         throw new Error('createNode.index invalid');
       }
       const node = raw.node;
-      if (!isRecord(node) || (node.type !== 'FRAME' && node.type !== 'TEXT')) {
-        throw new Error('createNode.node.type must be FRAME or TEXT');
+      if (!isRecord(node) || typeof node.type !== 'string' || !CREATE_NODE_TYPES.has(node.type)) {
+        throw new Error(
+          `createNode.node.type must be one of ${[...CREATE_NODE_TYPES].join(', ')}`
+        );
       }
-      if (node.type === 'FRAME') {
-        const spec: NewNodeSpec = {
-          type: 'FRAME',
-          name: typeof node.name === 'string' ? node.name : 'Frame',
-          x: typeof node.x === 'number' ? node.x : 0,
-          y: typeof node.y === 'number' ? node.y : 0,
-          width: typeof node.width === 'number' ? node.width : 100,
-          height: typeof node.height === 'number' ? node.height : 100,
-          fills: node.fills as FrameNode['fills'],
-          backgrounds: node.backgrounds as FrameNode['backgrounds'],
-          strokes: node.strokes as FrameNode['strokes'],
-          strokeWeight: typeof node.strokeWeight === 'number' ? node.strokeWeight : undefined,
-          effects: node.effects as FrameNode['effects'],
-          clipsContent: typeof node.clipsContent === 'boolean' ? node.clipsContent : undefined,
-          visible: typeof node.visible === 'boolean' ? node.visible : undefined,
-          opacity: typeof node.opacity === 'number' ? node.opacity : undefined,
-          rotation: typeof node.rotation === 'number' ? node.rotation : undefined,
-        };
-        out.push({ op: 'createNode', parentId, index, node: spec });
-      } else {
-        const spec: NewNodeSpec = {
-          type: 'TEXT',
-          name: typeof node.name === 'string' ? node.name : 'Text',
-          x: typeof node.x === 'number' ? node.x : 0,
-          y: typeof node.y === 'number' ? node.y : 0,
-          width: typeof node.width === 'number' ? node.width : 100,
-          height: typeof node.height === 'number' ? node.height : 24,
-          characters: typeof node.characters === 'string' ? node.characters : '',
-          fontSize: typeof node.fontSize === 'number' ? node.fontSize : undefined,
-          fontWeight: typeof node.fontWeight === 'number' ? node.fontWeight : undefined,
-          fills: node.fills as TextNode['fills'],
-          styledSegments: node.styledSegments as TextNode['styledSegments'],
-          effects: node.effects as TextNode['effects'],
-          visible: typeof node.visible === 'boolean' ? node.visible : undefined,
-          opacity: typeof node.opacity === 'number' ? node.opacity : undefined,
-          rotation: typeof node.rotation === 'number' ? node.rotation : undefined,
-        };
-        out.push({ op: 'createNode', parentId, index, node: spec });
-      }
+      out.push({ op: 'createNode', parentId, index, node: node as unknown as NewNodeSpec });
     } else if (op === 'updateNode') {
       const nodeId = raw.nodeId;
       if (typeof nodeId !== 'string') throw new Error('updateNode.nodeId required');

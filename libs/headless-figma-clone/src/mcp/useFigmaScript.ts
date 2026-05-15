@@ -1,6 +1,6 @@
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import { applyCreateNodeOp, type EngineOperation, type NewNodeSpec } from '../engine/DocumentEngine.js';
-import type { Effect, FrameNode, PageNode, Paint, StyledSegment } from '../model/types.js';
+import type { BlendMode, Effect, FrameNode, PageNode, Paint, StyledSegment } from '../model/types.js';
 import { ValidationErr } from '../util/errors.js';
 import type { FileEnvelope } from '../model/types.js';
 
@@ -14,7 +14,7 @@ interface ScriptContext {
 }
 
 abstract class RuntimeSceneNode {
-  abstract readonly type: 'FRAME' | 'TEXT';
+  abstract readonly type: 'FRAME' | 'TEXT' | 'RECTANGLE';
   name = 'Node';
   x = 0;
   y = 0;
@@ -24,6 +24,7 @@ abstract class RuntimeSceneNode {
   opacity?: number;
   rotation?: number;
   effects?: Effect[];
+  blendMode?: BlendMode;
   protected _id: string | null = null;
   protected attached = false;
   protected ctx!: ScriptContext;
@@ -75,7 +76,7 @@ class RuntimeFrame extends RuntimeSceneNode {
   backgrounds?: Paint[];
   clipsContent?: boolean;
 
-  appendChild(child: RuntimeFrame | RuntimeText, index?: number): void {
+  appendChild(child: RuntimeFrame | RuntimeText | RuntimeRectangle, index?: number): void {
     if (!this.attached || this._id === null) {
       throw new Error('appendChild requires the frame to be appended to the page (or parent) first');
     }
@@ -99,6 +100,7 @@ class RuntimeFrame extends RuntimeSceneNode {
       visible: this.visible,
       opacity: this.opacity,
       rotation: this.rotation,
+      blendMode: this.blendMode,
     };
   }
 
@@ -143,6 +145,7 @@ class RuntimeText extends RuntimeSceneNode {
       visible: this.visible,
       opacity: this.opacity,
       rotation: this.rotation,
+      blendMode: this.blendMode,
     };
   }
 
@@ -152,6 +155,37 @@ class RuntimeText extends RuntimeSceneNode {
 
   setRangeHyperlink(start: number, end: number, link: { type: 'URL'; url: string }): void {
     this.segments.push({ start, end, style: { hyperlink: link } });
+  }
+}
+
+class RuntimeRectangle extends RuntimeSceneNode {
+  readonly type = 'RECTANGLE' as const;
+  name = 'Rectangle';
+  fills?: Paint[];
+  strokes?: Paint[];
+  strokeWeight?: number;
+  cornerRadius?: number;
+  dashPattern?: number[];
+
+  toNewNodeSpec(): NewNodeSpec {
+    return {
+      type: 'RECTANGLE',
+      name: this.name,
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height,
+      fills: this.fills,
+      strokes: this.strokes,
+      strokeWeight: this.strokeWeight,
+      cornerRadius: this.cornerRadius,
+      dashPattern: this.dashPattern,
+      effects: this.effects,
+      visible: this.visible,
+      opacity: this.opacity,
+      rotation: this.rotation,
+      blendMode: this.blendMode,
+    };
   }
 }
 
@@ -165,7 +199,7 @@ class RuntimePage {
     return this.pageId;
   }
 
-  appendChild(child: RuntimeFrame | RuntimeText, index?: number): void {
+  appendChild(child: RuntimeFrame | RuntimeText | RuntimeRectangle, index?: number): void {
     child.appendUnderParent(this.pageId, index, this.ctx);
   }
 }
@@ -232,6 +266,9 @@ export async function runUseFigmaScript(
     },
     createText(): RuntimeText {
       return new RuntimeText().bindContext(ctx);
+    },
+    createRectangle(): RuntimeRectangle {
+      return new RuntimeRectangle().bindContext(ctx);
     },
     notify: (): void => {
       throw new Error('not implemented');
