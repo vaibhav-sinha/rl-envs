@@ -11,6 +11,8 @@ const CREATE_NODE_TYPES = new Set([
   'VECTOR',
   'BOOLEAN_OPERATION',
   'TRANSFORM_GROUP',
+  'TABLE',
+  'COMPONENT_INSTANCE',
 ]);
 
 function isRecord(v: unknown): v is Record<string, unknown> {

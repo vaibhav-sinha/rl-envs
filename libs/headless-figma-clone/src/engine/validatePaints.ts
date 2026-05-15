@@ -1,4 +1,5 @@
-import type { AssetRegistry, DocumentNode, GradientPaint, Paint, PatternPaint, RGBA } from '../model/types.js';
+import type { DocumentNode, FileEnvelope, GradientPaint, Paint, PatternPaint, RGBA, SceneNode } from '../model/types.js';
+import { findVariableDefinition } from '../variables/resolution.js';
 import { ValidationErr } from '../util/errors.js';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -36,10 +37,14 @@ function findAnyNode(root: DocumentNode, id: string): boolean {
   return false;
 }
 
-function walkScene(nodes: import('../model/types.js').SceneNode[], id: string): boolean {
+function walkScene(nodes: SceneNode[], id: string): boolean {
   for (const n of nodes) {
     if (n.id === id) return true;
-    if (n.type === 'FRAME' && walkScene(n.children, id)) return true;
+    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP') {
+      if (walkScene(n.children, id)) return true;
+    } else if (n.type === 'BOOLEAN_OPERATION') {
+      if (walkScene(n.children as unknown as SceneNode[], id)) return true;
+    }
   }
   return false;
 }
@@ -98,7 +103,7 @@ function assertGradient(p: Record<string, unknown>, label: string): GradientPain
 function assertImage(
   p: Record<string, unknown>,
   label: string,
-  assets: AssetRegistry | undefined
+  assets: FileEnvelope['assets']
 ): import('../model/types.js').ImagePaint {
   const imageHash = p.imageHash;
   if (typeof imageHash !== 'string' || imageHash.length < 8) {
@@ -125,11 +130,7 @@ function assertImage(
   };
 }
 
-function assertPattern(
-  p: Record<string, unknown>,
-  label: string,
-  document: DocumentNode
-): PatternPaint {
+function assertPattern(p: Record<string, unknown>, label: string, document: DocumentNode): PatternPaint {
   const sourceNodeId = p.sourceNodeId;
   if (typeof sourceNodeId !== 'string' || !/^I[0-9]+$/.test(sourceNodeId)) {
     throw new ValidationErr('VALIDATION_ERROR', `${label}: sourceNodeId must be a node id`);
@@ -156,12 +157,28 @@ function assertPattern(
   };
 }
 
-export function assertPaint(
-  p: unknown,
-  label: string,
-  assets: AssetRegistry | undefined,
-  document: DocumentNode
-): Paint {
+function assertVariableColor(p: Record<string, unknown>, label: string, env: FileEnvelope): import('../model/types.js').VariableColorPaint {
+  const variableId = p.variableId;
+  if (typeof variableId !== 'string' || variableId.length < 1) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: variableId required`);
+  }
+  const hit = findVariableDefinition(env, variableId);
+  if (!hit) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: unknown variableId ${variableId}`);
+  }
+  if (hit.variable.resolvedType !== 'COLOR') {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: variable ${variableId} is not COLOR`);
+  }
+  return {
+    type: 'VARIABLE_COLOR',
+    variableId,
+    visible: p.visible as boolean | undefined,
+    opacity: p.opacity as number | undefined,
+    blendMode: p.blendMode as import('../model/types.js').VariableColorPaint['blendMode'],
+  };
+}
+
+export function assertPaint(p: unknown, label: string, env: FileEnvelope): Paint {
   if (!isRecord(p) || typeof p.type !== 'string') {
     throw new ValidationErr('VALIDATION_ERROR', `${label}: invalid paint`);
   }
@@ -181,21 +198,19 @@ export function assertPaint(
     return assertGradient(p, label);
   }
   if (p.type === 'IMAGE') {
-    return assertImage(p, label, assets);
+    return assertImage(p, label, env.assets);
   }
   if (p.type === 'PATTERN') {
-    return assertPattern(p, label, document);
+    return assertPattern(p, label, env.document);
+  }
+  if (p.type === 'VARIABLE_COLOR') {
+    return assertVariableColor(p, label, env);
   }
   throw new ValidationErr('VALIDATION_ERROR', `${label}: unsupported paint type ${p.type}`);
 }
 
-export function validatePaintArray(
-  arr: unknown,
-  label: string,
-  assets: AssetRegistry | undefined,
-  document: DocumentNode
-): Paint[] | undefined {
+export function validatePaintArray(arr: unknown, label: string, env: FileEnvelope): Paint[] | undefined {
   if (arr === undefined) return undefined;
   if (!Array.isArray(arr)) throw new ValidationErr('VALIDATION_ERROR', `${label}: must be array`);
-  return arr.map((x, i) => assertPaint(x, `${label}[${String(i)}]`, assets, document));
+  return arr.map((x, i) => assertPaint(x, `${label}[${String(i)}]`, env));
 }

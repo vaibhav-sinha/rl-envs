@@ -1,0 +1,20 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`text path compile > emits textPath SVG fragment 1`] = `
+"<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style id="hfc-compiled-css">
+#hfc-root{position:relative;width:360px;height:40px;isolation:isolate;}
+:root{--hfc-var-VV1:rgba(31,89,235,1);}
+.hfc-node-I5{position:absolute;left:0px;top:0px;width:360px;height:40px;box-sizing:border-box;white-space:pre-wrap;word-break:break-word;}
+    </style>
+  </head>
+  <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">
+    <div id="hfc-root" style="position:relative;width:360px;height:40px;">
+      <div class="hfc-node-I5" data-hfc-id="I5" style="z-index:0"><div class="hfc-text-inner"><span style="font-size:12px;font-weight:600;color:rgba(38,38,51,1);">Curved label</span></div></div>
+    </div>
+  </body>
+</html>"
+`;

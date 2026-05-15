@@ -1,4 +1,4 @@
-/** Phase 1–4 subset of design-doc/data-model.md */
+/** Phase 1–5 subset of design-doc/data-model.md */
 
 export type SchemaVersion = number;
 
@@ -71,7 +71,52 @@ export interface PatternPaint extends PaintBase {
   scalingFactor: number;
 }
 
-export type Paint = SolidPaint | GradientPaint | ImagePaint | PatternPaint;
+/** Binds fill to a COLOR variable in {@link FileEnvelope.variableCollections}. */
+export interface VariableColorPaint extends PaintBase {
+  type: 'VARIABLE_COLOR';
+  variableId: string;
+}
+
+export type Paint = SolidPaint | GradientPaint | ImagePaint | PatternPaint | VariableColorPaint;
+
+export interface VariableMode {
+  id: string;
+  name: string;
+}
+
+export type VariableResolvedValue =
+  | { type: 'COLOR'; color: RGB }
+  | { type: 'FLOAT'; value: number }
+  | { type: 'STRING'; value: string };
+
+export interface VariableDefinition {
+  id: string;
+  name: string;
+  resolvedType: 'COLOR' | 'FLOAT' | 'STRING';
+  valuesByMode: Record<string, VariableResolvedValue>;
+}
+
+export interface VariableCollection {
+  id: string;
+  name: string;
+  defaultModeId: string;
+  modes: VariableMode[];
+  variables: VariableDefinition[];
+}
+
+export interface TextStyleDefinition {
+  id: string;
+  name: string;
+  fontSize?: number;
+  fontWeight?: number;
+  fills?: Paint[];
+}
+
+export interface PaintStyleDefinition {
+  id: string;
+  name: string;
+  paints: Paint[];
+}
 
 export interface DropShadowEffect {
   type: 'DROP_SHADOW';
@@ -214,6 +259,13 @@ export interface TextNode extends NodeBase, LayoutSelfFields {
   effects?: Effect[];
   /** Empty or absent: entire string uses node-level style. */
   styledSegments?: StyledSegment[];
+  /** References {@link FileEnvelope.textStyles} id (merged at compile time). */
+  textStyleId?: string;
+  /**
+   * Renders characters along a sibling VECTOR path (`pathNodeId` must match a VECTOR in the same FRAME).
+   * @see design-doc Phase 5 — text path binding.
+   */
+  textOnPath?: { pathNodeId: string };
 }
 
 export interface RectangleNode extends NodeBase, LayoutSelfFields {
@@ -235,6 +287,8 @@ export interface RectangleNode extends NodeBase, LayoutSelfFields {
   dashPattern?: number[];
   cornerRadius?: number;
   effects?: Effect[];
+  /** References {@link FileEnvelope.paintStyles} id (first paint merged as fill when node fills absent). */
+  fillStyleId?: string;
 }
 
 export interface EllipseNode extends NodeBase, LayoutSelfFields {
@@ -377,6 +431,56 @@ export interface TransformGroupNode extends NodeBase, LayoutSelfFields {
   children: SceneNode[];
 }
 
+export interface TableCell {
+  text: string;
+  fills?: Paint[];
+}
+
+export interface TableNode extends NodeBase, LayoutSelfFields {
+  type: 'TABLE';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  columnCount: number;
+  rowCount: number;
+  columnWidths: number[];
+  rowHeights: number[];
+  /** Row-major length `rowCount * columnCount`. */
+  cells: TableCell[];
+}
+
+export type ComponentOverrideFields = {
+  fills?: Paint[];
+  characters?: string;
+  fontSize?: number;
+  fontWeight?: number;
+};
+
+export interface ComponentInstanceNode extends NodeBase, LayoutSelfFields {
+  type: 'COMPONENT_INSTANCE';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  mainComponentId: string;
+  /** Keys are node ids inside {@link ComponentDefinition.root}. */
+  overrides?: Record<string, ComponentOverrideFields>;
+}
+
+export interface ComponentDefinition {
+  id: string;
+  name: string;
+  /** Root frame of the component master (stable ids for {@link ComponentInstanceNode.overrides}). */
+  root: FrameNode;
+}
+
 export type SceneNode =
   | FrameNode
   | TextNode
@@ -387,7 +491,9 @@ export type SceneNode =
   | StarNode
   | VectorNode
   | BooleanOperationNode
-  | TransformGroupNode;
+  | TransformGroupNode
+  | TableNode
+  | ComponentInstanceNode;
 
 export type AnyTreeNode = DocumentNode | PageNode | SceneNode;
 
@@ -398,4 +504,11 @@ export interface FileEnvelope {
   nextInternalId: number;
   document: DocumentNode;
   assets?: AssetRegistry;
+  /** Phase 5 — design tokens (COLOR/FLOAT/STRING) grouped by collection + mode. */
+  variableCollections?: VariableCollection[];
+  /** Optional per-collection active mode id (defaults to each collection's `defaultModeId`). */
+  activeModeByCollectionId?: Record<string, string>;
+  textStyles?: TextStyleDefinition[];
+  paintStyles?: PaintStyleDefinition[];
+  components?: ComponentDefinition[];
 }

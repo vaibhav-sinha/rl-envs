@@ -87,7 +87,14 @@ class RuntimeFrame extends RuntimeSceneNode {
   layoutGrids?: FrameNode['layoutGrids'];
 
   appendChild(
-    child: RuntimeFrame | RuntimeText | RuntimeRectangle | RuntimeVector | RuntimeTransformGroup,
+    child:
+      | RuntimeFrame
+      | RuntimeText
+      | RuntimeRectangle
+      | RuntimeVector
+      | RuntimeTransformGroup
+      | RuntimeTable
+      | RuntimeComponentInstance,
     index?: number
   ): void {
     if (!this.attached || this._id === null) {
@@ -242,7 +249,14 @@ class RuntimeTransformGroup extends RuntimeSceneNode {
   name = 'Group';
 
   appendChild(
-    child: RuntimeFrame | RuntimeText | RuntimeRectangle | RuntimeVector | RuntimeTransformGroup,
+    child:
+      | RuntimeFrame
+      | RuntimeText
+      | RuntimeRectangle
+      | RuntimeVector
+      | RuntimeTransformGroup
+      | RuntimeTable
+      | RuntimeComponentInstance,
     index?: number
   ): void {
     if (!this.attached || this._id === null) {
@@ -267,6 +281,65 @@ class RuntimeTransformGroup extends RuntimeSceneNode {
   }
 }
 
+class RuntimeTable extends RuntimeSceneNode {
+  readonly type = 'TABLE' as const;
+  name = 'Table';
+  columnCount = 2;
+  rowCount = 2;
+  columnWidths: number[] = [80, 80];
+  rowHeights: number[] = [28, 28];
+  cells: Array<{ text: string; fills?: Paint[] }> = [
+    { text: 'A' },
+    { text: 'B' },
+    { text: 'C' },
+    { text: 'D' },
+  ];
+
+  toNewNodeSpec(): NewNodeSpec {
+    return {
+      type: 'TABLE',
+      name: this.name,
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height,
+      columnCount: this.columnCount,
+      rowCount: this.rowCount,
+      columnWidths: [...this.columnWidths],
+      rowHeights: [...this.rowHeights],
+      cells: this.cells.map((c) => ({ text: c.text, fills: c.fills })),
+      visible: this.visible,
+      opacity: this.opacity,
+      rotation: this.rotation,
+      blendMode: this.blendMode,
+    };
+  }
+}
+
+class RuntimeComponentInstance extends RuntimeSceneNode {
+  readonly type = 'COMPONENT_INSTANCE' as const;
+  name = 'Instance';
+  mainComponentId = '';
+  overrides?: Record<string, { fills?: Paint[]; characters?: string; fontSize?: number; fontWeight?: number }>;
+
+  toNewNodeSpec(): NewNodeSpec {
+    return {
+      type: 'COMPONENT_INSTANCE',
+      name: this.name,
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height,
+      mainComponentId: this.mainComponentId,
+      overrides: this.overrides,
+      visible: this.visible,
+      opacity: this.opacity,
+      rotation: this.rotation,
+      blendMode: this.blendMode,
+    };
+  }
+}
+
 class RuntimePage {
   constructor(
     private readonly ctx: ScriptContext,
@@ -278,7 +351,14 @@ class RuntimePage {
   }
 
   appendChild(
-    child: RuntimeFrame | RuntimeText | RuntimeRectangle | RuntimeVector | RuntimeTransformGroup,
+    child:
+      | RuntimeFrame
+      | RuntimeText
+      | RuntimeRectangle
+      | RuntimeVector
+      | RuntimeTransformGroup
+      | RuntimeTable
+      | RuntimeComponentInstance,
     index?: number
   ): void {
     child.appendUnderParent(this.pageId, index, this.ctx);
@@ -353,6 +433,14 @@ export async function runUseFigmaScript(
     },
     createVector(): RuntimeVector {
       return new RuntimeVector().bindContext(ctx);
+    },
+    createTable(): RuntimeTable {
+      return new RuntimeTable().bindContext(ctx);
+    },
+    createComponentInstance(mainComponentId: string): RuntimeComponentInstance {
+      const n = new RuntimeComponentInstance().bindContext(ctx);
+      n.mainComponentId = mainComponentId;
+      return n;
     },
     notify: (): void => {
       throw new Error('not implemented');

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -184,6 +184,48 @@ describe('persistence round-trip', () => {
       if (!rec2) return;
       const abs2 = join(dirname(filePath), rec2.relativePath);
       expect(readFileSync(abs2).equals(diskBytes)).toBe(true);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('round-trip preserves Phase 5 variable collections and components', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'hfc-rt-p5-'));
+    try {
+      process.env.HFC_WORKSPACE_DIR = join(base, 'ws');
+      const logger = createConsoleLogger('error');
+      const persistence = new JsonPersistence();
+      const src = join(__dirname, '../fixtures/phase5-demo.hfc.json');
+      const dest = join(base, 'demo.hfc.json');
+      copyFileSync(src, dest);
+      const engine = new DocumentEngine({ persistence, logger });
+      await engine.loadFromDisk({ absolutePath: dest });
+      await engine.applyTransaction([
+        {
+          op: 'createNode',
+          parentId: 'I3',
+          index: 0,
+          node: {
+            type: 'TABLE',
+            name: 'Extra',
+            x: 300,
+            y: 300,
+            width: 40,
+            height: 40,
+            columnCount: 1,
+            rowCount: 1,
+            columnWidths: [40],
+            rowHeights: [40],
+            cells: [{ text: 'x' }],
+          },
+        },
+      ]);
+      const after = engine.getActiveFile();
+      const engine2 = new DocumentEngine({ persistence, logger });
+      await engine2.loadFromDisk({ absolutePath: dest });
+      const loaded = engine2.getActiveFile();
+      expect(loaded).toEqual(after);
+      expect(loaded?.document.children[0]?.children[0]?.children?.[0]?.type).toBe('TABLE');
     } finally {
       rmSync(base, { recursive: true, force: true });
     }

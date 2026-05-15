@@ -23,6 +23,11 @@ export interface MetadataNodeDTO {
   layoutWrap?: string;
   itemSpacing?: number;
   layoutGridTracks?: number;
+  /** Phase 5 */
+  mainComponentId?: string;
+  tableColumns?: number;
+  tableRows?: number;
+  textStyleId?: string;
   children?: MetadataNodeDTO[];
 }
 
@@ -66,6 +71,7 @@ export function collectMetadataTree(
       if (t.rotation !== undefined) dto.rotation = t.rotation;
       if (t.blendMode !== undefined) dto.blendMode = t.blendMode;
       dto.effectTypes = effectList(t.effects);
+      if (t.textStyleId) dto.textStyleId = t.textStyleId;
     }
     if (
       node.type === 'RECTANGLE' ||
@@ -105,6 +111,25 @@ export function collectMetadataTree(
       if (b.rotation !== undefined) dto.rotation = b.rotation;
       if (b.blendMode !== undefined) dto.blendMode = b.blendMode;
       dto.effectTypes = effectList(b.effects);
+    }
+    if (node.type === 'TABLE') {
+      const tb = node as import('../model/types.js').TableNode;
+      dto.bounds = { x: tb.x, y: tb.y, width: tb.width, height: tb.height };
+      dto.tableColumns = tb.columnCount;
+      dto.tableRows = tb.rowCount;
+      if (tb.visible !== undefined) dto.visible = tb.visible;
+      if (tb.opacity !== undefined) dto.opacity = tb.opacity;
+      if (tb.rotation !== undefined) dto.rotation = tb.rotation;
+      if (tb.blendMode !== undefined) dto.blendMode = tb.blendMode;
+    }
+    if (node.type === 'COMPONENT_INSTANCE') {
+      const ci = node as import('../model/types.js').ComponentInstanceNode;
+      dto.bounds = { x: ci.x, y: ci.y, width: ci.width, height: ci.height };
+      dto.mainComponentId = ci.mainComponentId;
+      if (ci.visible !== undefined) dto.visible = ci.visible;
+      if (ci.opacity !== undefined) dto.opacity = ci.opacity;
+      if (ci.rotation !== undefined) dto.rotation = ci.rotation;
+      if (ci.blendMode !== undefined) dto.blendMode = ci.blendMode;
     }
     if (depth >= max) return dto;
     if (node.type === 'DOCUMENT') {
