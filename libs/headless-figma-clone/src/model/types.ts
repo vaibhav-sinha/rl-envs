@@ -69,6 +69,9 @@ export interface PatternPaint extends PaintBase {
   sourceNodeId: string;
   tileType: 'RECTANGULAR';
   scalingFactor: number;
+  spacing?: { x: number; y: number };
+  horizontalAlignment?: 'START' | 'CENTER' | 'END';
+  verticalAlignment?: 'START' | 'CENTER' | 'END';
 }
 
 /** Binds fill to a COLOR variable in {@link FileEnvelope.variableCollections}. */

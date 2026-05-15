@@ -1,4 +1,11 @@
 import { linearGradientCss, radialGradientCss, svgLinearGradientEndpoints, svgRadialGradientAttrs } from './gradientCss.js';
+import {
+  buildPatternTileSvgDataUrl,
+  buildSyncPatternTileDataUrl,
+  findSceneNode as findPatternSceneNode,
+  patternBackgroundPosition,
+  patternRepeatCellSize,
+} from './patternTiles.js';
 import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
 import { fontFamilyCss } from '../fonts/fontCatalog.js';
 import {
@@ -24,6 +31,7 @@ import type {
   PageNode,
   LineNode,
   Paint,
+  PatternPaint,
   PolygonNode,
   RectangleNode,
   SceneNode,
@@ -62,6 +70,8 @@ export type CompileHtmlOptions = {
   inlineCss: boolean;
   /** Resolved `data:` URLs for `ImagePaint.imageHash` (Playwright / offline HTML). */
   imageDataUrlByHash?: Record<string, string>;
+  /** Rasterized pattern source tiles (`sourceNodeId` → data URL). */
+  patternTileDataUrlByNodeId?: Record<string, string>;
 };
 
 /** Scoped UA reset so Playwright screenshots only show explicit compiled styles. */
@@ -201,13 +211,105 @@ function effectiveTextCharacters(t: TextNode, env: FileEnvelope): string {
   return s ?? t.characters;
 }
 
-function effectiveRectFill(r: RectangleNode, env: FileEnvelope): Paint | undefined {
-  if (r.fills?.length) return r.fills[0];
+function effectiveRectFills(r: RectangleNode, env: FileEnvelope): Paint[] {
+  if (r.fills?.length) return r.fills;
   if (r.fillStyleId) {
     const ps = env.paintStyles?.find((p) => p.id === r.fillStyleId);
-    return ps?.paints?.[0];
+    return ps?.paints ?? [];
   }
-  return undefined;
+  return [];
+}
+
+function patternPaintCss(
+  fill: PatternPaint,
+  env: FileEnvelope,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  label: string
+): string {
+  const src = findPatternSceneNode(env, fill.sourceNodeId);
+  if (!src || !('width' in src) || !('height' in src)) {
+    warnings.push(`pattern_source_missing:${label}`);
+    return 'background-color:transparent;';
+  }
+  const tileUrl =
+    patternTiles[fill.sourceNodeId] ??
+    buildPatternTileSvgDataUrl(env, fill) ??
+    buildSyncPatternTileDataUrl(env, fill.sourceNodeId);
+  if (!tileUrl) {
+    warnings.push(`pattern_tile_missing:${label}`);
+    return 'background-color:transparent;';
+  }
+  const { stepX, stepY } = patternRepeatCellSize(fill, src.width, src.height);
+  const pos = patternBackgroundPosition(fill.horizontalAlignment, fill.verticalAlignment);
+  return `background-image:url("${escapeAttr(tileUrl)}");background-size:${String(stepX)}px ${String(stepY)}px;background-repeat:repeat;background-position:${pos};background-color:transparent;`;
+}
+
+function singleFillLayerCss(
+  fill: Paint,
+  imgMap: Record<string, string>,
+  warnings: string[],
+  label: string,
+  env: FileEnvelope
+): string | null {
+  if (fill.visible === false) return null;
+  if (fill.type === 'SOLID') return rgbaFromSolid(fill);
+  if (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL') {
+    return fill.type === 'GRADIENT_LINEAR' ? linearGradientCss(fill) : radialGradientCss(fill);
+  }
+  if (fill.type === 'IMAGE') {
+    const url = imgMap[fill.imageHash];
+    if (!url) {
+      warnings.push(`missing_image_data_url:${label}:${fill.imageHash}`);
+      return null;
+    }
+    let size = 'cover';
+    if (fill.scaleMode === 'FIT') size = 'contain';
+    if (fill.scaleMode === 'STRETCH') size = '100% 100%';
+    if (fill.scaleMode === 'TILE') size = 'auto';
+    const repeat = fill.scaleMode === 'TILE' ? 'repeat' : 'no-repeat';
+    return `url("${escapeAttr(url)}") center / ${size} ${repeat}`;
+  }
+  if (fill.type === 'VARIABLE_COLOR') {
+    const v = resolveVariableToRgb(env, fill.variableId);
+    if (!v) {
+      warnings.push(`missing_variable_color:${label}:${fill.variableId}`);
+      return null;
+    }
+    return `var(${cssVarNameForVariable(fill.variableId)})`;
+  }
+  return null;
+}
+
+/** Figma stacks fills bottom-to-top; CSS paints the first background layer on top. */
+function stackedFillsCss(
+  fills: Paint[],
+  imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  label: string,
+  env: FileEnvelope
+): string {
+  const visible = fills.filter((f) => f.visible !== false);
+  if (!visible.length) return 'background-color:transparent;';
+  if (visible.length === 1) return fillBackgroundStyles(visible[0]!, imgMap, patternTiles, warnings, label, env);
+
+  let bgColor = 'transparent';
+  const images: string[] = [];
+  for (const fill of visible) {
+    if (fill.type === 'SOLID') {
+      bgColor = rgbaFromSolid(fill);
+      continue;
+    }
+    const layer = singleFillLayerCss(fill, imgMap, warnings, label, env);
+    if (fill.type === 'PATTERN') {
+      return patternPaintCss(fill, env, patternTiles, warnings, label);
+    }
+    if (layer) images.push(layer);
+  }
+  if (!images.length) return `background-color:${bgColor};`;
+  const topToBottom = [...images].reverse();
+  return `background-image:${topToBottom.join(',')};background-color:${bgColor};`;
 }
 
 interface Bounds {
@@ -336,6 +438,7 @@ function overflowClipCss(clips: boolean | undefined): string {
 function fillBackgroundStyles(
   fill: Paint | undefined,
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   label: string,
   env: FileEnvelope
@@ -367,8 +470,7 @@ function fillBackgroundStyles(
     return `background-image:url("${escapeAttr(url)}");background-size:${size};background-repeat:${fill.scaleMode === 'TILE' ? 'repeat' : 'no-repeat'};background-position:center;background-color:transparent;`;
   }
   if (fill.type === 'PATTERN') {
-    warnings.push(`pattern_render_simplified:${label}`);
-    return 'background-image:repeating-linear-gradient(45deg,#ccc,#ccc 4px,#eee 4px,#eee 8px);';
+    return patternPaintCss(fill, env, patternTiles, warnings, label);
   }
   return 'background-color:transparent;';
 }
@@ -671,6 +773,7 @@ function emitTransformGroup(
   cssParts: string[],
   z: { value: number },
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   originX: number,
   originY: number,
@@ -687,7 +790,7 @@ function emitTransformGroup(
     `.hfc-node-${tg.id}{${pos}width:${String(tg.width)}px;height:${String(tg.height)}px;box-sizing:border-box;${opRot}}`
   );
   for (const c of tg.children) {
-    emitScene(c, originX + tg.x, originY + tg.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env, tg.children);
+    emitScene(c, originX + tg.x, originY + tg.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env, tg.children);
   }
   htmlParts.push('</div>');
 }
@@ -706,6 +809,7 @@ function emitMaskCluster(
   cssParts: string[],
   z: { value: number },
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   env: FileEnvelope
 ): void {
@@ -727,7 +831,7 @@ function emitMaskCluster(
     `<div class="hfc-masked-inner" style="position:absolute;left:0;top:0;width:${String(f.width)}px;height:${String(f.height)}px;mask:url(#${mid});-webkit-mask:url(#${mid});transform:translate(${String(-mx)}px,${String(-my)}px)">`
   );
   for (const c of masked) {
-    emitScene(c, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env, f.children);
+    emitScene(c, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env, f.children);
   }
   htmlParts.push('</div></div>');
 }
@@ -744,6 +848,7 @@ function emitFrameChildren(
   cssParts: string[],
   z: { value: number },
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   flexInner: boolean,
   env: FileEnvelope
@@ -758,10 +863,10 @@ function emitFrameChildren(
         masked.push(f.children[i]!);
         i++;
       }
-      emitMaskCluster(ch, masked, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, env);
+      emitMaskCluster(ch, masked, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, env);
       continue;
     }
-    emitScene(ch, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, flexInner, env, f.children);
+    emitScene(ch, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, flexInner, env, f.children);
     i++;
   }
 }
@@ -776,6 +881,7 @@ function emitScene(
   cssParts: string[],
   z: { value: number },
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope,
@@ -826,7 +932,7 @@ function emitScene(
   if (n.type === 'FRAME') {
     const f = n;
     const fill = f.fills?.[0];
-    const fillCss = fillBackgroundStyles(fill, imgMap, warnings, `frame_fill:${f.id}`, env);
+    const fillCss = fillBackgroundStyles(fill, imgMap, patternTiles, warnings, `frame_fill:${f.id}`, env);
     const stroke = f.strokes?.[0];
     const sw = f.strokeWeight ?? 0;
     const border =
@@ -849,10 +955,10 @@ function emitScene(
         htmlParts.push(
           `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;${frameFlexInnerStyle(f, env)}">`
         );
-        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true, env);
+        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, true, env);
         htmlParts.push('</div>');
       } else {
-        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env);
+        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env);
       }
       htmlParts.push(layoutGridOverlayDiv(f));
       htmlParts.push('</div>');
@@ -863,7 +969,7 @@ function emitScene(
     const bgCss =
       bgPaint && bgPaint.type === 'SOLID' && (bgPaint.visible === undefined || bgPaint.visible)
         ? `background-color:${rgbaFromSolid(bgPaint)};`
-        : fillBackgroundStyles(bgPaint, imgMap, warnings, `frame_bg:${f.id}`, env);
+        : fillBackgroundStyles(bgPaint, imgMap, patternTiles, warnings, `frame_bg:${f.id}`, env);
 
     htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
@@ -882,10 +988,10 @@ function emitScene(
       htmlParts.push(
         `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;z-index:2;${frameFlexInnerStyle(f, env)}">`
       );
-      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true, env);
+      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, true, env);
       htmlParts.push('</div>');
     } else {
-      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env);
+      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env);
     }
     htmlParts.push(layoutGridOverlayDiv(f));
     htmlParts.push('</div>');
@@ -893,7 +999,7 @@ function emitScene(
   }
 
   if (n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP') {
-    emitTransformGroup(n as TransformGroupNode, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, originX, originY, shiftX, shiftY, insideFlex, env);
+    emitTransformGroup(n as TransformGroupNode, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, originX, originY, shiftX, shiftY, insideFlex, env);
     return;
   }
 
@@ -911,12 +1017,12 @@ function emitScene(
   if (n.type === 'SECTION') {
     const sec = n as SectionNode;
     const fill = sec.fills?.[0];
-    const fillCss = fillBackgroundStyles(fill, imgMap, warnings, `section_fill:${sec.id}`, env);
+    const fillCss = fillBackgroundStyles(fill, imgMap, patternTiles, warnings, `section_fill:${sec.id}`, env);
     const pos = sceneChildPos(sec, insideFlex, absX, absY);
     htmlParts.push(`<div class="hfc-node-${sec.id} hfc-section" data-hfc-id="${sec.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(`.hfc-node-${sec.id}{${pos}box-sizing:border-box;${fillCss}${opRot}}`);
     for (const ch of sec.children) {
-      emitScene(ch, originX + sec.x, originY + sec.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env, sec.children);
+      emitScene(ch, originX + sec.x, originY + sec.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env, sec.children);
     }
     htmlParts.push('</div>');
     return;
@@ -933,11 +1039,11 @@ function emitScene(
   }
 
   if (n.type === 'RECTANGLE') {
-    emitRectangle(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
+    emitRectangle(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, patternTiles, warnings, insideFlex, env);
     return;
   }
   if (n.type === 'ELLIPSE') {
-    emitEllipse(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
+    emitEllipse(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, patternTiles, warnings, insideFlex, env);
     return;
   }
   if (n.type === 'LINE') {
@@ -953,15 +1059,15 @@ function emitScene(
     return;
   }
   if (n.type === 'TABLE') {
-    emitTable(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
+    emitTable(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, patternTiles, warnings, insideFlex, env);
     return;
   }
   if (n.type === 'COMPONENT_INSTANCE') {
-    emitComponentInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+    emitComponentInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
     return;
   }
   if (n.type === 'INSTANCE') {
-    emitInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+    emitInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
     return;
   }
 }
@@ -975,6 +1081,7 @@ function emitTable(
   htmlParts: string[],
   cssParts: string[],
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope
@@ -993,7 +1100,7 @@ function emitTable(
       idx += 1;
       const w = tb.columnWidths[c]!;
       const h = tb.rowHeights[r]!;
-      const bg = fillBackgroundStyles(cell.fills?.[0], imgMap, warnings, `table_cell:${tb.id}:${String(r)}:${String(c)}`, env);
+      const bg = fillBackgroundStyles(cell.fills?.[0], imgMap, patternTiles, warnings, `table_cell:${tb.id}:${String(r)}:${String(c)}`, env);
       tds.push(
         `<td class="hfc-table-cell" style="width:${String(w)}px;height:${String(h)}px;border:1px solid rgba(0,0,0,0.12);vertical-align:middle;padding:4px;box-sizing:border-box;${bg}">${escapeHtmlText(cell.text)}</td>`
       );
@@ -1043,6 +1150,7 @@ function emitComponentInstance(
   cssParts: string[],
   z: { value: number },
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope,
@@ -1066,7 +1174,7 @@ function emitComponentInstance(
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
-  emitScene(root, originX + inst.x, originY + inst.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env, root.children);
+  emitScene(root, originX + inst.x, originY + inst.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env, root.children);
   htmlParts.push('</div>');
 }
 
@@ -1126,6 +1234,7 @@ function emitInstance(
   cssParts: string[],
   z: { value: number },
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope,
@@ -1164,6 +1273,7 @@ function emitInstance(
         cssParts,
         z,
         imgMap,
+        patternTiles,
         warnings,
         false,
         env,
@@ -1241,6 +1351,7 @@ function emitInstance(
     cssParts,
     z,
     imgMap,
+    patternTiles,
     warnings,
     false,
     env,
@@ -1258,13 +1369,13 @@ function emitRectangle(
   htmlParts: string[],
   cssParts: string[],
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope
 ): void {
   const shadow = dropShadowCss(r.effects);
-  const fill0 = effectiveRectFill(r, env);
-  const fillCss = fillBackgroundStyles(fill0, imgMap, warnings, `rect:${r.id}`, env);
+  const fillCss = stackedFillsCss(effectiveRectFills(r, env), imgMap, patternTiles, warnings, `rect:${r.id}`, env);
   const stroke = r.strokes?.[0];
   const sw = r.strokeWeight ?? 0;
   const border =
@@ -1299,12 +1410,13 @@ function emitEllipse(
   htmlParts: string[],
   cssParts: string[],
   imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope
 ): void {
   const shadow = dropShadowCss(e.effects);
-  const fillCss = fillBackgroundStyles(e.fills?.[0], imgMap, warnings, `ellipse:${e.id}`, env);
+  const fillCss = fillBackgroundStyles(e.fills?.[0], imgMap, patternTiles, warnings, `ellipse:${e.id}`, env);
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(e.width)}px;height:${String(e.height)}px;flex:${String(e.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(e.width)}px;height:${String(e.height)}px;`;
@@ -1566,8 +1678,9 @@ function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions, enve
   }
   const z = { value: 0 };
   const imgMap = options.imageDataUrlByHash ?? {};
+  const patternTiles = options.patternTileDataUrlByNodeId ?? {};
   for (const root of roots) {
-    emitScene(root, 0, 0, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, envelope, null);
+    emitScene(root, 0, 0, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, envelope, null);
   }
 
   const cssBlock = `${HFC_UA_RESET_CSS}\n#hfc-root{position:relative;width:${String(W)}px;height:${String(H)}px;isolation:isolate;}\n${cssParts.join('\n')}`;

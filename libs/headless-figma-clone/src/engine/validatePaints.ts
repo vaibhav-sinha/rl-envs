@@ -146,11 +146,29 @@ function assertPattern(p: Record<string, unknown>, label: string, document: Docu
   if (typeof scalingFactor !== 'number' || !Number.isFinite(scalingFactor) || scalingFactor <= 0) {
     throw new ValidationErr('VALIDATION_ERROR', `${label}: scalingFactor must be a positive finite number`);
   }
+  let spacing: PatternPaint['spacing'];
+  if (p.spacing !== undefined) {
+    if (!isRecord(p.spacing) || typeof p.spacing.x !== 'number' || typeof p.spacing.y !== 'number') {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}: spacing must be { x, y } numbers`);
+    }
+    spacing = { x: p.spacing.x, y: p.spacing.y };
+  }
+  const hAlign = p.horizontalAlignment;
+  if (hAlign !== undefined && hAlign !== 'START' && hAlign !== 'CENTER' && hAlign !== 'END') {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: horizontalAlignment must be START|CENTER|END`);
+  }
+  const vAlign = p.verticalAlignment;
+  if (vAlign !== undefined && vAlign !== 'START' && vAlign !== 'CENTER' && vAlign !== 'END') {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: verticalAlignment must be START|CENTER|END`);
+  }
   return {
     type: 'PATTERN',
     sourceNodeId,
     tileType: 'RECTANGULAR',
     scalingFactor,
+    spacing,
+    horizontalAlignment: hAlign as PatternPaint['horizontalAlignment'],
+    verticalAlignment: vAlign as PatternPaint['verticalAlignment'],
     visible: p.visible as boolean | undefined,
     opacity: p.opacity as number | undefined,
     blendMode: p.blendMode as PatternPaint['blendMode'],
