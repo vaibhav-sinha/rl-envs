@@ -75,6 +75,18 @@ function wrapTextStyle(ctx: { working: FileEnvelope; ops: EngineOperation[] }, i
         queueEnv(ctx, { op: 'updateTextStyle', id, patch: { name: value } });
         return true;
       }
+      if (prop === 'fontSize' && typeof value === 'number') {
+        queueEnv(ctx, { op: 'updateTextStyle', id, patch: { fontSize: value } });
+        return true;
+      }
+      if (prop === 'fontWeight' && typeof value === 'number') {
+        queueEnv(ctx, { op: 'updateTextStyle', id, patch: { fontWeight: value } });
+        return true;
+      }
+      if (prop === 'fills' && Array.isArray(value)) {
+        queueEnv(ctx, { op: 'updateTextStyle', id, patch: { fills: value as Paint[] } });
+        return true;
+      }
       return false;
     },
   });

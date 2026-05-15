@@ -190,7 +190,6 @@ function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; 
   let fontSize = t.fontSize ?? 12;
   let fontWeight = t.fontWeight ?? 400;
   let fills = t.fills;
-  const fontSizeCss = boundFloatCss(env, t.boundVariables?.fontSize, fontSize);
   if (t.boundVariables?.fontSize) {
     const v = resolveVariableToFloat(env, t.boundVariables.fontSize);
     if (v !== null) fontSize = v;
@@ -203,6 +202,7 @@ function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; 
       if (st.fills?.length) fills = st.fills;
     }
   }
+  const fontSizeCss = boundFloatCss(env, t.boundVariables?.fontSize, fontSize);
   return { fontSize, fontWeight, fills, fontSizeCss };
 }
 
@@ -1197,6 +1197,13 @@ function cloneComponentRoot(root: FrameNode): FrameNode {
   return structuredClone(root) as FrameNode;
 }
 
+/** Component masters are often hidden on the canvas; instances must still render their contents. */
+function cloneComponentRootForInstance(root: FrameNode): FrameNode {
+  const cloned = cloneComponentRoot(root);
+  cloned.visible = true;
+  return cloned;
+}
+
 function applyComponentOverrides(root: FrameNode, overrides: ComponentInstanceNode['overrides']): void {
   if (!overrides) return;
   const stack: SceneNode[] = [...root.children];
@@ -1245,7 +1252,7 @@ function emitComponentInstance(
     warnings.push(`missing_component:${inst.mainComponentId}`);
     return;
   }
-  const root = cloneComponentRoot(main.root);
+  const root = cloneComponentRootForInstance(main.root);
   if (root.x !== 0 || root.y !== 0) {
     warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
   }
@@ -1348,7 +1355,7 @@ function emitInstance(
   if (!target && env.components) {
     const main = env.components?.find((c) => c.id === inst.mainComponentId);
     if (main) {
-      const root = cloneComponentRoot(main.root);
+      const root = cloneComponentRootForInstance(main.root);
       applyComponentOverrides(root, inst.overrides as any);
       const pos = insideFlex
         ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
@@ -1399,7 +1406,7 @@ function emitInstance(
       warnings.push(`missing_component_root:${component.rootFrameId}`);
       return;
     }
-    root = cloneComponentRoot(rootNode as FrameNode);
+    root = cloneComponentRootForInstance(rootNode as FrameNode);
   } else {
     const set = target as ComponentSetNode;
     const key = set.variantPropertyKey ?? 'variant';
@@ -1419,7 +1426,7 @@ function emitInstance(
       warnings.push(`missing_component_root:${comp.rootFrameId}`);
       return;
     }
-    root = cloneComponentRoot(rootNode as FrameNode);
+    root = cloneComponentRootForInstance(rootNode as FrameNode);
 
     const nodeIdMap = set.nodeIdMapByComponentId?.[selectedComponentId];
     appliedOverrides = remapOverridesForVariant(inst.overrides, nodeIdMap);

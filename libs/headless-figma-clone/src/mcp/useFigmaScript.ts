@@ -1412,6 +1412,10 @@ function createComponentInstanceFromMainId(
   }
   const n = new RuntimeComponentInstance().bindContext(ctx);
   n.mainComponentId = mainComponentId;
+  if (main.type === 'COMPONENT') {
+    n.width = main.width;
+    n.height = main.height;
+  }
   if (main.type === 'COMPONENT_SET') {
     const set = main as import('../model/types.js').ComponentSetNode;
     const key = set.variantPropertyKey ?? 'variant';
