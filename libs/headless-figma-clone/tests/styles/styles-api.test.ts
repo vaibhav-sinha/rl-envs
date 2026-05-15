@@ -13,10 +13,13 @@ describe('createStylesApi', () => {
     paint.name = 'Brand / Primary';
     expect(working.paintStyles?.find((s) => s.id === paint.id)?.name).toBe('Brand / Primary');
 
-    const text = (api.createTextStyle as () => { id: string })();
+    const text = (api.createTextStyle as () => { id: string; fontSize: number })();
     expect(working.textStyles?.some((s) => s.id === text.id)).toBe(true);
+    text.fontSize = 24;
+    expect(working.textStyles?.find((s) => s.id === text.id)?.fontSize).toBe(24);
     expect(ops.some((o) => o.op === 'createPaintStyle')).toBe(true);
     expect(ops.some((o) => o.op === 'createTextStyle')).toBe(true);
+    expect(ops.some((o) => o.op === 'updateTextStyle' && o.patch.fontSize === 24)).toBe(true);
   });
 
   it('createEffectStyle and createGridStyle register on envelope', () => {
