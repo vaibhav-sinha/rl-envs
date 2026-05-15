@@ -279,6 +279,9 @@ export interface FrameNode extends NodeBase, LayoutSelfFields {
   paddingBottom?: number;
   itemSpacing?: number;
   layoutWrap?: 'NO_WRAP' | 'WRAP';
+  /** Gap between wrapped tracks; when unset, matches itemSpacing (Figma null-sync). */
+  counterAxisSpacing?: number;
+  counterAxisAlignContent?: 'AUTO' | 'SPACE_BETWEEN';
   primaryAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'SPACE_BETWEEN';
   counterAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'BASELINE';
   /** Visible column guides overlay (compile-only decoration). */

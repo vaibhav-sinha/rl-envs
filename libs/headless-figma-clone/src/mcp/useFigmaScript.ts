@@ -407,6 +407,8 @@ class RuntimeFrame extends RuntimeSceneNode {
   layoutMode?: FrameNode['layoutMode'];
   layoutWrap?: FrameNode['layoutWrap'];
   itemSpacing?: number;
+  counterAxisSpacing?: number;
+  counterAxisAlignContent?: FrameNode['counterAxisAlignContent'];
   paddingLeft?: number;
   paddingRight?: number;
   paddingTop?: number;
@@ -423,6 +425,23 @@ class RuntimeFrame extends RuntimeSceneNode {
 
   insertChild(index: number, child: RuntimeSceneNode | { id: string }): void {
     this.appendChild(child, index);
+  }
+
+  resize(w: number, h: number): void {
+    this.width = w;
+    this.height = h;
+    if (this.layoutMode === 'HORIZONTAL' || this.layoutMode === 'VERTICAL') {
+      this.primaryAxisSizingMode = 'FIXED';
+      this.counterAxisSizingMode = 'FIXED';
+    }
+    if (this.attached && this._id !== null) {
+      const patch: Record<string, unknown> = { width: w, height: h };
+      if (this.layoutMode === 'HORIZONTAL' || this.layoutMode === 'VERTICAL') {
+        patch.primaryAxisSizingMode = 'FIXED';
+        patch.counterAxisSizingMode = 'FIXED';
+      }
+      queueUpdate(this.ctx, this._id, patch);
+    }
   }
 
   toNewNodeSpec(): NewNodeSpec {
@@ -447,6 +466,8 @@ class RuntimeFrame extends RuntimeSceneNode {
       layoutMode: this.layoutMode,
       layoutWrap: this.layoutWrap,
       itemSpacing: this.itemSpacing,
+      counterAxisSpacing: this.counterAxisSpacing,
+      counterAxisAlignContent: this.counterAxisAlignContent,
       paddingLeft: this.paddingLeft,
       paddingRight: this.paddingRight,
       paddingTop: this.paddingTop,
@@ -621,13 +642,7 @@ class RuntimeEllipse extends RuntimeSceneNode {
       opacity: this.opacity,
       rotation: this.rotation,
       blendMode: this.blendMode,
-      layoutAlign: this.layoutAlign,
-      layoutGrow: this.layoutGrow,
-      minWidth: this.minWidth,
-      maxWidth: this.maxWidth,
-      minHeight: this.minHeight,
-      maxHeight: this.maxHeight,
-      isMask: this.isMask,
+      ...this.layoutSelfSpec(),
     };
   }
 }
@@ -1513,14 +1528,11 @@ export async function runUseFigmaScript(
       });
       return createHandleProxy(ctx, tgId);
     },
-    createAutoLayout: (): RuntimeFrame => {
+    createAutoLayout: (direction?: 'HORIZONTAL' | 'VERTICAL'): RuntimeFrame => {
       const f = new RuntimeFrame();
-      f.layoutMode = 'HORIZONTAL';
-      f.itemSpacing = 8;
-      f.paddingLeft = 8;
-      f.paddingRight = 8;
-      f.paddingTop = 8;
-      f.paddingBottom = 8;
+      f.layoutMode = direction === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL';
+      f.primaryAxisSizingMode = 'HUG';
+      f.counterAxisSizingMode = 'HUG';
       return wrapRuntimeNode(f.bindContext(ctx), ctx);
     },
     createSlice: (): unknown => {
