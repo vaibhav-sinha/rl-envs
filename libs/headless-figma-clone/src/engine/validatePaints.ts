@@ -203,11 +203,20 @@ export function assertPaint(p: unknown, label: string, env: FileEnvelope): Paint
   if (p.type === 'SOLID') {
     if (!isRecord(p.color)) throw new ValidationErr('VALIDATION_ERROR', `${label}: missing color`);
     validateRgb(p.color as { r: unknown; g: unknown; b: unknown }, `${label}.color`);
+    let opacity: number | undefined =
+      typeof p.opacity === 'number' ? (p.opacity as number) : undefined;
+    if (p.color.a !== undefined) {
+      if (typeof p.color.a !== 'number' || p.color.a < 0 || p.color.a > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', `${label}.color.a must be number 0..1`);
+      }
+      const colorA = p.color.a as number;
+      opacity = opacity !== undefined ? opacity * colorA : colorA;
+    }
     const out: import('../model/types.js').SolidPaint = {
       type: 'SOLID',
       color: { r: p.color.r as number, g: p.color.g as number, b: p.color.b as number },
       visible: p.visible as boolean | undefined,
-      opacity: p.opacity as number | undefined,
+      opacity,
       blendMode: p.blendMode as import('../model/types.js').SolidPaint['blendMode'],
     };
     return out;

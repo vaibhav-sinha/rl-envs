@@ -106,7 +106,7 @@ root.appendChild(text);
     tags: ['text', 'styledSegments'],
     needsFont: true,
     description:
-      'Mixed styledSegments with size, color, and hyperlink.\n\nExpected: two-tone text with underlined link span.',
+      'Mixed text ranges via setRangeFontSize, setRangeFills, and setRangeHyperlink.\n\nExpected: two-tone text with underlined link span.',
     body: `
 const text = figma.createText();
 text.characters = 'Big red link';
@@ -114,11 +114,10 @@ text.fontSize = 14;
 text.x = 120;
 text.y = 160;
 text.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.2, b: 0.25 } }];
-text.styledSegments = [
-  { start: 0, end: 3, fontSize: 24, fills: [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.1 } }] },
-  { start: 4, end: 7, fills: [{ type: 'SOLID', color: { r: 0.9, g: 0.1, b: 0.1 } }] },
-  { start: 8, end: 12, hyperlink: { type: 'URL', value: 'https://example.com' } },
-];
+text.setRangeFontSize(0, 3, 24);
+text.setRangeFills(0, 3, [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.1 } }]);
+text.setRangeFills(4, 7, [{ type: 'SOLID', color: { r: 0.9, g: 0.1, b: 0.1 } }]);
+text.setRangeHyperlink(8, 12, { type: 'URL', value: 'https://example.com' });
 root.appendChild(text);
 `,
   },
@@ -585,7 +584,7 @@ parent.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.91, b: 0.94 } }];
 const child = figma.createRectangle();
 child.resize(100, 40);
 child.y = 30;
-child.constraints = { horizontal: 'LEFT_RIGHT', vertical: 'MIN' };
+child.constraints = { horizontal: 'STRETCH', vertical: 'MIN' };
 child.fills = [{ type: 'SOLID', color: { r: 0.15, g: 0.45, b: 0.95 } }];
 parent.appendChild(child);
 root.appendChild(parent);
@@ -597,7 +596,8 @@ root.appendChild(parent);
     order: 27,
     tier: 'foundational',
     tags: ['layoutGrids'],
-    description: 'Column layout grid on frame.\n\nExpected: faint vertical grid columns visible.',
+    description:
+      'Column layout grid on frame (editor guide only).\n\nExpected: plain frame fill only; layout grids are not painted in Figma PNG export.',
     body: `
 const frame = figma.createFrame();
 frame.resize(400, 240);
@@ -605,7 +605,15 @@ frame.x = 40;
 frame.y = 60;
 frame.fills = [{ type: 'SOLID', color: { r: 0.96, g: 0.97, b: 0.99 } }];
 frame.layoutGrids = [
-  { pattern: 'COLUMNS', sectionSize: 80, gutterSize: 16, color: { r: 0, g: 0.3, b: 0.8, a: 0.15 } },
+  {
+    pattern: 'COLUMNS',
+    alignment: 'MIN',
+    sectionSize: 80,
+    gutterSize: 16,
+    count: 4,
+    offset: 16,
+    color: { r: 0, g: 0.3, b: 0.8, a: 0.15 },
+  },
 ];
 root.appendChild(frame);
 `,
@@ -624,10 +632,10 @@ row.x = 40;
 row.y = 150;
 const child = figma.createRectangle();
 child.resize(200, 40);
-child.minWidth = 80;
-child.maxWidth = 160;
 child.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.3, b: 0.85 } }];
 row.appendChild(child);
+child.minWidth = 80;
+child.maxWidth = 160;
 child.layoutSizingHorizontal = 'FILL';
 root.appendChild(row);
 `,

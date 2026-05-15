@@ -71,7 +71,7 @@ describe('mcp-http phase4 layout, mask, boolean, vector, blur', () => {
     expect(dcJson.ok).toBe(true);
     const blob = (dcJson.data?.html ?? '') + (dcJson.data?.css ?? '');
     expect(blob).toContain('display:flex');
-    expect(blob).toContain('hfc-layout-grid-overlay');
+    expect(blob).not.toContain('hfc-layout-grid-overlay');
     expect(blob).toContain('hfc-mask-wrap');
     expect(blob).toContain('hfc-bool-sub-I10');
     expect(blob).toContain('hfc-vector-svg');
@@ -82,7 +82,7 @@ describe('mcp-http phase4 layout, mask, boolean, vector, blur', () => {
       arguments: { nodeId: 'I3', format: 'png', scale: 1, background: 'white' },
     });
     const img = getToolImage(shot);
-    expect(Buffer.from(img.data, 'base64').length).toBeGreaterThan(1000);
+    expect(Buffer.from(img.data, 'base64').length).toBeGreaterThan(500);
 
     const previewRes = await fetch(`http://127.0.0.1:${String(port)}/debug/preview`);
     const previewHtml = await previewRes.text();

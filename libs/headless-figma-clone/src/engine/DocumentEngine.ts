@@ -38,6 +38,7 @@ import type { Logger } from '../util/logger.js';
 import type { EngineErrorCode } from '../util/errors.js';
 import { ValidationErr } from '../util/errors.js';
 import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } from './envelopeOps.js';
+import { normalizeLayoutGrids } from './figmaInterop.js';
 import { ENGINE_MATRIX, sceneShapeTypes } from './phase-matrix.js';
 import {
   applyLayoutSelfFromSpec,
@@ -414,20 +415,17 @@ function validateLayoutNumbers(f: FrameNode): void {
     }
   }
   if (f.layoutGrids !== undefined) {
-    if (!Array.isArray(f.layoutGrids)) throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids must be array');
-    for (let i = 0; i < f.layoutGrids.length; i++) {
-      const g = f.layoutGrids[i];
-      if (!g || typeof g !== 'object') throw new ValidationErr('VALIDATION_ERROR', `layoutGrids[${String(i)}] invalid`);
-      if (g.type !== 'COLUMNS') throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids: only COLUMNS supported');
-      if (typeof g.count !== 'number' || !Number.isInteger(g.count) || g.count < 1) {
-        throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids.count must be integer >= 1');
-      }
-      if (typeof g.gutter !== 'number' || !Number.isFinite(g.gutter) || g.gutter < 0) {
-        throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids.gutter must be finite >= 0');
-      }
-      if (g.color !== undefined) {
-        if (!isRecord(g.color)) throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids.color invalid');
-        validateRgb(g.color as { r: unknown; g: unknown; b: unknown }, `layoutGrids[${String(i)}].color`);
+    const grids = normalizeLayoutGrids(f.layoutGrids, f.width);
+    if (grids === undefined) {
+      delete f.layoutGrids;
+    } else {
+      f.layoutGrids = grids;
+      for (let i = 0; i < grids.length; i++) {
+        const g = grids[i]!;
+        if (g.color !== undefined) {
+          if (!isRecord(g.color)) throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids.color invalid');
+          validateRgb(g.color as { r: unknown; g: unknown; b: unknown }, `layoutGrids[${String(i)}].color`);
+        }
       }
     }
   }

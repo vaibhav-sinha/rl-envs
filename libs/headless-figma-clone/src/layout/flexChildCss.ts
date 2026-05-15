@@ -28,6 +28,31 @@ function sizingToFlexBasis(
   return `${String(axisSize)}px`;
 }
 
+/** Min/max constraints and flex main-axis shrink default for auto-layout children. */
+function flexMinMaxCss(node: LayoutSelfFields, isRow: boolean): string {
+  const parts: string[] = [];
+  const mainMin = isRow ? node.minWidth : node.minHeight;
+  const mainMax = isRow ? node.maxWidth : node.maxHeight;
+  const crossMin = isRow ? node.minHeight : node.minWidth;
+  const crossMax = isRow ? node.maxHeight : node.maxWidth;
+
+  if (mainMin !== undefined) {
+    parts.push(isRow ? `min-width:${String(mainMin)}px` : `min-height:${String(mainMin)}px`);
+  } else {
+    parts.push(isRow ? 'min-width:0' : 'min-height:0');
+  }
+  if (mainMax !== undefined) {
+    parts.push(isRow ? `max-width:${String(mainMax)}px` : `max-height:${String(mainMax)}px`);
+  }
+  if (crossMin !== undefined) {
+    parts.push(isRow ? `min-height:${String(crossMin)}px` : `min-width:${String(crossMin)}px`);
+  }
+  if (crossMax !== undefined) {
+    parts.push(isRow ? `max-height:${String(crossMax)}px` : `max-width:${String(crossMax)}px`);
+  }
+  return parts.length > 0 ? `${parts.join(';')};` : '';
+}
+
 /** Constraint CSS for non-flex (absolute) children relative to parent box. */
 export function constraintPositionCss(
   node: LayoutSelfFields & { x: number; y: number; width: number; height: number },
@@ -104,5 +129,5 @@ export function flexChildLayoutCss(
         : isRow
           ? `height:${String(crossSize)}px;`
           : `width:${String(crossSize)}px;`;
-  return `position:relative;left:0;top:0;flex:${String(grow)} ${String(shrink)} ${basisMain};min-width:0;${alignSelf}${crossDim}`;
+  return `position:relative;left:0;top:0;flex:${String(grow)} ${String(shrink)} ${basisMain};${flexMinMaxCss(n, !!isRow)}${alignSelf}${crossDim}`;
 }

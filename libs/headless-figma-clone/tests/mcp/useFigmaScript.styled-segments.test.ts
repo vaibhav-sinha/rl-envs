@@ -39,7 +39,7 @@ function findText(env: { document?: { children?: unknown[] } }): TextNode | unde
 }
 
 describe('useFigmaScript styledSegments', () => {
-  it('scenario 05: flat styledSegments before appendChild persist and compile', async () => {
+  it('scenario 05: setRange* before appendChild persist and compile', async () => {
     await withWs(async () => {
       const engine = new DocumentEngine({
         persistence: new JsonPersistence(),
@@ -65,6 +65,10 @@ describe('useFigmaScript styledSegments', () => {
       const text = findText(engine.getActiveFile()!);
       expect(text?.styledSegments).toHaveLength(3);
       expect(text?.styledSegments?.[0]?.style.fontSize).toBe(24);
+      expect(text?.styledSegments?.[0]?.style.fills?.[0]).toMatchObject({
+        type: 'SOLID',
+        color: { r: 0.1, g: 0.1, b: 0.1 },
+      });
       expect(text?.styledSegments?.[2]?.style.hyperlink).toEqual({
         type: 'URL',
         url: 'https://example.com',

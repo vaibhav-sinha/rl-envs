@@ -1,18 +1,15 @@
 import type {
   FontName,
-  LayoutConstraintHorizontal,
-  LayoutConstraintVertical,
   LayoutConstraints,
   LayoutPositioning,
   LayoutSelfFields,
   LayoutSizing,
 } from '../model/types.js';
 import { ValidationErr } from '../util/errors.js';
+import { normalizeLayoutConstraints } from './figmaInterop.js';
 
 const LAYOUT_SIZING = new Set<LayoutSizing>(['FIXED', 'HUG', 'FILL']);
 const LAYOUT_POSITIONING = new Set<LayoutPositioning>(['AUTO', 'ABSOLUTE']);
-const CONSTRAINT_H = new Set<LayoutConstraintHorizontal>(['MIN', 'CENTER', 'MAX', 'STRETCH', 'SCALE']);
-const CONSTRAINT_V = new Set<LayoutConstraintVertical>(['MIN', 'CENTER', 'MAX', 'STRETCH', 'SCALE']);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -35,17 +32,7 @@ export function validateLayoutPositioning(v: unknown, label: string): LayoutPosi
 }
 
 export function validateLayoutConstraints(v: unknown, label: string): LayoutConstraints | undefined {
-  if (v === undefined || v === null) return undefined;
-  if (!isRecord(v)) throw new ValidationErr('VALIDATION_ERROR', `${label} must be object`);
-  const h = v.horizontal;
-  const vert = v.vertical;
-  if (typeof h !== 'string' || !CONSTRAINT_H.has(h as LayoutConstraintHorizontal)) {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}.horizontal invalid`);
-  }
-  if (typeof vert !== 'string' || !CONSTRAINT_V.has(vert as LayoutConstraintVertical)) {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}.vertical invalid`);
-  }
-  return { horizontal: h as LayoutConstraintHorizontal, vertical: vert as LayoutConstraintVertical };
+  return normalizeLayoutConstraints(v, label);
 }
 
 export function validateFontName(v: unknown, label: string): FontName | undefined {

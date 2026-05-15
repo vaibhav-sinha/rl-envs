@@ -41,7 +41,6 @@ import type {
   TableNode,
   TextNode,
   TransformGroupNode,
-  SectionNode,
   SliceNode,
   VectorNode,
 } from '../model/types.js';
@@ -337,6 +336,7 @@ function measureScene(n: SceneNode, originX: number, originY: number): Bounds {
     maxX: absX + n.width,
     maxY: absY + n.height,
   };
+  if (n.type === 'SECTION') return b;
   const ch = sceneChildList(n);
   if (ch) {
     for (const c of ch) {
@@ -659,19 +659,6 @@ function frameFlexInnerStyle(f: FrameNode, env: FileEnvelope): string {
   return `display:flex;flex-direction:${dir};flex-wrap:${wrap};${gapCss}${alignContentCss}padding:${ptCss} ${prCss} ${pbCss} ${plCss};box-sizing:border-box;justify-content:${jc};align-items:${ai};`;
 }
 
-function layoutGridOverlayDiv(f: FrameNode): string {
-  const g0 = f.layoutGrids?.[0];
-  if (!g0 || g0.type !== 'COLUMNS' || g0.count < 1) return '';
-  const n = Math.max(1, Math.floor(g0.count));
-  const gutter = Math.max(0, g0.gutter);
-  const w = f.width;
-  const cell = (w - (n - 1) * gutter) / n;
-  const col = g0.color ? rgbaFromRgba(g0.color) : 'rgba(0,80,200,0.12)';
-  const period = cell + gutter;
-  const bg = `repeating-linear-gradient(90deg,${col} 0 1px,transparent 1px ${String(period)}px)`;
-  return `<div class="hfc-layout-grid-overlay hfc-grid-${f.id}" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:10;background-image:${bg};background-size:100% 100%;"></div>`;
-}
-
 function rectPathLocal(r: RectangleNode): string {
   const w = r.width;
   const h = r.height;
@@ -827,7 +814,24 @@ function emitTransformGroup(
     `.hfc-node-${tg.id}{${pos}width:${String(tg.width)}px;height:${String(tg.height)}px;box-sizing:border-box;${opRot}}`
   );
   for (const c of tg.children) {
-    emitScene(c, originX + tg.x, originY + tg.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env, tg.children);
+    emitScene(
+      c,
+      originX + tg.x,
+      originY + tg.y,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      false,
+      env,
+      tg.children,
+      undefined,
+      true
+    );
   }
   htmlParts.push('</div>');
 }
@@ -868,7 +872,24 @@ function emitMaskCluster(
     `<div class="hfc-masked-inner" style="position:absolute;left:0;top:0;width:${String(f.width)}px;height:${String(f.height)}px;mask:url(#${mid});-webkit-mask:url(#${mid});transform:translate(${String(-mx)}px,${String(-my)}px)">`
   );
   for (const c of masked) {
-    emitScene(c, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env, f.children);
+    emitScene(
+      c,
+      originX + f.x,
+      originY + f.y,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      false,
+      env,
+      f.children,
+      undefined,
+      true
+    );
   }
   htmlParts.push('</div></div>');
 }
@@ -903,7 +924,24 @@ function emitFrameChildren(
       emitMaskCluster(ch, masked, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, env);
       continue;
     }
-    emitScene(ch, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, flexInner, env, f.children, flexInner ? f : undefined);
+    emitScene(
+      ch,
+      originX + f.x,
+      originY + f.y,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      flexInner,
+      env,
+      f.children,
+      f,
+      !flexInner
+    );
     i++;
   }
 }
@@ -923,10 +961,15 @@ function emitScene(
   insideFlex: boolean,
   env: FileEnvelope,
   parentChildren: SceneNode[] | null,
-  parentFrame?: FrameNode
+  parentFrame?: FrameNode,
+  useParentCoords = false
 ): void {
-  const absX = originX + n.x + shiftX;
-  const absY = originY + n.y + shiftY;
+  if (n.type === 'SECTION') return;
+
+  const pageX = originX + n.x + shiftX;
+  const pageY = originY + n.y + shiftY;
+  const absX = useParentCoords ? n.x : pageX;
+  const absY = useParentCoords ? n.y : pageY;
   const zIndex = z.value++;
   const opRot = transformOpacityCss(n);
 
@@ -981,8 +1024,8 @@ function emitScene(
     const clip = overflowClipCss(f.clipsContent);
     const layered = frameNeedsLayeredBackground(f);
     const flex = frameUsesFlexCss(f);
-    const frameAbsX = originX + f.x + shiftX;
-    const frameAbsY = originY + f.y + shiftY;
+    const frameAbsX = pageX;
+    const frameAbsY = pageY;
 
     if (!layered) {
       htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
@@ -998,7 +1041,6 @@ function emitScene(
       } else {
         emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env);
       }
-      htmlParts.push(layoutGridOverlayDiv(f));
       htmlParts.push('</div>');
       return;
     }
@@ -1031,7 +1073,6 @@ function emitScene(
     } else {
       emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env);
     }
-    htmlParts.push(layoutGridOverlayDiv(f));
     htmlParts.push('</div>');
     return;
   }
@@ -1048,20 +1089,6 @@ function emitScene(
     cssParts.push(
       `.hfc-node-${s.id}{${pos}box-sizing:border-box;outline:1px dashed rgba(120,80,255,0.7);outline-offset:-1px;${opRot}}`
     );
-    htmlParts.push('</div>');
-    return;
-  }
-
-  if (n.type === 'SECTION') {
-    const sec = n as SectionNode;
-    const fill = sec.fills?.[0];
-    const fillCss = fillBackgroundStyles(fill, imgMap, patternTiles, warnings, `section_fill:${sec.id}`, env);
-    const pos = sceneChildPos(sec, insideFlex, absX, absY);
-    htmlParts.push(`<div class="hfc-node-${sec.id} hfc-section" data-hfc-id="${sec.id}" style="z-index:${String(zIndex)}">`);
-    cssParts.push(`.hfc-node-${sec.id}{${pos}box-sizing:border-box;${fillCss}${opRot}}`);
-    for (const ch of sec.children) {
-      emitScene(ch, originX + sec.x, originY + sec.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env, sec.children);
-    }
     htmlParts.push('</div>');
     return;
   }
@@ -1212,7 +1239,24 @@ function emitComponentInstance(
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
-  emitScene(root, originX + inst.x, originY + inst.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env, root.children);
+  emitScene(
+    root,
+    originX + inst.x,
+    originY + inst.y,
+    shiftX,
+    shiftY,
+    htmlParts,
+    cssParts,
+    z,
+    imgMap,
+    patternTiles,
+    warnings,
+    false,
+    env,
+    root.children,
+    undefined,
+    true
+  );
   htmlParts.push('</div>');
 }
 
@@ -1315,7 +1359,9 @@ function emitInstance(
         warnings,
         false,
         env,
-        root.children
+        root.children,
+        undefined,
+        true
       );
       htmlParts.push('</div>');
       return;
@@ -1393,7 +1439,9 @@ function emitInstance(
     warnings,
     false,
     env,
-    root.children
+    root.children,
+    undefined,
+    true
   );
   htmlParts.push('</div>');
 }
@@ -1424,8 +1472,8 @@ function emitRectangle(
   const radius = r.cornerRadius !== undefined ? `border-radius:${String(r.cornerRadius)}px;` : '';
   const pos = insideFlex
     ? sceneChildPos(r, insideFlex, absX, absY, parentFrame)
-    : r.constraints
-      ? constraintPositionCss(r, 200, 100)
+    : r.constraints && parentFrame
+      ? constraintPositionCss(r, parentFrame.width, parentFrame.height)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${r.id}" data-hfc-id="${r.id}" style="z-index:${String(zIndex)}">`);
   if (r.dashPattern?.length && stroke?.type === 'SOLID' && sw > 0) {

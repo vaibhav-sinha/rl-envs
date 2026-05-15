@@ -17,7 +17,15 @@ frame.x = 40;
 frame.y = 60;
 frame.fills = [{ type: 'SOLID', color: { r: 0.96, g: 0.97, b: 0.99 } }];
 frame.layoutGrids = [
-  { pattern: 'COLUMNS', sectionSize: 80, gutterSize: 16, color: { r: 0, g: 0.3, b: 0.8, a: 0.15 } },
+  {
+    pattern: 'COLUMNS',
+    alignment: 'MIN',
+    sectionSize: 80,
+    gutterSize: 16,
+    count: 4,
+    offset: 16,
+    color: { r: 0, g: 0.3, b: 0.8, a: 0.15 },
+  },
 ];
 root.appendChild(frame);
 return { rootId: root.id };
