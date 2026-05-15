@@ -76,7 +76,8 @@ export function constraintPositionCss(
     parts.push(`left:${String(node.x)}px`, `right:${String(Math.max(0, parentW - node.x - node.width))}px`);
     if (h !== 'STRETCH') parts.push(`width:${String(node.width)}px`);
   } else if (h === 'CENTER') {
-    parts.push(`left:50%`, `margin-left:${String(node.x + node.width / 2 - parentW / 2)}px`, `width:${String(node.width)}px`);
+    // `left:50%` places the child's left edge at the parent's horizontal midpoint; offset by Figma x from that point.
+    parts.push(`left:50%`, `margin-left:${String(node.x - parentW / 2)}px`, `width:${String(node.width)}px`);
   } else if (h === 'MAX') {
     parts.push(`right:${String(Math.max(0, parentW - node.x - node.width))}px`, `width:${String(node.width)}px`);
   } else {
@@ -86,7 +87,8 @@ export function constraintPositionCss(
     parts.push(`top:${String(node.y)}px`, `bottom:${String(Math.max(0, parentH - node.y - node.height))}px`);
     if (v !== 'STRETCH') parts.push(`height:${String(node.height)}px`);
   } else if (v === 'CENTER') {
-    parts.push(`top:50%`, `margin-top:${String(node.y + node.height / 2 - parentH / 2)}px`, `height:${String(node.height)}px`);
+    // `top:50%` places the child's top edge at the parent's vertical midpoint; offset by Figma y from that point.
+    parts.push(`top:50%`, `margin-top:${String(node.y - parentH / 2)}px`, `height:${String(node.height)}px`);
   } else if (v === 'MAX') {
     parts.push(`bottom:${String(Math.max(0, parentH - node.y - node.height))}px`, `height:${String(node.height)}px`);
   } else {
