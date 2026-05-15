@@ -1,6 +1,6 @@
 import type { FileEnvelope } from '../model/types.js';
 
-export type DesignSystemHitKind = 'variable' | 'textStyle' | 'paintStyle' | 'component';
+export type DesignSystemHitKind = 'variable' | 'textStyle' | 'paintStyle' | 'effectStyle' | 'gridStyle' | 'component';
 
 export interface DesignSystemHit {
   kind: DesignSystemHitKind;
@@ -26,7 +26,9 @@ const KIND_ORDER: Record<DesignSystemHitKind, number> = {
   variable: 0,
   textStyle: 1,
   paintStyle: 2,
-  component: 3,
+  effectStyle: 3,
+  gridStyle: 4,
+  component: 5,
 };
 
 function compareHits(a: DesignSystemHit, b: DesignSystemHit): number {
@@ -70,6 +72,16 @@ export function searchDesignSystem(env: FileEnvelope, query: string, limit: numb
     const sc = qLower === '' ? 1 : scoreForMatch(s.name, qLower);
     if (sc <= 0 && qLower !== '') continue;
     hits.push({ kind: 'paintStyle', id: s.id, name: s.name, score: sc });
+  }
+  for (const s of env.effectStyles ?? []) {
+    const sc = qLower === '' ? 1 : scoreForMatch(s.name, qLower);
+    if (sc <= 0 && qLower !== '') continue;
+    hits.push({ kind: 'effectStyle', id: s.id, name: s.name, score: sc });
+  }
+  for (const s of env.gridStyles ?? []) {
+    const sc = qLower === '' ? 1 : scoreForMatch(s.name, qLower);
+    if (sc <= 0 && qLower !== '') continue;
+    hits.push({ kind: 'gridStyle', id: s.id, name: s.name, score: sc });
   }
   for (const c of env.components ?? []) {
     const sc = qLower === '' ? 1 : scoreForMatch(c.name, qLower);

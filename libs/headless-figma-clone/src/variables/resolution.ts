@@ -27,36 +27,81 @@ export function findVariableDefinition(
   return null;
 }
 
+/** Effective definition for resolution (follows one level of alias chain). */
+function effectiveVariableForResolution(
+  env: FileEnvelope,
+  variableId: string,
+  depth = 0
+): { collection: VariableCollection; variable: VariableDefinition } | null {
+  if (depth > 32) return null;
+  const hit = findVariableDefinition(env, variableId);
+  if (!hit) return null;
+  const alias = hit.variable.aliasOfVariableId;
+  if (!alias) return hit;
+  return effectiveVariableForResolution(env, alias, depth + 1);
+}
+
 export function resolveVariableValue(
   env: FileEnvelope,
   variableId: string
 ): VariableResolvedValue | null {
-  const hit = findVariableDefinition(env, variableId);
+  const hit = effectiveVariableForResolution(env, variableId);
   if (!hit) return null;
   const modeId = activeModeIdForCollection(env, hit.collection);
   return hit.variable.valuesByMode[modeId] ?? null;
 }
 
 export function resolveVariableToRgb(env: FileEnvelope, variableId: string): RGB | null {
-  const hit = findVariableDefinition(env, variableId);
+  const hit = effectiveVariableForResolution(env, variableId);
   if (!hit || hit.variable.resolvedType !== 'COLOR') return null;
   const val = resolveVariableValue(env, variableId);
   if (!val || val.type !== 'COLOR') return null;
   return val.color;
 }
 
-/** `:root { --hfc-var-… }` declarations for COLOR variables in the active mode. */
+export function resolveVariableToFloat(env: FileEnvelope, variableId: string): number | null {
+  const hit = effectiveVariableForResolution(env, variableId);
+  if (!hit || hit.variable.resolvedType !== 'FLOAT') return null;
+  const val = resolveVariableValue(env, variableId);
+  if (!val || val.type !== 'FLOAT') return null;
+  return val.value;
+}
+
+export function resolveVariableToStringValue(env: FileEnvelope, variableId: string): string | null {
+  const hit = effectiveVariableForResolution(env, variableId);
+  if (!hit || hit.variable.resolvedType !== 'STRING') return null;
+  const val = resolveVariableValue(env, variableId);
+  if (!val || val.type !== 'STRING') return null;
+  return val.value;
+}
+
+/** `:root { --hfc-var-… }` declarations for COLOR + FLOAT variables in the active mode (FLOAT emitted as px for layout CSS). */
 export function buildRootCssVariableBlock(env: FileEnvelope): string {
   const parts: string[] = [];
   for (const col of env.variableCollections ?? []) {
     const modeId = activeModeIdForCollection(env, col);
     for (const v of col.variables) {
-      if (v.resolvedType !== 'COLOR') continue;
-      const raw = v.valuesByMode[modeId];
-      if (!raw || raw.type !== 'COLOR') continue;
-      const { r, g, b } = raw.color;
-      const css = `rgba(${String(Math.round(r * 255))},${String(Math.round(g * 255))},${String(Math.round(b * 255))},1)`;
-      parts.push(`${cssVarNameForVariable(v.id)}:${css};`);
+      if (v.aliasOfVariableId) continue;
+      if (v.resolvedType === 'COLOR') {
+        const raw = v.valuesByMode[modeId];
+        if (!raw || raw.type !== 'COLOR') continue;
+        const { r, g, b } = raw.color;
+        const css = `rgba(${String(Math.round(r * 255))},${String(Math.round(g * 255))},${String(Math.round(b * 255))},1)`;
+        parts.push(`${cssVarNameForVariable(v.id)}:${css};`);
+        continue;
+      }
+      if (v.resolvedType === 'FLOAT') {
+        const raw = v.valuesByMode[modeId];
+        if (!raw || raw.type !== 'FLOAT') continue;
+        parts.push(`${cssVarNameForVariable(v.id)}:${String(raw.value)}px;`);
+        continue;
+      }
+      if (v.resolvedType === 'STRING') {
+        const raw = v.valuesByMode[modeId];
+        if (!raw || raw.type !== 'STRING') continue;
+        const esc = JSON.stringify(raw.value);
+        parts.push(`${cssVarNameForVariable(v.id)}:${esc};`);
+      }
     }
   }
   if (!parts.length) return '';
