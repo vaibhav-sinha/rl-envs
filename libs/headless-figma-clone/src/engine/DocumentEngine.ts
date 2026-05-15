@@ -60,7 +60,8 @@ export type NewNodeSpec =
   | (Omit<BooleanOperationNode, 'id' | 'children'> & { type: 'BOOLEAN_OPERATION'; children?: SceneNode[] })
   | (Omit<TransformGroupNode, 'id' | 'children'> & { type: 'TRANSFORM_GROUP'; children?: SceneNode[] })
   | Omit<TableNode, 'id'>
-  | Omit<ComponentInstanceNode, 'id'>;
+  | Omit<ComponentInstanceNode, 'id'>
+  | (Omit<PageNode, 'id' | 'children'> & { type: 'PAGE' });
 
 export type EngineOperation =
   | { op: 'createNode'; parentId: string; index?: number; node: NewNodeSpec }
@@ -884,6 +885,19 @@ function normalizeNewComponentInstance(
   return n;
 }
 
+function normalizeNewPage(spec: Extract<NewNodeSpec, { type: 'PAGE' }>, id: string): PageNode {
+  return {
+    id,
+    type: 'PAGE',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Page',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 0,
+    height: typeof spec.height === 'number' ? spec.height : 0,
+    children: [],
+  };
+}
+
 function normalizeNewBooleanOperation(
   spec: Extract<NewNodeSpec, { type: 'BOOLEAN_OPERATION' }>,
   id: string,
@@ -1003,9 +1017,16 @@ function detachSubtree(root: DocumentNode, nodeId: string): SceneNode {
   return node;
 }
 
-function attachSceneNode(root: DocumentNode, parentId: string, index: number | undefined, node: SceneNode): void {
+function attachSceneNode(root: DocumentNode, parentId: string, index: number | undefined, node: PageNode | SceneNode): void {
   const parent = findNode(root, parentId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown parent ${parentId}`);
+  if (parent.type === 'DOCUMENT') {
+    if (node.type !== 'PAGE') {
+      throw new ValidationErr('VALIDATION_ERROR', `Cannot attach ${node.type} under DOCUMENT`);
+    }
+    insertAt(parent.children, index, node as PageNode);
+    return;
+  }
   if (parent.type === 'PAGE') {
     insertAt(parent.children, index, node);
     return;
@@ -1033,7 +1054,7 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<EngineOpera
   }
   const id = `I${String(working.nextInternalId)}`;
   working.nextInternalId += 1;
-  let node: SceneNode;
+  let node: PageNode | SceneNode;
   if (op.node.type === 'FRAME') {
     node = normalizeNewFrame(op.node, id, working);
   } else if (op.node.type === 'TEXT') {
@@ -1058,11 +1079,62 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<EngineOpera
     node = normalizeNewTable(op.node, id, working);
   } else if (op.node.type === 'COMPONENT_INSTANCE') {
     node = normalizeNewComponentInstance(op.node, id, working);
+  } else if (op.node.type === 'PAGE') {
+    node = normalizeNewPage(op.node, id);
   } else {
     throw new ValidationErr('VALIDATION_ERROR', `Unsupported node type ${(op.node as { type: string }).type}`);
   }
   attachSceneNode(working.document, op.parentId, op.index, node);
   return id;
+}
+
+/** Resolve a node in an in-memory envelope (document tree). */
+export function findEnvelopeNode(working: FileEnvelope, nodeId: string): AnyTreeNode | null {
+  return findNode(working.document, nodeId);
+}
+
+/**
+ * Applies one validated engine operation to a working envelope (mutates).
+ * Used by {@link DocumentEngine.applyTransaction} and the `use_figma` script sandbox for in-memory consistency.
+ */
+export function applyEngineOp(working: FileEnvelope, op: EngineOperation): string | undefined {
+  if (op.op === 'createNode') {
+    return applyCreateNodeOp(working, op);
+  }
+  if (op.op === 'updateNode') {
+    const node = findNode(working.document, op.nodeId);
+    if (!node) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${op.nodeId}`);
+    const matrix = ENGINE_MATRIX.patchKeysByType as Record<string, Set<string> | undefined>;
+    const allowed = matrix[node.type];
+    if (!allowed) throw new ValidationErr('UNSUPPORTED_OPERATION', `Patches on ${node.type} not supported`);
+    const patch: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(op.patch)) {
+      if (EXCLUDED_PATCH_KEYS.has(k)) {
+        throw new ValidationErr('VALIDATION_ERROR', `Forbidden key in patch: ${k}`);
+      }
+      if (!allowed.has(k)) {
+        throw new ValidationErr('UNSUPPORTED_PROPERTY', `Unsupported patch key: ${k}`);
+      }
+      patch[k] = v;
+    }
+    applyPatch(working, node, patch);
+    return undefined;
+  }
+  if (op.op === 'deleteNode') {
+    removeNodeById(working.document, op.nodeId);
+    return undefined;
+  }
+  if (op.op === 'moveNode') {
+    const subtree = detachSubtree(working.document, op.nodeId);
+    const newParent = findNode(working.document, op.newParentId);
+    if (!newParent) throw new ValidationErr('UNKNOWN_NODE', `Unknown new parent ${op.newParentId}`);
+    if (!parentAllowsChild(newParent.type, subtree.type)) {
+      throw new ValidationErr('VALIDATION_ERROR', `Cannot move ${subtree.type} under ${newParent.type}`);
+    }
+    attachSceneNode(working.document, op.newParentId, op.index, subtree);
+    return undefined;
+  }
+  return undefined;
 }
 
 function defaultWorkspaceDir(): string {
@@ -1347,37 +1419,16 @@ export class DocumentEngine {
     try {
       for (const op of ops) {
         if (op.op === 'createNode') {
-          const id = applyCreateNodeOp(working, op);
-          touched.add(id);
+          const id = applyEngineOp(working, op);
+          if (id) touched.add(id);
         } else if (op.op === 'updateNode') {
-          const node = findNode(working.document, op.nodeId);
-          if (!node) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${op.nodeId}`);
-          const matrix = ENGINE_MATRIX.patchKeysByType as Record<string, Set<string> | undefined>;
-          const allowed = matrix[node.type];
-          if (!allowed) throw new ValidationErr('UNSUPPORTED_OPERATION', `Patches on ${node.type} not supported`);
-          const patch: Record<string, unknown> = {};
-          for (const [k, v] of Object.entries(op.patch)) {
-            if (EXCLUDED_PATCH_KEYS.has(k)) {
-              throw new ValidationErr('VALIDATION_ERROR', `Forbidden key in patch: ${k}`);
-            }
-            if (!allowed.has(k)) {
-              throw new ValidationErr('UNSUPPORTED_PROPERTY', `Unsupported patch key: ${k}`);
-            }
-            patch[k] = v;
-          }
-          applyPatch(working, node, patch);
-          touched.add(node.id);
+          applyEngineOp(working, op);
+          touched.add(op.nodeId);
         } else if (op.op === 'deleteNode') {
-          removeNodeById(working.document, op.nodeId);
+          applyEngineOp(working, op);
           touched.add(op.nodeId);
         } else if (op.op === 'moveNode') {
-          const subtree = detachSubtree(working.document, op.nodeId);
-          const newParent = findNode(working.document, op.newParentId);
-          if (!newParent) throw new ValidationErr('UNKNOWN_NODE', `Unknown new parent ${op.newParentId}`);
-          if (!parentAllowsChild(newParent.type, subtree.type)) {
-            throw new ValidationErr('VALIDATION_ERROR', `Cannot move ${subtree.type} under ${newParent.type}`);
-          }
-          attachSceneNode(working.document, op.newParentId, op.index, subtree);
+          applyEngineOp(working, op);
           touched.add(op.nodeId);
         }
       }

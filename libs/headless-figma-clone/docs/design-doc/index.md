@@ -6,7 +6,7 @@ This folder is the **normative implementation specification** for the headless F
 
 1. Read [Overview and normative decisions](./overview.md) first (transport, ID scheme, metadata format, transactional rules).
 2. Follow the dependency order in the diagram below for implementation.
-3. Use [Five-phase implementation and testing plan](./implementation-plan-phases.md) as the delivery checklist; it links to manual MCP procedures and automated tests.
+3. Use [Nine-phase implementation and testing plan](./implementation-plan-phases.md) as the delivery checklist; it links to manual MCP procedures and automated tests.
 
 ## Document map
 
@@ -26,7 +26,7 @@ This folder is the **normative implementation specification** for the headless F
 | [Observability, errors, and logging](./observability.md) | Structured logs, error codes, warnings array |
 | [Security (local service)](./security.md) | `upload_assets`, bind address, path traversal |
 | [Automated testing](./testing.md) | Test matrix, fixtures, golden screenshots, required suites, `node --test` command |
-| [Five-phase implementation and testing plan](./implementation-plan-phases.md) | Per-phase code deliverables, exit criteria, automated + manual verification |
+| [Nine-phase implementation and testing plan](./implementation-plan-phases.md) | Per-phase code deliverables, exit criteria, automated + manual verification |
 
 See also: [`../../tests/README.md`](../../tests/README.md) for running **Layer A** tests today.
 

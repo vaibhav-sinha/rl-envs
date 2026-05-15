@@ -1,14 +1,25 @@
-# Five-phase implementation and testing plan
+# Nine-phase implementation and testing plan
 
 [← Design index](./index.md) · [PRD phased roadmap](../prd/phased-roadmap.md)
 
 This document is the **delivery contract**. Each phase lists **exact code artifacts**, **behavior changes**, **automated tests to add or extend**, and **manual verification** steps.
 
-Global rules (all phases):
+## Global rules
 
-- No `pluginData`, Dev Mode, prototyping, video paints, remote libraries, `EMBED`, `LINK_UNFURL`.
+### Phases 1–6 (baseline product)
+
+- No `pluginData`, Dev Mode, prototyping, video paints, **remote team-library import** (`import*ByKeyAsync` against Figma cloud), `EMBED`, `LINK_UNFURL`.
 - Mutations are **transactional**; failed batch leaves disk unchanged.
 - JSON save is **atomic** ([Persistence](./persistence.md)).
+- **Figma Design only** for canvas features (no FigJam / Slides / Buzz-only nodes or tools) unless a later phase explicitly scopes an exception.
+
+### Phases 7–9 (Plugin API parity track)
+
+These phases deliberately **expand** the `figma` / engine surface toward [Plugin API `figma` global](../figma-plugin-api/docs/plugins/api/figma.md) parity for **local file** workflows. The following **remain excluded** (see also [library README](../../README.md)):
+
+- **Still out:** `pluginData` / `sharedPluginData` / `relaunchData`, Dev Mode (`codegen`, `vscode`, `devResources`, Inspect-only flows), prototyping / reactions, **video** paints and video nodes, **`EMBED`** / **`LINK_UNFURL`**, **subscribed remote team libraries** and **`importComponentByKeyAsync` / `importStyleByKeyAsync` / `importVariableByKeyAsync`** against cloud keys (offline clone cannot authenticate as Figma).
+- **Network (opt-in only):** `createImageAsync(url)` and sandbox **`fetch`** are allowed **only** if the host enables an explicit policy (e.g. env flag + URL allowlist / SSRF guards). Default remains **bytes-only** `createImage` / `upload_assets` with no outbound network from the plugin VM.
+- **FigJam / Slides / Buzz-only APIs** (`createSticky`, `createConnector`, `createSlide`, canvas grid for Slides, `timer`, …) stay **unimplemented** unless the product explicitly adopts those editors (contradicts current PRD **Figma Design only**).
 
 ---
 
@@ -466,9 +477,237 @@ Extend **`tests/search/design-system.text.test.ts`**: rank stability, pagination
 
 ---
 
+## Phase 6 — `use_figma` script parity with engine + JSON operations
+
+### Objectives
+
+Close the gap where the document **engine** and legacy **`operations`** batch already support behavior, but the sandbox **`code`** path (`src/mcp/useFigmaScript.ts`) does not expose it on the `figma` global or on runtime node classes. After Phase 6, any mutation expressible via **`ENGINE_MATRIX`** / `useFigmaMap` **createNode** + **updateNode** + **deleteNode** + **moveNode** for allowed types should also be reachable from **Plugin-API-shaped script** (within existing global rules: no `pluginData`, no remote libraries, no Dev Mode UI, etc.).
+
+This phase is **not** about implementing the full Figma Plugin API surface beyond what the **existing engine matrix** already supports (fonts, full `figma.variables`, `showUI`, remote team library import, `createAutoLayout`, FigJam-only factories, etc.)—**Phases 7–9** cover that broader parity; Phase 6 only bridges **script vs `operations`** for the **current** matrix.
+
+### Code artifacts
+
+| Area | Add/change |
+|------|------------|
+| `src/mcp/useFigmaScript.ts` | **Factories:** `figma.createRectangle`, `createLine`, `createEllipse`, `createPolygon`, `createStar`, and a way to create **`BOOLEAN_OPERATION`** subtrees consistent with the engine (prefer **`figma.union` / `subtract` / `intersect` / `exclude`** as in [figma.md](../figma-plugin-api/docs/plugins/api/figma.md) over deprecated `createBooleanOperation`). **Discovery + mutation:** `figma.getNodeById` and `figma.getNodeByIdAsync` returning **script-bound handles** that mirror live nodes: read/write typed fields allowed by `ENGINE_MATRIX.patchKeysByType`, **`remove()`** → `deleteNode`, **`insertChild` / reorder** where Figma allows, and **reparent** via `moveNode` (or parent `appendChild` that performs detach+attach, matching Figma semantics). **Root/pages:** `figma.root` should expose `DocumentNode`-like access (at minimum `id` + children pages) so scripts can target `DOCUMENT` as parent when adding pages, if engine supports it (see binding below). |
+| Runtime classes (`Runtime*`, add `RuntimeEllipse`, `RuntimeLine`, `RuntimePolygon`, `RuntimeStar`, `RuntimeBooleanOperation`, … as needed) | Extend **`toNewNodeSpec()`** and mutable fields so **every** patchable key in **`ENGINE_MATRIX`** (`src/engine/phase-matrix.ts`) for script-created nodes is settable **before first append** and, via handles, **after** attach: e.g. **`isMask`**, **`layoutAlign`**, **`layoutGrow`**, **`minWidth` / `maxWidth` / `minHeight` / `maxHeight`** on all types where the matrix allows; **`strokeAlign`**, **`strokeCap`**, **`strokeJoin`**, **`miterLimit`**, **`fillStyleId`** on **`RuntimeRectangle`**; full **stroke + path** fields on **`RuntimeVector`** (not only `fills`); **`textOnPath`**, **`textStyleId`** on **`RuntimeText`**; **`arcData`** on ellipse, **`pointCount`** / **`innerRadius`** on polygon/star where applicable. Align **`figma.createTable`** signature with Figma’s optional `(rows?, cols?)` if practical. |
+| `src/mcp/useFigmaMap.ts` / `src/engine/phase-matrix.ts` / `DocumentEngine.ts` | **Binding — new pages:** Reference Figma exposes **`figma.createPage()`**. If the engine does not yet allow **`createNode`** with parent **`DOCUMENT`** and child **`PAGE`**, Phase 6 **extends** the matrix + validation + `CREATE_NODE_TYPES` (or equivalent) so scripts and JSON can append pages consistently; enforce “at least one page” invariant on delete. If already supported, document and add tests only. |
+| `docs/design-doc/tools-schemas.md` | Update the **`use_figma` / script path** section: list Phase-6 `figma` members and the handle model (`getNodeById`, mutation methods) so agent prompts and skills stay accurate. |
+| `docs/design-doc/document-engine.md` | Cross-link Phase 6; note that script and **`operations`** paths must stay **capability-equivalent** for the supported subset. |
+
+### Behavioral specifications
+
+- **Single transaction:** The script still runs to completion; all handle mutations queue **`EngineOperation`** entries; the host applies **one** `applyTransaction` batch (same as today). No partial apply on validation failure.
+- **Stale handles:** If a queued `deleteNode` removes a node, subsequent ops on that id fail with a **stable** error code (document choice: e.g. `UNKNOWN_NODE` or `VALIDATION_ERROR` with message prefix); tests must lock this behavior.
+- **Boolean helpers:** `union` / `subtract` / `intersect` / `exclude` accept operand collections + parent + optional index, produce a **`BOOLEAN_OPERATION`** (or reparent into an existing one per Figma contract—pick one model and test it); operand types must match **`ENGINE_MATRIX`** (`BOOLEAN_OPERATION` children: rectangle, ellipse, polygon, star, vector only).
+- **Parity check:** For each property in `ENGINE_MATRIX.patchKeysByType` for types creatable from script, either (a) the property is settable on the runtime class before append, or (b) settable on the post-`getNodeById` handle after append, or (c) explicitly documented as **script-excluded** with rationale (should be empty after Phase 6 exit).
+
+### Test plan (comprehensive)
+
+Phase 6 tests prove **equivalence**: the same document state can be reached via **`operations`** or via **`code`**, and **`get_design_context`** / **`get_metadata`** outputs match (normalized) where the phase matrix allows.
+
+#### Coverage goals (map features → tests)
+
+| Feature area | Script API | Engine | Integration (MCP) |
+|--------------|------------|--------|---------------------|
+| Shape factories | `createRectangle`, `createLine`, `createEllipse`, `createPolygon`, `createStar` | same `NewNodeSpec` as JSON `createNode` | dual-path test vs operations |
+| Mask + layout-self fields | set on frame/text/shape before append + via handle | `updateNode` / create payload | compile: mask CSS/SVG unchanged vs ops path |
+| Text extras | `textOnPath`, `textStyleId` on script + handle | validation vs styles / path node | `get_design_context` substring or snapshot |
+| Stroke completeness | rect + vector strokes, caps, joins, align | matrix keys | compiler snapshot parity |
+| Booleans | `figma.union` (and siblings) | `BOOLEAN_OPERATION` | same subtree as JSON-created boolean |
+| Structural edits | `remove`, move/reparent, property patch | `deleteNode`, `moveNode`, `updateNode` | round-trip + error on stale id |
+| Pages | `createPage` (if engine extended) + patch page fields via handle | `createNode` / `updateNode` | metadata + `currentPage` switch |
+
+#### Layer A — Unit tests (`useFigmaScript`)
+
+| Test file | Assertion |
+|-----------|-----------|
+| `tests/mcp/useFigmaScript.phase6.factories.test.ts` (new) | Each `figma.create*` returns detached nodes; `appendChild` yields ids; specs match engine expectations for defaults (e.g. polygon `pointCount`, star `innerRadius`). |
+| `tests/mcp/useFigmaScript.phase6.handles.test.ts` (new) | `getNodeById` returns handle for existing fixture node; assign patch keys → queued `updateNode` ops; `remove()` queues `deleteNode`; reparent queues `moveNode`; stale handle throws/errors as specified. |
+| `tests/mcp/useFigmaScript.phase6.booleans.test.ts` (new) | `union`/`subtract`/… on ≥2 operands produces same op sequence or equivalent tree as golden JSON builder helper. |
+
+#### Layer B — Compiler / design-context parity (no new compile features required)
+
+| Test file | Assertion |
+|-----------|-----------|
+| Extend **`tests/compiler/phase1-compile-html-exact.test.ts`** or add **`tests/compiler/script-vs-ops-parity.test.ts`** | For a fixed harness tree: build once via **normalized `operations`**, once via **`runUseFigmaScript`**, compare **normalized** `get_design_context` output (or compiled HTML/CSS helper) — must be identical modulo documented ordering. |
+
+#### Layer C — MCP HTTP integration
+
+Add **`tests/integration/mcp-http.phase6.script-parity.test.ts`**:
+
+1. **`create_new_file`** or **`open_file`** on a small harness fixture.
+2. Build target tree A using **`use_figma` `operations`** only; capture `touchedNodeIds`, persist path if applicable.
+3. Reset file (new file or reload fixture); build tree B using **`use_figma` `code`** only; assert same **`get_metadata`** shape (ids may differ—use **structural** equality: types, parent-child shape, bounds) **or** normalize ids in test by returning a mapping from script `result`.
+4. **`get_design_context`** on equivalent roots: **snapshot or deep-equal** normalized HTML/CSS (same policy as Phase 2 “operations vs code converge”).
+5. Negative: `getNodeById` unknown id → `null` or rejected per chosen API; delete then mutate → stable error.
+
+#### Manual verification
+
+1. Run a script that creates **`RECTANGLE`** + **`BOOLEAN_OPERATION`** via **`figma.subtract`**, sets **`isMask`** on a child, edits **`textOnPath`**, then **`remove()`**s a node; reload file and confirm structure in JSON.
+2. Compare **`get_design_context`** side-by-side with an **`operations`**-only batch that encodes the same intent.
+
+### Exit criteria
+
+- **`tests/mcp/useFigmaScript.phase6.*.test.ts`** green: factories, handles, booleans.
+- **`tests/integration/mcp-http.phase6.script-parity.test.ts`** green: **operations** vs **`code`** produce **equivalent** compiled design context for the harness cases (masks, booleans, strokes, text path/style ids, layout-self fields as applicable).
+- **`docs/design-doc/tools-schemas.md`** updated so the script path documents the Phase-6 `figma` surface and handle semantics.
+- **Parity audit closed:** no remaining `ENGINE_MATRIX` patch key for script-supported types that is only JSON-reachable unless explicitly deferred with rationale in this doc (should be none at exit).
+
+---
+
+## Phase 7 — Document traversal & graph ops, geometry & auto-layout sizing, assets & fonts, node factories
+
+### Objectives
+
+Implement **Figma Design–relevant** Plugin API behavior that was previously absent: **tree traversal and graph-level mutations**, **layout / constraints / sizing parity** with Figma’s auto-layout child model, **boolean combine helpers** beyond minimal `BOOLEAN_OPERATION` authoring, **fonts** and **images** (`figma` “Other” section subset), and **additional node factories** from [figma.md § Nodes](../figma-plugin-api/docs/plugins/api/figma.md). Deliverables must be wired through **`use_figma` script (`code`)**, **`operations`**, and the **engine/compiler/metadata** so agents never depend on a “JSON-only” secret path.
+
+### Plugin API / docs checklist (nothing missed)
+
+| Area | APIs / concepts (reference) | Implementation notes |
+|------|-----------------------------|------------------------|
+| **Traversal** | `getNodeById` / `getNodeByIdAsync` (if not already complete in Phase 6, extend); `DocumentNode` / `PageNode` **findAll**, **findOne**, **findAllWithCriteria**; optional **`loadAllPagesAsync`** (no-op or full load—**document** behavior; align with `documentAccess: dynamic-page` semantics only if you introduce lazy pages). | Implement on `figma.root` and pages; criteria matcher subset must match Figma’s documented criteria shapes or throw **`VALIDATION_ERROR`** with stable messages. |
+| **Selection** | `figma.currentPage.selection` read/write; `readonly` mixed selection rules; `figma.currentPage` setter where applicable. | Selection is **in-memory** only unless persisted in envelope—**decide and document** (recommend: persist optional `selectionByPageId` in `FileEnvelope` or ephemeral-only; tests lock choice). |
+| **Node graph mutations** | `node.remove()`, `insertChild`, `insertBefore`, `appendChild`/`prepend` ordering, `clone` (if in scope), **`figma.group`**, **`figma.ungroup`**, **`figma.flatten`**, **`figma.transformGroup`** (modifiers subset per typings). | Map **group** to Figma semantics: either introduce a **`GROUP`** node type in model + matrix + compiler **or** document mapping to **`TRANSFORM_GROUP`** / `FRAME` with explicit differences from Figma **group** auto-resize; **ungroup** / **flatten** must round-trip without orphan ids. Queue ops in one transaction per script batch. |
+| **Boolean helpers** | `union`, `subtract`, `intersect`, `exclude` (already started Phase 6—**complete** parity with operand reparenting, z-order, and **flatten** output as `VECTOR` where Figma returns vector). | Align engine rules with Figma order of operands; compiler warnings for simplified ops must be **enumerated**; add tests for each op + **flatten**. |
+| **Auto-layout child sizing** | `layoutSizingHorizontal`, `layoutSizingVertical`, `layoutPositioning`; frame `primaryAxisSizingMode`, `counterAxisSizingMode` (HUG / FIXED / FILL semantics per typings). | Extend **`types.ts`**, **`phase-matrix.ts`**, **layout resolver** (`DocumentEngine` / layout module), and **DesignCompiler** flex child rules; update **`ENGINE_MATRIX`** patch + create keys. |
+| **Layout / geometry** | **Constraints** (`LayoutConstraint` horizontal/vertical: `MIN`/`CENTER`/`MAX`/`STRETCH`/`SCALE` subset as supported); **`relativeTransform`** / **`absoluteTransform`** (at minimum **read** for agents; **write** via assignments Figma allows on node mixins—**no** `relaunchData`); **`resizeWithoutConstraints`** on nodes that expose it in the typings. | Persist constraints on nodes where Figma attaches them; compiler maps to **percentage** or **absolute** CSS per binding doc; document unsupported constraint combos as errors vs silent clamp. |
+| **Fonts** | `listAvailableFontsAsync`, `loadFontAsync`, `hasMissingFont`. | **No Figma cloud font list:** implement deterministic catalog (bundled font manifest + optional OS discovery behind flag) and **`loadFontAsync`** that registers face for Playwright screenshot + design context; `hasMissingFont` derives from `TEXT` nodes vs loaded set. |
+| **Images** | `createImage` (bytes), `createImageAsync` (src string—**gated network**), `getImageByHash`; **`figma.base64Encode`**, **`figma.base64Decode`**. | Wire `Image` handle type in script; integrate with existing **`AssetRegistry`**; **`createImageAsync`**: reject by default unless host policy allows; SSRF-safe fetcher. |
+| **Sandbox globals** | Plugin global **`fetch`** (same policy as `createImageAsync`). | Optional `fetch` in `AsyncFunction` scope or `figma` namespace per security review. |
+| **Node factories (Design)** | `createSlice`, `createSection`, `createTextPath`, **`createAutoLayout`** (MCP parity: frame with layout preset), **`createNodeFromSvg`** (bounded SVG import), **`createPageDivider`** / `isPageDivider` on page, any **`create*`** still missing for Design that Phase 6 did not add. | **Exclude** FigJam-only (`createSticky`, `createConnector`, `createTable` origin note: Figma marks table as FigJam in docs—**if** product keeps `TABLE` for Design agents, document dual semantics). **Exclude** Slides/Buzz (`createSlide`, …). |
+
+### Code artifacts (representative)
+
+| Area | Add/change |
+|------|------------|
+| `src/model/types.ts` | New fields: constraints, layout sizing modes, new node types **`SLICE`**, **`SECTION`** (and **`GROUP`** if chosen), `isPageDivider`, image/font-related DTOs as needed. |
+| `src/engine/DocumentEngine.ts` | Validation + transactions for new fields/nodes; graph operations for group/ungroup/flatten; selection persistence if chosen. |
+| `src/engine/phase-matrix.ts` | Allowlists for new properties and parent/child pairs. |
+| `src/layout/*` (or engine submodules) | Resolver support for FILL/HUG/FIXED on children + `layoutPositioning` (`ABSOLUTE` vs auto-layout). |
+| `src/render/DesignCompiler.ts` | CSS for constraints + sizing; slice/section semantics (export box, named region). |
+| `src/mcp/useFigmaScript.ts` | Expose all Phase-7 `figma` members; `Image` type stubs with `getBytesAsync` if matching Figma surface. |
+| `src/mcp/metadata.ts` / `get_metadata` | Surface constraints, sizing modes, selection (if persisted), new node types. |
+| `docs/figma-plugin-api/...` | Cross-link implemented subset vs full typings (optional tracking table). |
+
+### Test plan
+
+| Layer | Tests |
+|-------|--------|
+| **A — Engine / layout** | `tests/layout/phase7-constraints-sizing.test.ts`: matrices for HUG/FILL/FIXED + absolute children; golden small trees. |
+| **B — Graph ops** | `tests/engine/phase7-group-flatten-boolean.test.ts`: group → ungroup id stability; flatten produces vector path data. |
+| **C — Fonts / images** | `tests/fonts/load-font-async.test.ts`, `tests/images/create-image-async.policy.test.ts` (default deny URL; allowlist pass). |
+| **D — Compiler** | Snapshots for constrained child + `layoutSizingHorizontal: FILL` etc.; SVG import smoke (`createNodeFromSvg`). |
+| **E — MCP** | `tests/integration/mcp-http.phase7.traversal-layout-assets.test.ts`: script uses `findAll` + `loadFontAsync` + `createImage` + `createAutoLayout` + constrained child; `get_design_context` + `get_screenshot` stable vs operations path. |
+
+### Manual verification
+
+1. Script: `findAll` with criteria → same count as `get_metadata` walk for fixture.
+2. Auto-layout row: one child `FILL` / one `HUG` — screenshot matches Figma reference PNG (if kept) or internal golden.
+3. URL image import with policy **off** → error; policy **on** + allowlisted host → hash stored.
+
+### Exit criteria
+
+- Checklist table in this section **100%** either implemented or explicitly **“Deferred”** with issue link in repo (no silent skips).
+- New **`tests/document-model.phase7.test.mjs`** (or extend phase validator) for fixtures including constraints + sizing.
+- Integration test **`mcp-http.phase7.*`** green.
+
+---
+
+## Phase 8 — Variables API & local styles API (create / list / reorder)
+
+### Objectives
+
+Expose **`figma.variables`** and **local styles** APIs matching Figma’s **local file** behavior: CRUD for variable collections, modes, variables, aliases where applicable; binding variables to supported node fields; **paint / text / effect / grid** styles creation, listing, and **reorder** APIs. Persist in **`FileEnvelope`** (extend schema as needed) with migration from Phase-5 “registry-only” shape if required.
+
+### Plugin API / docs checklist (nothing missed)
+
+| Area | APIs (reference: `figma-variables.md`, `figma.md` § Styles) | Notes |
+|------|-------------------------------------------------------------|--------|
+| **Variables — read** | `getLocalVariableCollectionsAsync`, `variables.getVariableById`, `getVariableCollectionById`, mode listing, resolved values for active mode. | Async/sync pairs per Figma: implement **async** forms; optional sync aliases that throw if `dynamic-page` not modeled. |
+| **Variables — write** | `createVariableCollection`, `createVariable`, `createVariableMode`, `renameVariable` / `setVariableCodeSyntax` (if in typings), `deleteVariable`, `setBoundVariable` on paints / fields Figma allows; **variable aliases** if in API. | Enforce referential integrity; transactional batch. |
+| **Variables — bind** | Extend beyond `VARIABLE_COLOR`: **FLOAT** / **STRING** bindings where compiler + model support (text, spacing tokens, etc.). | Each binding site needs matrix + compiler + metadata. |
+| **Variables — excluded** | `importVariableByKeyAsync` (**remote**). | **Stub** that throws `not supported` or omit from `figma.variables` (document in README). |
+| **Styles — create** | `createPaintStyle`, `createTextStyle`, `createEffectStyle`, `createGridStyle`. | Styles stored in envelope registries with stable ids; default props per Figma defaults where specified. |
+| **Styles — read** | `getLocalPaintStylesAsync`, `getLocalTextStylesAsync`, `getLocalEffectStylesAsync`, `getLocalGridStylesAsync`, `getStyleByIdAsync` (+ deprecated sync variants policy). | Deterministic sort order (tie-break documented). |
+| **Styles — reorder** | `moveLocalPaintStyleAfter`, `moveLocalTextStyleAfter`, `moveLocalEffectStyleAfter`, `moveLocalGridStyleAfter`, folder move APIs (`moveLocalPaintFolderAfter`, …). | Implement folder string semantics per Figma docs or reject unsupported nesting with clear errors. |
+| **MCP alignment** | `get_variable_defs`, `search_design_system` stay consistent with new variable/style records (no duplicate truths). | Update payloads if collection shape changes. |
+
+### Code artifacts
+
+| Area | Add/change |
+|------|------------|
+| `src/variables/*` | Full `VariablesAPI` shim: collection/mode/variable lifecycle; resolution for compile. |
+| `src/styles/*` (new) | Style CRUD + ordering; bridge to `FileEnvelope` paint/text/effect/grid style registries. |
+| `src/mcp/useFigmaScript.ts` | `figma.variables = { … }`; style functions on `figma` global per docs. |
+| `src/model/types.ts` | Variable aliases, style folders, extended bound fields if needed. |
+| Persistence | Schema version bump + migrator from older files. |
+
+### Test plan
+
+| Layer | Tests |
+|-------|--------|
+| **A** | `tests/variables/phase8-crud.test.ts`: create collection → mode → variable → bind → delete with stable errors. |
+| **B** | `tests/styles/phase8-reorder.test.ts`: create three paint styles; reorder; list order matches. |
+| **C** | Compiler snapshots: bound float/string visible in CSS where supported. |
+| **D** | `tests/integration/mcp-http.phase8.variables-styles.test.ts`: script-only workflow + `get_variable_defs` snapshot parity. |
+
+### Exit criteria
+
+- **`figma.variables`** object present with **all local** methods from checklist implemented or explicitly excluded with **runtime error** documenting exclusion.
+- Style **create/list/reorder** complete for four style kinds in scope.
+- **`tests/document-model.phase8.test.mjs`** (fixtures) + integration test green.
+
+---
+
+## Phase 9 — Components as first-class graph nodes
+
+### Objectives
+
+Move from **library-only** component definitions (`FileEnvelope.components[]` + `COMPONENT_INSTANCE`) toward **Figma-parity component graph**: **`COMPONENT`**, **`COMPONENT_SET`**, and **`INSTANCE`** (or aligned naming) as **scene nodes**; **`createComponent`**, **`createComponentFromNode`**, **`combineAsVariants`**; instance **`swapComponent`**, **`mainComponent`**, **`variantProperties`**; master deletion rules, nested instances, and compiler expansion reading **masters from the graph** (not only detached definitions).
+
+### Plugin API / docs checklist (nothing missed)
+
+| Area | APIs / behaviors | Notes |
+|------|------------------|--------|
+| **Types in graph** | `ComponentNode`, `ComponentSetNode`, `InstanceNode` per typings; variant **`componentPropertyDefinitions`** / **`componentPropertyReferences`** subset as needed. | Decide mapping to existing `COMPONENT_INSTANCE` vs rename types in `.hfc.json` — **migration** required. |
+| **Create** | `createComponent`, `createComponentFromNode`, `combineAsVariants`. | `createComponentFromNode` preserves children + props; **combineAsVariants** requires homogeneous components → set. |
+| **Instances** | `createInstance` / `figma.createComponentInstance` alignment; **`swapComponent`**; **`detachInstance`**; overrides map keyed by **exposed subtree node ids** stable across variants. | Harmonize with Phase 5 overrides model; document id stability rules when extracting variant. |
+| **Main / library** | `mainComponent` getter, remote **key** (`key` field) — **local-only**: key may be synthetic ULID/string not registered with Figma cloud. | Do not implement cloud **publish**; document. |
+| **Excluded** | `importComponentByKeyAsync`, `importComponentSetByKeyAsync` (remote). | Same as variables: stub or omit. |
+| **Compiler / metadata** | `get_design_context` expands instances from **on-canvas** masters; `get_metadata` reports component metadata. | Golden updates for phase-5 demos after migration. |
+
+### Code artifacts
+
+| Area | Add/change |
+|------|------------|
+| `src/model/types.ts` | Graph-native component types; deprecate or alias envelope-only `components[]` (migrator copies masters into graph hidden page or explicit **component page** convention—**pick one** and document in `data-model.md`). |
+| `src/engine/DocumentEngine.ts` | CRUD + matrix rules for COMPONENT/SET/INSTANCE; validation for variant combine. |
+| `src/render/DesignCompiler.ts` | Expansion from graph masters; variant property switching. |
+| `src/mcp/useFigmaScript.ts` | All component-related `figma` factories + node class methods. |
+| `docs/design-doc/data-model.md` | Authoritative migration + graph layout for masters. |
+
+### Test plan
+
+| Layer | Tests |
+|-------|--------|
+| **A** | `tests/engine/phase9-component-crud.test.ts`: createComponent → instance → swap → detach. |
+| **B** | `tests/engine/phase9-combine-variants.test.ts`: two components → set with variant props. |
+| **C** | `tests/compiler/component-graph.snapshot.test.ts`: expansion matches masters on canvas. |
+| **D** | `tests/integration/mcp-http.phase9.components-graph.test.ts`: end-to-end script build + screenshot vs golden. |
+| **E** | Migration test: load Phase-5 fixture → migrator → equivalent `get_design_context` (normalized). |
+
+### Exit criteria
+
+- No **orphan** masters: deleting component cleans instances per Figma rules (**document** detach/delete policy).
+- **`tests/integration/mcp-http.phase5.design-system.test.ts`** updated or superseded so CI still covers design-system flows on new graph model.
+- README + `data-model.md` describe **local** component keys vs Figma cloud.
+
+---
+
 ## Cross-phase regression policy
 
-CI should run the full integration suite (including prior-phase smoke tests and richer design-context tests) on every change. Delivery phases describe what to build next, not a runtime capability switch; do not gate tests on a `PHASE` env var.
+CI should run the full integration suite (including prior-phase smoke tests, richer design-context tests, and **Phases 7–9** parity tests once they exist) on every change. Delivery phases describe what to build next, not a runtime capability switch; do not gate tests on a `PHASE` env var.
 
 ## Related documents
 

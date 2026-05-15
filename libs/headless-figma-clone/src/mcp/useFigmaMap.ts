@@ -1,6 +1,7 @@
 import type { EngineOperation, NewNodeSpec } from '../engine/DocumentEngine.js';
 
 const CREATE_NODE_TYPES = new Set([
+  'PAGE',
   'FRAME',
   'TEXT',
   'RECTANGLE',

@@ -22,6 +22,7 @@ const booleanOperandTypes = ['RECTANGLE', 'ELLIPSE', 'POLYGON', 'STAR', 'VECTOR'
 export const ENGINE_MATRIX = {
   createNode: {
     allowedChildPairs: [
+      { parent: 'DOCUMENT' as const, child: 'PAGE' as const },
       ...sceneShapeTypes.map((child) => ({ parent: 'PAGE' as const, child })),
       ...sceneShapeTypes.map((child) => ({ parent: 'FRAME' as const, child })),
       ...sceneShapeTypes.map((child) => ({ parent: 'TRANSFORM_GROUP' as const, child })),

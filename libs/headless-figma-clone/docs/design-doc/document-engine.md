@@ -161,6 +161,12 @@ export function compileDesignContext(root: BaseNode, targetId: string): Compiled
 
 DTO definitions live in [Tools schemas](./tools-schemas.md).
 
+## `use_figma` script vs `operations` (Phase 6)
+
+For every node type and patch key allowed by `ENGINE_MATRIX`, the **`use_figma` `code`** path (see [Tools schemas](./tools-schemas.md) § script surface) queues the same `EngineOperation` shapes as JSON **`operations`**. The script sandbox mutates a **clone** of the active envelope in lockstep with queued ops via **`applyEngineOp`** (`DocumentEngine.ts`) so reads and subsequent writes stay consistent before the host commits one transaction.
+
+**`createNode` under `DOCUMENT`:** `PAGE` may be created as a child of the document root (same rule as `figma.createPage()`), preserving the invariant that at least one page remains on delete.
+
 ## Related documents
 
 - [Persistence](./persistence.md)
