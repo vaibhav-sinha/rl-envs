@@ -23,4 +23,16 @@ describe('autolayout flexbox snapshot', () => {
     expect(out.html).toContain('flex-direction:row');
     expect(out.html).toContain('hfc-frame-flex-I3');
   });
+
+  it('gives flex children explicit cross-axis size when layoutSizing is unset', () => {
+    const env = load('phase4-compile-harness.hfc.json');
+    const out = designCompiler.compileSubtree({
+      envelope: env,
+      rootNodeId: 'I3',
+      options: { viewportPaddingPx: 0, includeCss: true, inlineCss: false },
+    });
+    expect(out.css).toContain('.hfc-node-I4{');
+    expect(out.css).toMatch(/\.hfc-node-I4\{[^}]*height:28px/);
+    expect(out.css).not.toMatch(/\.hfc-node-I4\{[^}]*height:auto/);
+  });
 });

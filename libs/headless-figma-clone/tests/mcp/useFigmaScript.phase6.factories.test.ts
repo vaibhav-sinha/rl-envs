@@ -95,6 +95,34 @@ return {};
     });
   });
 
+  it('createFrame and createAutoLayout default to white fill (Figma parity)', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.createEmptyFile({ fileName: 'F' });
+      const run = await runUseFigmaScript(
+        `
+const frame = figma.createFrame();
+const row = figma.createAutoLayout();
+figma.currentPage.appendChild(frame);
+frame.appendChild(row);
+return {};
+`.trim(),
+        engine
+      );
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+      await engine.applyTransaction(run.operations);
+      const white = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+      const frames = run.operations
+        .filter((o) => o.op === 'createNode' && o.node.type === 'FRAME')
+        .map((o) => (o.op === 'createNode' ? o.node.fills : undefined));
+      expect(frames).toEqual([white, white]);
+    });
+  });
+
   it('createPage appends PAGE under DOCUMENT', async () => {
     await withWs(async () => {
       const engine = new DocumentEngine({

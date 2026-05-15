@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "fileKey": "phase7-layout",
   "fileName": "phase7-layout",
-  "nextInternalId": 65,
+  "nextInternalId": 71,
   "document": {
     "id": "I1",
     "type": "DOCUMENT",
@@ -636,9 +636,110 @@
             "paddingTop": 8,
             "paddingBottom": 8,
             "itemSpacing": 8
+          },
+          {
+            "id": "I65",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I66",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I67",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "fills": [
+              {
+                "type": "SOLID",
+                "color": {
+                  "r": 1,
+                  "g": 1,
+                  "b": 1
+                }
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          },
+          {
+            "id": "I68",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I69",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I70",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "fills": [
+              {
+                "type": "SOLID",
+                "color": {
+                  "r": 1,
+                  "g": 1,
+                  "b": 1
+                }
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
           }
         ]
       }
     ]
+  },
+  "assets": {
+    "byId": {
+      "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6": {
+        "id": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6",
+        "mimeType": "image/png",
+        "byteLength": 8,
+        "sha256": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6",
+        "relativePath": "phase7-layout-sizing.hfc.assets/4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6.png"
+      }
+    }
   }
 }

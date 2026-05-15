@@ -44,6 +44,7 @@ import { parseStyledSegmentsInput } from './styledSegmentsNormalize.js';
 import { validateStyledSegments } from './utf16Segments.js';
 import { findVariableDefinition } from '../variables/resolution.js';
 import type { FrameVariableBindings, TextVariableBindings } from '../model/types.js';
+import { DEFAULT_FRAME_FILLS } from '../model/types.js';
 
 export type { EngineErrorCode } from '../util/errors.js';
 
@@ -301,7 +302,7 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
     height: typeof spec.height === 'number' ? spec.height : 100,
     /** New nodes always start empty; subtrees are added via further ops. */
     children: [],
-    fills: spec.fills,
+    fills: spec.fills !== undefined ? spec.fills : [...DEFAULT_FRAME_FILLS],
     backgrounds: spec.backgrounds,
     strokes: spec.strokes,
     strokeWeight: spec.strokeWeight,
