@@ -97,7 +97,8 @@ export type SceneGraphOperation =
   | { op: 'createNode'; parentId: string; index?: number; node: NewNodeSpec }
   | { op: 'updateNode'; nodeId: string; patch: Record<string, unknown> }
   | { op: 'deleteNode'; nodeId: string }
-  | { op: 'moveNode'; nodeId: string; newParentId: string; index?: number };
+  | { op: 'moveNode'; nodeId: string; newParentId: string; index?: number }
+  | { op: 'detachInstance'; nodeId: string };
 
 /** Registers raster bytes on the file envelope and sidecar (used by `figma.createImage` script ops). */
 export type AssetRegisterOperation = {
@@ -367,6 +368,11 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
     strokeJoin: spec.strokeJoin,
     miterLimit: spec.miterLimit,
     dashPattern: spec.dashPattern,
+    cornerRadius: spec.cornerRadius,
+    topLeftRadius: spec.topLeftRadius,
+    topRightRadius: spec.topRightRadius,
+    bottomRightRadius: spec.bottomRightRadius,
+    bottomLeftRadius: spec.bottomLeftRadius,
     layoutMode: spec.layoutMode,
     paddingLeft: spec.paddingLeft,
     paddingRight: spec.paddingRight,
@@ -403,6 +409,12 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
   }
   if (frame.clipsContent !== undefined && typeof frame.clipsContent !== 'boolean') {
     throw new ValidationErr('VALIDATION_ERROR', 'clipsContent must be boolean');
+  }
+  for (const key of ['cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomRightRadius', 'bottomLeftRadius'] as const) {
+    const v = frame[key];
+    if (v !== undefined && (typeof v !== 'number' || v < 0)) {
+      throw new ValidationErr('VALIDATION_ERROR', `${key} must be number >= 0`);
+    }
   }
   validateOptionalLayoutMode(frame.layoutMode);
   validateOptionalLayoutWrap(frame.layoutWrap);
@@ -1396,6 +1408,98 @@ function removeNodeById(root: DocumentNode, nodeId: string): void {
   list.splice(idx, 1);
 }
 
+function allocNodeId(working: FileEnvelope): string {
+  const id = `I${String(working.nextInternalId)}`;
+  working.nextInternalId += 1;
+  return id;
+}
+
+function cloneSceneSubtreeWithNewIds(working: FileEnvelope, node: SceneNode): SceneNode {
+  const cloned = structuredClone(node) as SceneNode;
+  cloned.id = allocNodeId(working);
+  if (
+    cloned.type === 'FRAME' ||
+    cloned.type === 'TRANSFORM_GROUP' ||
+    cloned.type === 'GROUP' ||
+    cloned.type === 'SECTION'
+  ) {
+    cloned.children = cloned.children.map((c) => cloneSceneSubtreeWithNewIds(working, c));
+  } else if (cloned.type === 'BOOLEAN_OPERATION') {
+    const b = cloned;
+    b.children = b.children.map((c) => cloneSceneSubtreeWithNewIds(working, c as SceneNode) as (typeof b.children)[number]);
+  }
+  return cloned;
+}
+
+function resolveInstanceRootFrame(working: FileEnvelope, inst: InstanceNode): FrameNode {
+  const target = findNode(working.document, inst.mainComponentId);
+  if (!target) {
+    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId missing');
+  }
+  let componentId = inst.mainComponentId;
+  if (target.type === 'COMPONENT_SET') {
+    const set = target;
+    const key = set.variantPropertyKey ?? 'variant';
+    const raw = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
+    const options = set.variantOptions ?? set.componentIds;
+    const idx = options.indexOf(String(raw));
+    componentId = set.componentIds[idx] ?? set.componentIds[0]!;
+  }
+  const component = findNode(working.document, componentId);
+  if (!component || component.type !== 'COMPONENT') {
+    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE main component not found');
+  }
+  const root = findNode(working.document, component.rootFrameId);
+  if (!root || root.type !== 'FRAME') {
+    throw new ValidationErr('VALIDATION_ERROR', 'COMPONENT root frame missing');
+  }
+  return root;
+}
+
+/** Detach an INSTANCE in-place; returns the new FRAME node id (Figma `detachInstance`). */
+export function detachInstanceInEnvelope(working: FileEnvelope, instanceId: string): string {
+  const inst = findNode(working.document, instanceId);
+  if (!inst || inst.type !== 'INSTANCE') {
+    throw new ValidationErr('VALIDATION_ERROR', 'detachInstance requires INSTANCE node');
+  }
+  const parent = findParent(working.document, instanceId);
+  if (!parent || parent.type === 'DOCUMENT') {
+    throw new ValidationErr('VALIDATION_ERROR', 'detachInstance: instance has no parent');
+  }
+  const list =
+    parent.type === 'PAGE'
+      ? parent.children
+      : (parent as FrameNode | TransformGroupNode | GroupNode | SectionNode).children;
+  const idx = list.findIndex((c) => c.id === instanceId);
+  if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${instanceId}`);
+
+  const masterRoot = resolveInstanceRootFrame(working, inst);
+  const detached = cloneSceneSubtreeWithNewIds(working, masterRoot);
+  detached.x = inst.x;
+  detached.y = inst.y;
+  detached.width = inst.width;
+  detached.height = inst.height;
+  detached.visible = true;
+  detached.name = inst.name;
+
+  list.splice(idx, 1);
+  list.splice(idx, 0, detached);
+  return detached.id;
+}
+
+function applyAutoLayoutChildDefaults(parent: FrameNode, child: SceneNode): void {
+  if (parent.layoutMode !== 'HORIZONTAL' && parent.layoutMode !== 'VERTICAL') return;
+  if (child.type !== 'TEXT') return;
+  // Figma text in auto layout hugs content on both axes unless explicitly sized (textAutoResize).
+  if (parent.layoutMode === 'HORIZONTAL') {
+    if (child.layoutSizingHorizontal === undefined) child.layoutSizingHorizontal = 'HUG';
+    if (child.layoutSizingVertical === undefined) child.layoutSizingVertical = 'HUG';
+  } else {
+    if (child.layoutSizingVertical === undefined) child.layoutSizingVertical = 'HUG';
+    if (child.layoutSizingHorizontal === undefined) child.layoutSizingHorizontal = 'HUG';
+  }
+}
+
 function detachSubtree(root: DocumentNode, nodeId: string): SceneNode {
   const parent = findParent(root, nodeId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
@@ -1489,6 +1593,9 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphO
     throw new ValidationErr('VALIDATION_ERROR', `Unsupported node type ${(op.node as { type: string }).type}`);
   }
   attachSceneNode(working.document, op.parentId, op.index, node);
+  if (parent.type === 'FRAME' && node.type !== 'PAGE') {
+    applyAutoLayoutChildDefaults(parent, node);
+  }
   return id;
 }
 
@@ -1605,6 +1712,9 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
     removeNodeById(working.document, op.nodeId);
     return undefined;
   }
+  if (op.op === 'detachInstance') {
+    return detachInstanceInEnvelope(working, op.nodeId);
+  }
   if (op.op === 'moveNode') {
     const subtree = detachSubtree(working.document, op.nodeId);
     const newParent = findNode(working.document, op.newParentId);
@@ -1613,6 +1723,9 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
       throw new ValidationErr('VALIDATION_ERROR', `Cannot move ${subtree.type} under ${newParent.type}`);
     }
     attachSceneNode(working.document, op.newParentId, op.index, subtree);
+    if (newParent.type === 'FRAME') {
+      applyAutoLayoutChildDefaults(newParent, subtree);
+    }
     if (newParent.type === 'BOOLEAN_OPERATION') {
       const b = newParent;
       subtree.x -= b.x;
@@ -2114,7 +2227,25 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       }
     }
     if ('layoutGrids' in patch) {
-      f.layoutGrids = patch.layoutGrids as FrameNode['layoutGrids'];
+      const raw = patch.layoutGrids;
+      if (raw === undefined || raw === null) {
+        delete f.layoutGrids;
+      } else {
+        const grids = normalizeLayoutGrids(raw, f.width, 'layoutGrids');
+        if (grids === undefined) delete f.layoutGrids;
+        else f.layoutGrids = grids;
+      }
+    }
+    for (const key of ['cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomRightRadius', 'bottomLeftRadius'] as const) {
+      if (key in patch) {
+        const v = patch[key];
+        if (v === undefined || v === null) {
+          delete f[key];
+        } else {
+          if (typeof v !== 'number' || v < 0) throw new ValidationErr('VALIDATION_ERROR', `${key} must be number >= 0`);
+          f[key] = v;
+        }
+      }
     }
     validateLayoutNumbers(f);
     applyStrokeFieldsFromPatch(f as unknown as Record<string, unknown>, patch);

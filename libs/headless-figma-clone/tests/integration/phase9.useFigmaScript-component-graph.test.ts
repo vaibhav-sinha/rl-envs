@@ -93,7 +93,7 @@ return { instId: inst.id };
     });
   });
 
-  it('detachInstance deletes the INSTANCE node', async () => {
+  it('detachInstance replaces INSTANCE with detached FRAME', async () => {
     await withWs(async () => {
       const persistence = new JsonPersistence();
       const engine = new DocumentEngine({ persistence, logger: createConsoleLogger('error') });
@@ -143,6 +143,12 @@ return { instId };
       expect(typeof instId).toBe('string');
       if (typeof instId !== 'string') return;
       expect(findEnvelopeNode(envAfter, instId)).toBe(null);
+      const page = envAfter.document.children[0]!;
+      const detached = page.children.find((n) => n.type === 'FRAME' && n.name === 'Instance');
+      expect(detached).toBeTruthy();
+      if (!detached || detached.type !== 'FRAME') return;
+      expect(detached.width).toBe(100);
+      expect(detached.height).toBe(100);
     });
   });
 });

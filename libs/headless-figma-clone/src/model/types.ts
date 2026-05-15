@@ -274,6 +274,11 @@ export interface FrameNode extends NodeBase, LayoutSelfFields {
   strokeJoin?: StrokeJoin;
   miterLimit?: number;
   dashPattern?: number[];
+  cornerRadius?: number;
+  topLeftRadius?: number;
+  topRightRadius?: number;
+  bottomRightRadius?: number;
+  bottomLeftRadius?: number;
   effects?: Effect[];
   clipsContent?: boolean;
   /** Phase 4 auto layout (compile-time resolved positions on ephemeral clone). */

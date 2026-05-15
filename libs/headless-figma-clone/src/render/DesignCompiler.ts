@@ -593,6 +593,14 @@ function frameUsesFlexCss(f: FrameNode): boolean {
   return f.layoutMode === 'HORIZONTAL' || f.layoutMode === 'VERTICAL';
 }
 
+function frameCornerRadiusCss(f: FrameNode): string {
+  const [tl, tr, br, bl] = rectCornerRadii(f as unknown as RectangleNode);
+  if (tl <= 0 && tr <= 0 && br <= 0 && bl <= 0) return '';
+  return tl === tr && tr === br && br === bl
+    ? `border-radius:${String(tl)}px;`
+    : `border-radius:${String(tl)}px ${String(tr)}px ${String(br)}px ${String(bl)}px;`;
+}
+
 function frameFlexWrapTracksStretch(f: FrameNode): boolean {
   const kids = f.children;
   if (!kids?.length) return false;
@@ -1012,11 +1020,12 @@ function emitScene(
     }
     const shadow = dropShadowCss(t.effects);
     const pos = insideFlex
-      ? `position:relative;left:0;top:0;width:${String(t.width)}px;height:${String(t.height)}px;flex:${String(t.layoutGrow ?? 0)} 1 auto;min-width:0;`
+      ? sceneChildPos(t, insideFlex, absX, absY, parentFrame)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
+    const flexTextMetrics = insideFlex ? 'line-height:1;' : '';
     htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${t.id}{${pos}box-sizing:border-box;white-space:pre-wrap;word-break:break-word;${fontFamilyCss(t.fontName)}${opRot}${shadow}}`
+      `.hfc-node-${t.id}{${pos}box-sizing:border-box;white-space:pre-wrap;word-break:break-word;${flexTextMetrics}${fontFamilyCss(t.fontName)}${opRot}${shadow}}`
     );
     htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings)}</div></div>`);
     return;
@@ -1033,7 +1042,9 @@ function emitScene(
         ? `${String(sw)}px solid ${rgbaFromSolid(stroke)}`
         : 'none';
     const shadow = dropShadowCss(f.effects);
-    const clip = overflowClipCss(f.clipsContent);
+    const radiusCss = frameCornerRadiusCss(f);
+    const radiusClip = radiusCss ? 'overflow:hidden;' : '';
+    const clip = overflowClipCss(f.clipsContent) || radiusClip;
     const layered = frameNeedsLayeredBackground(f);
     const flex = frameUsesFlexCss(f);
     const frameAbsX = pageX;
@@ -1042,7 +1053,7 @@ function emitScene(
     if (!layered) {
       htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
       cssParts.push(
-        `.hfc-node-${f.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(f.width)}px;height:${String(f.height)}px;box-sizing:border-box;${fillCss}border:${border};${clip}${opRot}${shadow}}`
+        `.hfc-node-${f.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(f.width)}px;height:${String(f.height)}px;box-sizing:border-box;${fillCss}border:${border};${radiusCss}${clip}${opRot}${shadow}}`
       );
       if (flex) {
         htmlParts.push(
@@ -1065,7 +1076,7 @@ function emitScene(
 
     htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${f.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(f.width)}px;height:${String(f.height)}px;box-sizing:border-box;border:${border};background-color:transparent;${clip}${opRot}${shadow}}`
+      `.hfc-node-${f.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(f.width)}px;height:${String(f.height)}px;box-sizing:border-box;border:${border};background-color:transparent;${radiusCss}${clip}${opRot}${shadow}}`
     );
     cssParts.push(
       `.hfc-node-${f.id} > .hfc-bg-layer{${bgCss}}.hfc-node-${f.id} > .hfc-fill-layer{${fillCss}}`
