@@ -15,15 +15,17 @@ const frame = figma.createFrame();
 frame.resize(400, 120);
 frame.x = 40;
 frame.y = 120;
-frame.layoutGrids = [{
-  pattern: 'COLUMNS',
-  alignment: 'MIN',
-  sectionSize: 80,
-  gutterSize: 12,
-  count: 4,
-  offset: 0,
-  color: { r: 0, g: 0.3, b: 0.8, a: 0.12 },
-}];
+frame.layoutGrids = [
+  {
+    pattern: 'COLUMNS',
+    alignment: 'MIN',
+    sectionSize: 80,
+    gutterSize: 12,
+    count: Infinity,
+    offset: 0,
+    color: { r: 0, g: 0.3, b: 0.8, a: 0.12 },
+  },
+];
 const toolbar = createAutoLayout();
 toolbar.itemSpacing = 8;
 toolbar.x = 16;

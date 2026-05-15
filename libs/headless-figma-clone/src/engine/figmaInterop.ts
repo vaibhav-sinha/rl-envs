@@ -23,6 +23,11 @@ const PLUGIN_LAYOUT_GRID_KEYS = new Set([
 
 const ROWS_COLS_ALIGNMENTS = new Set(['MIN', 'MAX', 'STRETCH', 'CENTER']);
 
+/** Plugin API "Auto" column/row count (see LayoutGrid.count in Figma docs). Not JSON-serializable. */
+export function isPluginLayoutGridAutoCount(count: unknown): boolean {
+  return count === Infinity || count === Number.POSITIVE_INFINITY;
+}
+
 /** Figma Plugin API layout grid entry (RowsColsLayoutGrid | GridLayoutGrid). */
 export function validatePluginLayoutGridEntry(g: unknown, label: string): void {
   if (!isRecord(g)) {
@@ -69,10 +74,13 @@ export function validatePluginLayoutGridEntry(g: unknown, label: string): void {
 
   const count = g.count;
   const countOk =
-    count === null ||
+    isPluginLayoutGridAutoCount(count) ||
     (typeof count === 'number' && Number.isFinite(count) && count >= 1 && Number.isInteger(count));
   if (!countOk) {
-    throw new ValidationErr('VALIDATION_ERROR', `Required value missing at ${label}.count`);
+    throw new ValidationErr(
+      'VALIDATION_ERROR',
+      `${label}.count must be a positive integer or Infinity (Auto); null is not valid in the Plugin API`
+    );
   }
 
   if (alignment === 'STRETCH') {
@@ -191,7 +199,7 @@ export function normalizeLayoutGridEntry(g: unknown, frameWidth: number, label: 
     };
   }
 
-  if (g.count === null) {
+  if (isPluginLayoutGridAutoCount(g.count)) {
     const sectionSize = g.sectionSize;
     if (typeof sectionSize !== 'number' || !Number.isFinite(sectionSize) || sectionSize <= 0) {
       throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids.sectionSize must be finite number > 0');
@@ -206,7 +214,10 @@ export function normalizeLayoutGridEntry(g: unknown, frameWidth: number, label: 
     };
   }
 
-  throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids.count must be integer >= 1 or null');
+  throw new ValidationErr(
+    'VALIDATION_ERROR',
+    'layoutGrids.count must be integer >= 1 or Infinity (Auto)'
+  );
 }
 
 export function normalizeLayoutGrids(

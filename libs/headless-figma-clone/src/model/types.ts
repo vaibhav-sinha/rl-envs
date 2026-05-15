@@ -370,6 +370,8 @@ export interface RectangleNode extends NodeBase, LayoutSelfFields {
   effects?: Effect[];
   /** References {@link FileEnvelope.paintStyles} id (first paint merged as fill when node fills absent). */
   fillStyleId?: string;
+  /** References {@link FileEnvelope.effectStyles} id (merged at compile when `effects` is empty). */
+  effectStyleId?: string;
 }
 
 export interface EllipseNode extends NodeBase, LayoutSelfFields {

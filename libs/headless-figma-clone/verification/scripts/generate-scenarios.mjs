@@ -1170,7 +1170,17 @@ root.appendChild(card);
     description:
       'Phase 4–5 style combo: grid, mask, boolean, vector.\n\nExpected: mini UI with nav pills, masked panel, boolean cutout.',
     body: `
-root.layoutGrids = [{ pattern: 'COLUMNS', sectionSize: 60, gutterSize: 12, color: { r: 0, g: 0.3, b: 0.8, a: 0.12 } }];
+root.layoutGrids = [
+  {
+    pattern: 'COLUMNS',
+    alignment: 'MIN',
+    sectionSize: 60,
+    gutterSize: 12,
+    count: Infinity,
+    offset: 0,
+    color: { r: 0, g: 0.3, b: 0.8, a: 0.12 },
+  },
+];
 const nav = figma.createAutoLayout();
 nav.resize(400, 40);
 nav.x = 40;
@@ -1941,7 +1951,17 @@ const frame = figma.createFrame();
 frame.resize(400, 120);
 frame.x = 40;
 frame.y = 120;
-frame.layoutGrids = [{ pattern: 'COLUMNS', sectionSize: 80, gutterSize: 12, color: { r: 0, g: 0.3, b: 0.8, a: 0.12 } }];
+frame.layoutGrids = [
+  {
+    pattern: 'COLUMNS',
+    alignment: 'MIN',
+    sectionSize: 80,
+    gutterSize: 12,
+    count: Infinity,
+    offset: 0,
+    color: { r: 0, g: 0.3, b: 0.8, a: 0.12 },
+  },
+];
 const toolbar = figma.createAutoLayout();
 toolbar.itemSpacing = 8;
 toolbar.x = 16;
@@ -2315,7 +2335,17 @@ root.appendChild(card);
     body: `
 const gridStyle = figma.createGridStyle();
 gridStyle.name = 'Columns8';
-gridStyle.layoutGrids = [{ pattern: 'COLUMNS', sectionSize: 48, gutterSize: 8, color: { r: 0, g: 0.4, b: 0.7, a: 0.18 } }];
+gridStyle.layoutGrids = [
+  {
+    pattern: 'COLUMNS',
+    alignment: 'MIN',
+    sectionSize: 48,
+    gutterSize: 8,
+    count: Infinity,
+    offset: 0,
+    color: { r: 0, g: 0.4, b: 0.7, a: 0.18 },
+  },
+];
 const frame = figma.createFrame();
 frame.resize(400, 200);
 frame.x = 40;
@@ -2406,30 +2436,120 @@ root.appendChild(cardInst);
 `,
   },
   {
-    id: '99-pricing-table-composite',
-    title: 'Pricing table composite',
+    id: '99-kanban-variable-board',
+    title: 'Kanban variable board',
     order: 99,
     tier: 'advanced',
-    figjamOnly: true,
-    tags: ['composite', 'table', 'variables'],
+    tags: ['composite', 'variables', 'autoLayout'],
     needsFont: true,
-    description: 'Table + header + variable prices.\n\nExpected: pricing grid with striped rows and bound price text.',
+    description:
+      'Nested auto-layout Kanban: STRING sprint title + bound COLOR column shells, card stacks with shadows/strokes, and a COLOR alias chain on progress bars.\n\nExpected: three tinted columns, header pill, cards with blue bars resolving alias color.',
     body: `
-const col = figma.variables.createVariableCollection('Pricing');
-const modeId = col.modes[0].modeId;
-const price = figma.variables.createVariable('price', col, 'STRING');
-price.setValueForMode(modeId, '$19');
-const title = figma.createText();
-title.characters = 'Plans';
-title.fontSize = 20;
-title.x = 200;
-title.y = 24;
-root.appendChild(title);
-const table = figma.createTable(3, 2);
-table.x = 80;
-table.y = 60;
-table.resize(320, 160);
-root.appendChild(table);
+const board = figma.variables.createVariableCollection('Kanban');
+const modeId = board.modes[0].modeId;
+const sprintTitle = figma.variables.createVariable('sprintTitle', board, 'STRING');
+sprintTitle.setValueForMode(modeId, 'Sprint 24 · Ship milestones');
+const tintTodo = figma.variables.createVariable('colTodo', board, 'COLOR');
+tintTodo.setValueForMode(modeId, { r: 0.93, g: 0.95, b: 1 });
+const tintDoing = figma.variables.createVariable('colDoing', board, 'COLOR');
+tintDoing.setValueForMode(modeId, { r: 0.97, g: 0.93, b: 1 });
+const tintDone = figma.variables.createVariable('colDone', board, 'COLOR');
+tintDone.setValueForMode(modeId, { r: 0.92, g: 1, b: 0.95 });
+const statusPill = figma.variables.createVariable('statusPill', board, 'COLOR');
+statusPill.setValueForMode(modeId, { r: 0.14, g: 0.68, b: 0.42 });
+const barBase = figma.variables.createVariable('barBase', board, 'COLOR');
+barBase.setValueForMode(modeId, { r: 0.1, g: 0.45, b: 0.95 });
+const barResolved = figma.variables.createVariable('barViaAlias', board, 'COLOR');
+barResolved.setValueForMode(modeId, figma.variables.createVariableAlias(barBase));
+function makeCard(i) {
+  const card = createAutoLayout('VERTICAL');
+  card.itemSpacing = 6;
+  card.paddingTop = 8;
+  card.paddingLeft = 8;
+  card.paddingRight = 8;
+  card.paddingBottom = 8;
+  card.cornerRadius = 8;
+  card.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  card.strokes = [{ type: 'SOLID', color: { r: 0.86, g: 0.89, b: 0.94 } }];
+  card.strokeWeight = 1;
+  card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.1 }, offset: { x: 0, y: 2 }, radius: 8, blendMode: 'NORMAL', visible: true }];
+  const line1 = figma.createText();
+  line1.characters = i % 2 === 0 ? 'Spec tokens' : 'E2E harness';
+  line1.fontSize = 12;
+  const bar = figma.createRectangle();
+  bar.resize(108, 5);
+  bar.cornerRadius = 3;
+  bar.fills = [figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', barResolved)];
+  const tags = createAutoLayout('HORIZONTAL');
+  tags.itemSpacing = 4;
+  const a = figma.createRectangle();
+  a.resize(40, 12);
+  a.cornerRadius = 4;
+  a.fills = [{ type: 'SOLID', color: { r: 0.94, g: 0.95, b: 0.98 } }];
+  const b = figma.createRectangle();
+  b.resize(32, 12);
+  b.cornerRadius = 4;
+  b.fills = [{ type: 'SOLID', color: { r: 0.96, g: 0.93, b: 1 } }];
+  tags.appendChild(a);
+  tags.appendChild(b);
+  card.appendChild(line1);
+  card.appendChild(bar);
+  card.appendChild(tags);
+  return card;
+}
+function makeColumn(tintVar, heading, nCards) {
+  const shell = createAutoLayout('VERTICAL');
+  shell.itemSpacing = 8;
+  shell.paddingTop = 10;
+  shell.paddingLeft = 8;
+  shell.paddingRight = 8;
+  shell.paddingBottom = 10;
+  shell.cornerRadius = 10;
+  shell.fills = [figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0.96, g: 0.96, b: 0.98 } }, 'color', tintVar)];
+  const h = figma.createText();
+  h.characters = heading;
+  h.fontSize = 11;
+  shell.appendChild(h);
+  for (let i = 0; i < nCards; i++) shell.appendChild(makeCard(i + (heading === 'Doing' ? 2 : 0)));
+  shell.resize(138, 252);
+  return shell;
+}
+const header = createAutoLayout('HORIZONTAL');
+header.resize(440, 40);
+header.x = 20;
+header.y = 14;
+header.itemSpacing = 14;
+header.counterAxisAlignItems = 'CENTER';
+header.primaryAxisAlignItems = 'SPACE_BETWEEN';
+const boardTitle = figma.createText();
+boardTitle.fontSize = 17;
+boardTitle.setBoundVariable('characters', sprintTitle);
+const pill = createAutoLayout('HORIZONTAL');
+pill.paddingLeft = 12;
+pill.paddingRight = 12;
+pill.paddingTop = 5;
+pill.paddingBottom = 5;
+pill.cornerRadius = 16;
+pill.counterAxisAlignItems = 'CENTER';
+pill.fills = [figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', statusPill)];
+const pillLabel = figma.createText();
+pillLabel.characters = 'On track';
+pillLabel.fontSize = 11;
+pillLabel.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+pill.appendChild(pillLabel);
+header.appendChild(boardTitle);
+header.appendChild(pill);
+root.appendChild(header);
+const lanes = createAutoLayout('HORIZONTAL');
+lanes.resize(440, 268);
+lanes.x = 20;
+lanes.y = 62;
+lanes.itemSpacing = 10;
+lanes.counterAxisAlignItems = 'MAX';
+lanes.appendChild(makeColumn(tintTodo, 'Backlog', 3));
+lanes.appendChild(makeColumn(tintDoing, 'Doing', 2));
+lanes.appendChild(makeColumn(tintDone, 'Done', 2));
+root.appendChild(lanes);
 `,
   },
   {

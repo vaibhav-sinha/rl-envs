@@ -1,0 +1,3 @@
+Nested auto-layout Kanban: STRING sprint title + bound COLOR column shells, card stacks with shadows/strokes, and a COLOR alias chain on progress bars.
+
+Expected: three tinted columns, header pill, cards with blue bars resolving alias color.

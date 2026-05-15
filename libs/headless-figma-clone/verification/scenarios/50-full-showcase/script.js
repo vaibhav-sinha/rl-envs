@@ -12,15 +12,17 @@ root.name = 'ScenarioRoot';
 root.resize(480, 360);
 root.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
 figma.currentPage.appendChild(root);
-root.layoutGrids = [{
-  pattern: 'COLUMNS',
-  alignment: 'MIN',
-  sectionSize: 60,
-  gutterSize: 12,
-  count: 6,
-  offset: 0,
-  color: { r: 0, g: 0.3, b: 0.8, a: 0.12 },
-}];
+root.layoutGrids = [
+  {
+    pattern: 'COLUMNS',
+    alignment: 'MIN',
+    sectionSize: 60,
+    gutterSize: 12,
+    count: Infinity,
+    offset: 0,
+    color: { r: 0, g: 0.3, b: 0.8, a: 0.12 },
+  },
+];
 const nav = createAutoLayout();
 nav.resize(400, 40);
 nav.x = 40;

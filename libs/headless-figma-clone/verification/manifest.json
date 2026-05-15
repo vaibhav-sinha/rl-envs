@@ -922,16 +922,15 @@
       ]
     },
     {
-      "id": "99-pricing-table-composite",
-      "title": "Pricing table composite",
+      "id": "99-kanban-variable-board",
+      "title": "Kanban variable board",
       "order": 99,
       "tier": "advanced",
       "tags": [
         "composite",
-        "table",
-        "variables"
-      ],
-      "figjamOnly": true
+        "variables",
+        "autoLayout"
+      ]
     },
     {
       "id": "100-mega-ui-screen",

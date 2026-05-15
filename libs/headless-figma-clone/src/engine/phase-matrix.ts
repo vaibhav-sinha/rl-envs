@@ -133,6 +133,7 @@ export const ENGINE_MATRIX = {
       'bottomLeftRadius',
       'effects',
       'fillStyleId',
+      'effectStyleId',
     ]),
     ELLIPSE: new Set([
       ...shapePatchKeys,
