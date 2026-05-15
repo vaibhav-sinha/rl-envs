@@ -94,6 +94,8 @@ export interface VariableDefinition {
   name: string;
   resolvedType: 'COLOR' | 'FLOAT' | 'STRING';
   valuesByMode: Record<string, VariableResolvedValue>;
+  /** When set, {@link valuesByMode} is ignored; resolution follows the target variable. */
+  aliasOfVariableId?: string;
 }
 
 export interface VariableCollection {
@@ -117,6 +119,31 @@ export interface PaintStyleDefinition {
   name: string;
   paints: Paint[];
 }
+
+export interface EffectStyleDefinition {
+  id: string;
+  name: string;
+  effects: Effect[];
+}
+
+export interface GridStyleDefinition {
+  id: string;
+  name: string;
+  layoutGrids: LayoutGridColumns[];
+}
+
+/** Phase 8 — subset of Figma variable bindings on node fields (FLOAT / STRING). */
+export type FrameBoundVariableField =
+  | 'paddingLeft'
+  | 'paddingRight'
+  | 'paddingTop'
+  | 'paddingBottom'
+  | 'itemSpacing';
+
+export type TextBoundVariableField = 'fontSize' | 'characters';
+
+export type FrameVariableBindings = Partial<Record<FrameBoundVariableField, string>>;
+export type TextVariableBindings = Partial<Record<TextBoundVariableField, string>>;
 
 export interface DropShadowEffect {
   type: 'DROP_SHADOW';
@@ -253,6 +280,8 @@ export interface FrameNode extends NodeBase, LayoutSelfFields {
   /** Phase 7 — frame axis sizing when auto-layout is active. */
   primaryAxisSizingMode?: LayoutSizing;
   counterAxisSizingMode?: LayoutSizing;
+  /** Phase 8 — maps auto-layout numeric fields to FLOAT (or STRING unsupported here) variable ids. */
+  boundVariables?: FrameVariableBindings;
 }
 
 export interface TextRangeStyle {
@@ -293,6 +322,8 @@ export interface TextNode extends NodeBase, LayoutSelfFields {
    * @see design-doc Phase 5 — text path binding.
    */
   textOnPath?: { pathNodeId: string };
+  /** Phase 8 — `fontSize` → FLOAT variable; `characters` → STRING variable. */
+  boundVariables?: TextVariableBindings;
 }
 
 export interface RectangleNode extends NodeBase, LayoutSelfFields {
@@ -579,5 +610,9 @@ export interface FileEnvelope {
   activeModeByCollectionId?: Record<string, string>;
   textStyles?: TextStyleDefinition[];
   paintStyles?: PaintStyleDefinition[];
+  /** Phase 8 — local effect styles (reorder via engine ops). */
+  effectStyles?: EffectStyleDefinition[];
+  /** Phase 8 — local layout grid styles. */
+  gridStyles?: GridStyleDefinition[];
   components?: ComponentDefinition[];
 }

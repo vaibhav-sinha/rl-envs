@@ -1,7 +1,13 @@
 import { applyCompileOnlyAutoLayout } from '../layout/autoLayoutPass.js';
 import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
 import { fontFamilyCss } from '../fonts/fontCatalog.js';
-import { buildRootCssVariableBlock, cssVarNameForVariable, resolveVariableToRgb } from '../variables/resolution.js';
+import {
+  buildRootCssVariableBlock,
+  cssVarNameForVariable,
+  resolveVariableToFloat,
+  resolveVariableToRgb,
+  resolveVariableToStringValue,
+} from '../variables/resolution.js';
 import type {
   BlendMode,
   BooleanOperationNode,
@@ -138,10 +144,31 @@ function paintColorCss(fill: Paint | undefined, _env: FileEnvelope, fallback: st
   return fallback;
 }
 
-function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; fontWeight: number; fills: Paint[] | undefined } {
+function boundFloatCss(env: FileEnvelope, variableId: string | undefined, fallbackPx: number): string {
+  if (!variableId) return `${String(fallbackPx)}px`;
+  const v = resolveVariableToFloat(env, variableId);
+  if (v === null) return `${String(fallbackPx)}px`;
+  return `var(${cssVarNameForVariable(variableId)},${String(fallbackPx)}px)`;
+}
+
+/** SVG presentation `font-size` uses unitless user units (not `px` suffix). */
+function fontSizeForSvgText(env: FileEnvelope, t: TextNode, fallbackPx: number): string {
+  const vid = t.boundVariables?.fontSize;
+  if (!vid) return String(fallbackPx);
+  const v = resolveVariableToFloat(env, vid);
+  const fb = v !== null ? v : fallbackPx;
+  return `var(${cssVarNameForVariable(vid)},${String(fb)})`;
+}
+
+function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; fontWeight: number; fills: Paint[] | undefined; fontSizeCss: string } {
   let fontSize = t.fontSize ?? 12;
   let fontWeight = t.fontWeight ?? 400;
   let fills = t.fills;
+  const fontSizeCss = boundFloatCss(env, t.boundVariables?.fontSize, fontSize);
+  if (t.boundVariables?.fontSize) {
+    const v = resolveVariableToFloat(env, t.boundVariables.fontSize);
+    if (v !== null) fontSize = v;
+  }
   if (t.textStyleId) {
     const st = env.textStyles?.find((s) => s.id === t.textStyleId);
     if (st) {
@@ -150,7 +177,14 @@ function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; 
       if (st.fills?.length) fills = st.fills;
     }
   }
-  return { fontSize, fontWeight, fills };
+  return { fontSize, fontWeight, fills, fontSizeCss };
+}
+
+function effectiveTextCharacters(t: TextNode, env: FileEnvelope): string {
+  const vid = t.boundVariables?.characters;
+  if (!vid) return t.characters;
+  const s = resolveVariableToStringValue(env, vid);
+  return s ?? t.characters;
 }
 
 function effectiveRectFill(r: RectangleNode, env: FileEnvelope): Paint | undefined {
@@ -359,17 +393,18 @@ function svgStrokeAttrs(n: {
 
 function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): string {
   const base = effectiveTextBase(t, env);
-  const len = t.characters.length;
+  const text = effectiveTextCharacters(t, env);
+  const len = text.length;
   const segs = [...(t.styledSegments ?? [])].sort((a, b) => a.start - b.start || a.end - b.end);
   const defaultColor = paintColorCss(base.fills?.[0], env, 'rgba(0,0,0,1)', warnings, 'text_default');
-  const defaultFs = base.fontSize;
+  const defaultFsCss = base.fontSizeCss;
   const defaultFw = base.fontWeight;
 
   function spanStyle(style: StyledSegment['style']): string {
-    const fs = style.fontSize ?? defaultFs;
+    const fsCss = style.fontSize !== undefined ? `${String(style.fontSize)}px` : defaultFsCss;
     const fw = style.fontWeight ?? defaultFw;
     const color = paintColorCss(style.fills?.[0], env, defaultColor, warnings, 'text_span');
-    return `font-size:${String(fs)}px;font-weight:${String(fw)};color:${color};`;
+    return `font-size:${fsCss};font-weight:${String(fw)};color:${color};`;
   }
 
   let i = 0;
@@ -377,10 +412,10 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): 
   let linkIdx = 0;
   for (const seg of segs) {
     if (seg.start > i) {
-      const slice = t.characters.slice(i, seg.start);
+      const slice = text.slice(i, seg.start);
       chunks.push(`<span style="${spanStyle({})}">${escapeHtmlText(slice)}</span>`);
     }
-    const slice = t.characters.slice(seg.start, seg.end);
+    const slice = text.slice(seg.start, seg.end);
     const inner = escapeHtmlText(slice);
     if (seg.style.hyperlink?.type === 'URL') {
       const href = escapeAttr(seg.style.hyperlink.url);
@@ -394,10 +429,10 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): 
     i = seg.end;
   }
   if (i < len) {
-    chunks.push(`<span style="${spanStyle({})}">${escapeHtmlText(t.characters.slice(i))}</span>`);
+    chunks.push(`<span style="${spanStyle({})}">${escapeHtmlText(text.slice(i))}</span>`);
   }
   if (chunks.length === 0) {
-    chunks.push(`<span style="${spanStyle({})}">${escapeHtmlText(t.characters)}</span>`);
+    chunks.push(`<span style="${spanStyle({})}">${escapeHtmlText(text)}</span>`);
   }
   return chunks.join('');
 }
@@ -438,7 +473,7 @@ function frameUsesFlexCss(f: FrameNode): boolean {
   return f.layoutMode === 'HORIZONTAL' || f.layoutMode === 'VERTICAL';
 }
 
-function frameFlexInnerStyle(f: FrameNode): string {
+function frameFlexInnerStyle(f: FrameNode, env: FileEnvelope): string {
   const dir = f.layoutMode === 'VERTICAL' ? 'column' : 'row';
   const wrap = f.layoutWrap === 'WRAP' ? 'wrap' : 'nowrap';
   const pl = f.paddingLeft ?? 0;
@@ -446,6 +481,11 @@ function frameFlexInnerStyle(f: FrameNode): string {
   const pt = f.paddingTop ?? 0;
   const pb = f.paddingBottom ?? 0;
   const gap = f.itemSpacing ?? 0;
+  const plCss = boundFloatCss(env, f.boundVariables?.paddingLeft, pl);
+  const prCss = boundFloatCss(env, f.boundVariables?.paddingRight, pr);
+  const ptCss = boundFloatCss(env, f.boundVariables?.paddingTop, pt);
+  const pbCss = boundFloatCss(env, f.boundVariables?.paddingBottom, pb);
+  const gapCss = boundFloatCss(env, f.boundVariables?.itemSpacing, gap);
   const jc =
     f.primaryAxisAlignItems === 'CENTER'
       ? 'center'
@@ -462,7 +502,7 @@ function frameFlexInnerStyle(f: FrameNode): string {
         : f.counterAxisAlignItems === 'STRETCH'
           ? 'stretch'
           : 'flex-start';
-  return `display:flex;flex-direction:${dir};flex-wrap:${wrap};gap:${String(gap)}px;padding:${String(pt)}px ${String(pr)}px ${String(pb)}px ${String(pl)}px;box-sizing:border-box;justify-content:${jc};align-items:${ai};`;
+  return `display:flex;flex-direction:${dir};flex-wrap:${wrap};gap:${gapCss};padding:${ptCss} ${prCss} ${pbCss} ${plCss};box-sizing:border-box;justify-content:${jc};align-items:${ai};`;
 }
 
 function layoutGridOverlayDiv(f: FrameNode): string {
@@ -734,13 +774,14 @@ function emitScene(
           : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
         const base = effectiveTextBase(t, env);
         const pid = `hfc-tp-${t.id}`;
-        const fs = base.fontSize;
+        const fsAttr = fontSizeForSvgText(env, t, base.fontSize);
         const fw = base.fontWeight;
         const col = paintColorCss(base.fills?.[0], env, '#000', warnings, `textpath:${t.id}`);
+        const tpText = effectiveTextCharacters(t, env);
         htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
         cssParts.push(`.hfc-node-${t.id}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
         htmlParts.push(
-          `<svg class="hfc-textpath-svg" viewBox="0 0 ${String(t.width)} ${String(t.height)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><path id="${pid}" d="${escapeAttr(vp.data)}"/></defs><text font-size="${String(fs)}" font-weight="${String(fw)}" fill="${escapeAttr(col)}"><textPath href="#${pid}">${escapeHtmlText(t.characters)}</textPath></text></svg></div>`
+          `<svg class="hfc-textpath-svg" viewBox="0 0 ${String(t.width)} ${String(t.height)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><path id="${pid}" d="${escapeAttr(vp.data)}"/></defs><text font-size="${fsAttr}" font-weight="${String(fw)}" fill="${escapeAttr(col)}"><textPath href="#${pid}">${escapeHtmlText(tpText)}</textPath></text></svg></div>`
         );
         return;
       }
@@ -782,7 +823,7 @@ function emitScene(
       );
       if (flex) {
         htmlParts.push(
-          `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;${frameFlexInnerStyle(f)}">`
+          `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;${frameFlexInnerStyle(f, env)}">`
         );
         emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true, env);
         htmlParts.push('</div>');
@@ -815,7 +856,7 @@ function emitScene(
     );
     if (flex) {
       htmlParts.push(
-        `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;z-index:2;${frameFlexInnerStyle(f)}">`
+        `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;z-index:2;${frameFlexInnerStyle(f, env)}">`
       );
       emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true, env);
       htmlParts.push('</div>');

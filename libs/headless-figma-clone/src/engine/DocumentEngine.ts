@@ -32,10 +32,13 @@ import { relativeAssetFile, sidecarDirForHfcJson } from '../persistence/assetPat
 import type { Logger } from '../util/logger.js';
 import type { EngineErrorCode } from '../util/errors.js';
 import { ValidationErr } from '../util/errors.js';
+import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } from './envelopeOps.js';
 import { ENGINE_MATRIX } from './phase-matrix.js';
 import { applyLayoutSelfPatch, validateFontName, validateLayoutSizing } from './phase7Fields.js';
 import { validatePaintArray } from './validatePaints.js';
 import { validateStyledSegments } from './utf16Segments.js';
+import { findVariableDefinition } from '../variables/resolution.js';
+import type { FrameVariableBindings, TextVariableBindings } from '../model/types.js';
 
 export type { EngineErrorCode } from '../util/errors.js';
 
@@ -70,11 +73,16 @@ export type NewNodeSpec =
   | Omit<ComponentInstanceNode, 'id'>
   | (Omit<PageNode, 'id' | 'children'> & { type: 'PAGE' });
 
-export type EngineOperation =
+export type SceneGraphOperation =
   | { op: 'createNode'; parentId: string; index?: number; node: NewNodeSpec }
   | { op: 'updateNode'; nodeId: string; patch: Record<string, unknown> }
   | { op: 'deleteNode'; nodeId: string }
   | { op: 'moveNode'; nodeId: string; newParentId: string; index?: number };
+
+/** Scene graph + envelope (variables / local styles) mutations in one transactional batch. */
+export type EngineOperation = SceneGraphOperation | EnvelopeOperation;
+
+export type { EnvelopeOperation };
 
 const EXCLUDED_PATCH_KEYS = new Set([
   'pluginData',
@@ -1123,7 +1131,7 @@ function attachSceneNode(root: DocumentNode, parentId: string, index: number | u
 }
 
 /** Applies a single createNode on a working envelope (mutates). Returns the new node id. */
-export function applyCreateNodeOp(working: FileEnvelope, op: Extract<EngineOperation, { op: 'createNode' }>): string {
+export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphOperation, { op: 'createNode' }>): string {
   const parent = findNode(working.document, op.parentId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown parent ${op.parentId}`);
   if (!parentAllowsChild(parent.type, op.node.type)) {
@@ -1181,6 +1189,10 @@ export function findEnvelopeNode(working: FileEnvelope, nodeId: string): AnyTree
  * Used by {@link DocumentEngine.applyTransaction} and the `use_figma` script sandbox for in-memory consistency.
  */
 export function applyEngineOp(working: FileEnvelope, op: EngineOperation): string | undefined {
+  if (isEnvelopeOperation(op)) {
+    applyEnvelopeOperation(working, op);
+    return undefined;
+  }
   if (op.op === 'createNode') {
     return applyCreateNodeOp(working, op);
   }
@@ -1543,6 +1555,15 @@ export class DocumentEngine {
 
     try {
       for (const op of ops) {
+        if (isEnvelopeOperation(op)) {
+          applyEnvelopeOperation(working, op);
+          if (op.op === 'createVariable') touched.add(op.variableId);
+          else if (op.op === 'createVariableCollection') touched.add(op.collectionId);
+          else if (op.op === 'createPaintStyle' || op.op === 'createTextStyle' || op.op === 'createEffectStyle' || op.op === 'createGridStyle') {
+            touched.add(op.id);
+          }
+          continue;
+        }
         if (op.op === 'createNode') {
           const id = applyEngineOp(working, op);
           if (id) touched.add(id);
@@ -1573,6 +1594,39 @@ export class DocumentEngine {
     this.emitDebugPreview();
     return { success: true, touchedNodeIds: [...touched], warnings };
   }
+}
+
+const FRAME_BIND_FIELDS = new Set(['paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom', 'itemSpacing']);
+const TEXT_BIND_FIELDS = new Set(['fontSize', 'characters']);
+
+function parseBoundVariablesPatch(
+  env: FileEnvelope,
+  raw: unknown,
+  allowedFields: Set<string>,
+  nodeLabel: string
+): Record<string, string> | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isRecord(raw)) throw new ValidationErr('VALIDATION_ERROR', `${nodeLabel}.boundVariables must be object`);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!allowedFields.has(k)) {
+      throw new ValidationErr('VALIDATION_ERROR', `${nodeLabel}.boundVariables: unsupported field ${k}`);
+    }
+    if (typeof v !== 'string') {
+      throw new ValidationErr('VALIDATION_ERROR', `${nodeLabel}.boundVariables.${k} must be variable id string`);
+    }
+    const hit = findVariableDefinition(env, v);
+    if (!hit) throw new ValidationErr('VALIDATION_ERROR', `${nodeLabel}.boundVariables.${k}: unknown variable ${v}`);
+    const expectFloat = k !== 'characters';
+    if (expectFloat && hit.variable.resolvedType !== 'FLOAT') {
+      throw new ValidationErr('VALIDATION_ERROR', `${nodeLabel}.boundVariables.${k}: requires FLOAT variable`);
+    }
+    if (!expectFloat && hit.variable.resolvedType !== 'STRING') {
+      throw new ValidationErr('VALIDATION_ERROR', `${nodeLabel}.boundVariables.${k}: requires STRING variable`);
+    }
+    out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function applyStrokeFieldsFromPatch(
@@ -1664,6 +1718,11 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     validateLayoutNumbers(f);
     applyStrokeFieldsFromPatch(f as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('FRAME', f);
+    if ('boundVariables' in patch) {
+      const bv = parseBoundVariablesPatch(env, patch.boundVariables, FRAME_BIND_FIELDS, 'FRAME');
+      if (bv === undefined) delete f.boundVariables;
+      else f.boundVariables = bv as FrameVariableBindings;
+    }
     return;
   }
   if (node.type === 'TEXT') {
@@ -1733,6 +1792,11 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
         }
         t.textOnPath = { pathNodeId: top.pathNodeId };
       }
+    }
+    if ('boundVariables' in patch) {
+      const bv = parseBoundVariablesPatch(env, patch.boundVariables, TEXT_BIND_FIELDS, 'TEXT');
+      if (bv === undefined) delete t.boundVariables;
+      else t.boundVariables = bv as TextVariableBindings;
     }
     return;
   }

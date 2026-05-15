@@ -90,6 +90,7 @@ export const ENGINE_MATRIX = {
       'layoutGrids',
       'primaryAxisSizingMode',
       'counterAxisSizingMode',
+      'boundVariables',
     ]),
     TEXT: new Set([
       ...shapePatchKeys,
@@ -102,6 +103,7 @@ export const ENGINE_MATRIX = {
       'effects',
       'textStyleId',
       'textOnPath',
+      'boundVariables',
     ]),
     RECTANGLE: new Set([
       ...shapePatchKeys,

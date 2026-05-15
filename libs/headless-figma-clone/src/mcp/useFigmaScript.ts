@@ -26,6 +26,8 @@ import type {
   StyledSegment,
   VectorNode,
 } from '../model/types.js';
+import { createStylesApi } from '../styles/StylesAPI.js';
+import { bindVariableToNodeField, createVariablesApi } from '../variables/VariablesAPI.js';
 import { ValidationErr } from '../util/errors.js';
 
 function deepClone<T>(v: T): T {
@@ -109,6 +111,17 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (prop === 'insertChild') {
         return (idx: number, c: RuntimeSceneNode | { id: string }): void => {
           appendChildToScriptParent(ctx, id, c, idx);
+        };
+      }
+      if (prop === 'setBoundVariable') {
+        return (field: string, variable: { id: string } | null): void => {
+          const patch = bindVariableToNodeField(
+            ctx.working,
+            id,
+            field as Parameters<typeof bindVariableToNodeField>[2],
+            variable
+          );
+          queueUpdate(ctx, id, patch);
         };
       }
       const live = findEnvelopeNode(ctx.working, id);
@@ -242,6 +255,22 @@ abstract class RuntimeSceneNode {
     }
     this.attached = true;
     this.flushPendingChildren();
+  }
+
+  setBoundVariable(field: string, variable: { id: string } | null): void {
+    if (!this.attached || this._id === null) {
+      throw new Error('setBoundVariable requires the node to be appended to the document');
+    }
+    if (this.type !== 'FRAME' && this.type !== 'TEXT') {
+      throw new ValidationErr('VALIDATION_ERROR', `Node type ${this.type} does not support setBoundVariable`);
+    }
+    const patch = bindVariableToNodeField(
+      this.ctx.working,
+      this._id,
+      field as Parameters<typeof bindVariableToNodeField>[2],
+      variable
+    );
+    queueUpdate(this.ctx, this._id, patch);
   }
 
   abstract toNewNodeSpec(): NewNodeSpec;
@@ -968,6 +997,8 @@ export async function runUseFigmaScript(
   let currentPageId = firstPage.id;
   ctx.selectionByPageId.set(currentPageId, []);
   const networkPolicy = loadNetworkPolicyFromEnv();
+  const variablesApi = createVariablesApi(ctx);
+  const stylesApi = createStylesApi(ctx);
 
   const figma = {
     root: {
@@ -1221,6 +1252,8 @@ export async function runUseFigmaScript(
     closePlugin: (): void => {
       throw new Error('figma.closePlugin is not supported in headless use_figma (handled by the host)');
     },
+    variables: variablesApi,
+    ...stylesApi,
   };
 
   let rawResult: unknown;
