@@ -40,6 +40,7 @@ import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } f
 import { ENGINE_MATRIX } from './phase-matrix.js';
 import { applyLayoutSelfPatch, validateFontName, validateLayoutSizing } from './phase7Fields.js';
 import { validatePaintArray } from './validatePaints.js';
+import { parseStyledSegmentsInput } from './styledSegmentsNormalize.js';
 import { validateStyledSegments } from './utf16Segments.js';
 import { findVariableDefinition } from '../variables/resolution.js';
 import type { FrameVariableBindings, TextVariableBindings } from '../model/types.js';
@@ -207,21 +208,7 @@ function validateEffects(arr: unknown, label: string): Effect[] | undefined {
 }
 
 function parseStyledSegments(raw: unknown): StyledSegment[] | undefined {
-  if (raw === undefined) return undefined;
-  if (!Array.isArray(raw)) throw new ValidationErr('VALIDATION_ERROR', 'styledSegments must be array');
-  const out: StyledSegment[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const s = raw[i];
-    if (!isRecord(s) || typeof s.start !== 'number' || typeof s.end !== 'number' || !isRecord(s.style)) {
-      throw new ValidationErr('VALIDATION_ERROR', `styledSegments[${String(i)}] invalid`);
-    }
-    out.push({
-      start: s.start,
-      end: s.end,
-      style: s.style as StyledSegment['style'],
-    });
-  }
-  return out;
+  return parseStyledSegmentsInput(raw);
 }
 
 function validateFrameGeometry(n: Pick<FrameNode, 'width' | 'height'>): void {
@@ -418,7 +405,8 @@ function validateLayoutNumbers(f: FrameNode): void {
 
 function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: string, env: FileEnvelope): TextNode {
   const characters = typeof spec.characters === 'string' ? spec.characters : '';
-  const styledSegments = spec.styledSegments;
+  const styledSegments =
+    spec.styledSegments !== undefined ? parseStyledSegmentsInput(spec.styledSegments) : undefined;
   validateStyledSegments(characters, styledSegments);
   if (spec.textStyleId !== undefined) {
     if (typeof spec.textStyleId !== 'string' || !env.textStyles?.some((s) => s.id === spec.textStyleId)) {

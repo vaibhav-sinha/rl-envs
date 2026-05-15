@@ -64,6 +64,16 @@ export type CompileHtmlOptions = {
   imageDataUrlByHash?: Record<string, string>;
 };
 
+/** Scoped UA reset so Playwright screenshots only show explicit compiled styles. */
+export const HFC_UA_RESET_CSS = [
+  'html,body{margin:0;padding:0;}',
+  '#hfc-root,#hfc-root *{box-sizing:border-box;}',
+  '#hfc-root img,#hfc-root svg{display:block;}',
+  '#hfc-root p,#hfc-root h1,#hfc-root h2,#hfc-root h3,#hfc-root h4,#hfc-root h5,#hfc-root h6,#hfc-root ul,#hfc-root ol,#hfc-root li,#hfc-root figure,#hfc-root blockquote{margin:0;padding:0;}',
+  '#hfc-root ul,#hfc-root ol{list-style:none;}',
+  '#hfc-root a,#hfc-root a:link,#hfc-root a:visited,#hfc-root a:hover,#hfc-root a:active{color:inherit;text-decoration:none;}',
+].join('');
+
 export interface DesignCompiler {
   compileSubtree(params: {
     envelope: FileEnvelope;
@@ -422,7 +432,8 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): 
     const slice = text.slice(seg.start, seg.end);
     const inner = escapeHtmlText(slice);
     if (seg.style.hyperlink?.type === 'URL') {
-      const href = escapeAttr(seg.style.hyperlink.url);
+      const link = seg.style.hyperlink as { type: 'URL'; url?: string; value?: string };
+      const href = escapeAttr(link.url ?? link.value ?? '');
       chunks.push(
         `<a class="hfc-hyperlink hfc-hyperlink-${String(linkIdx)}" href="${href}" style="${spanStyle(seg.style)}">${inner}</a>`
       );
@@ -1495,7 +1506,7 @@ function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions, enve
     emitScene(root, 0, 0, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, envelope, null);
   }
 
-  const cssBlock = `#hfc-root{position:relative;width:${String(W)}px;height:${String(H)}px;isolation:isolate;}\n${cssParts.join('\n')}`;
+  const cssBlock = `${HFC_UA_RESET_CSS}\n#hfc-root{position:relative;width:${String(W)}px;height:${String(H)}px;isolation:isolate;}\n${cssParts.join('\n')}`;
   const primary = roots[0]!;
   const rootClip: Rect =
     roots.length === 1

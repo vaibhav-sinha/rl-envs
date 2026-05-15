@@ -1,5 +1,8 @@
 import { normalizeNodeId } from '../utils.js';
 
+export type ScreenshotToolContent =
+  | { type: 'image'; data: string; mimeType: string; _meta?: { width: number; height: number } };
+
 function bytesToBase64(bytes: Uint8Array): string {
   const chunk = 0x8000;
   let binary = '';
@@ -14,7 +17,7 @@ export async function runGetScreenshot(args: {
   nodeId: string;
   contentsOnly?: boolean;
   maxDimension?: number;
-}): Promise<{ type: 'text'; text: string }[]> {
+}): Promise<ScreenshotToolContent[]> {
   const id = normalizeNodeId(args.nodeId);
   if (!id) throw new Error('VALIDATION_ERROR: nodeId is required');
 
@@ -39,21 +42,15 @@ export async function runGetScreenshot(args: {
     ...(args.contentsOnly ? { contentsOnly: true } : {}),
   });
 
-  const renderedW = Math.round(box.width * scale);
-  const renderedH = Math.round(box.height * scale);
+  const width = Math.round(box.width * scale);
+  const height = Math.round(box.height * scale);
 
   return [
     {
-      type: 'text',
-      text: JSON.stringify({
-        requestId: id,
-        width: renderedW,
-        height: renderedH,
-        original_width: Math.round(box.width),
-        original_height: Math.round(box.height),
-        _screenshotBase64: bytesToBase64(bytes),
-        _screenshotMimeType: 'image/png',
-      }),
+      type: 'image',
+      data: bytesToBase64(bytes),
+      mimeType: 'image/png',
+      _meta: { width, height },
     },
   ];
 }

@@ -8,7 +8,7 @@ import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
 import { mapUseFigmaToEngineOperations } from '../../src/mcp/useFigmaMap.js';
 import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
-import { designCompiler } from '../../src/render/DesignCompiler.js';
+import { designCompiler, HFC_UA_RESET_CSS } from '../../src/render/DesignCompiler.js';
 import type { FileEnvelope } from '../../src/model/types.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
 
@@ -34,13 +34,15 @@ function withTempWorkspace<T>(fn: () => Promise<T>): Promise<T> {
   })();
 }
 
+const UA = `${HFC_UA_RESET_CSS}\n`;
+
 /** Golden HTML for `tests/fixtures/phase1-minimal.valid.json` subtree I3, padding 0, inline CSS. */
 const PHASE1_MINIMAL_INLINE_HTML = `<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
     <style id="hfc-compiled-css">
-#hfc-root{position:relative;width:120px;height:80px;isolation:isolate;}
+${UA}#hfc-root{position:relative;width:120px;height:80px;isolation:isolate;}
 .hfc-node-I3{position:absolute;left:0px;top:0px;width:120px;height:80px;box-sizing:border-box;background-color:rgba(51,102,230,1);border:2px solid rgba(0,0,0,1);}
     </style>
   </head>
@@ -52,6 +54,7 @@ const PHASE1_MINIMAL_INLINE_HTML = `<!DOCTYPE html>
 </html>`;
 
 const PHASE1_MINIMAL_EXTERNAL_CSS =
+  UA +
   '#hfc-root{position:relative;width:152px;height:112px;isolation:isolate;}\n' +
   '.hfc-node-I3{position:absolute;left:16px;top:16px;width:120px;height:80px;box-sizing:border-box;background-color:rgba(51,102,230,1);border:2px solid rgba(0,0,0,1);}';
 
@@ -98,7 +101,7 @@ const NESTED_FRAMES_INLINE_HTML = `<!DOCTYPE html>
   <head>
     <meta charset="utf-8" />
     <style id="hfc-compiled-css">
-#hfc-root{position:relative;width:100px;height:80px;isolation:isolate;}
+${UA}#hfc-root{position:relative;width:100px;height:80px;isolation:isolate;}
 .hfc-node-I3{position:absolute;left:0px;top:0px;width:100px;height:80px;box-sizing:border-box;background-color:rgba(255,0,0,1);border:3px solid rgba(0,0,255,1);}
 .hfc-node-I4{position:absolute;left:7px;top:8px;width:20px;height:30px;box-sizing:border-box;background-color:rgba(0,128,0,0.5);border:none;}
     </style>
@@ -198,7 +201,7 @@ describe('DesignCompiler Phase 1 — exact HTML/CSS', () => {
   <head>
     <meta charset="utf-8" />
     <style id="hfc-compiled-css">
-#hfc-root{position:relative;width:80px;height:30px;isolation:isolate;}
+${UA}#hfc-root{position:relative;width:80px;height:30px;isolation:isolate;}
 .hfc-node-I3{position:absolute;left:0px;top:0px;width:40px;height:30px;box-sizing:border-box;background-color:rgba(255,0,0,1);border:none;}
 .hfc-node-I4{position:absolute;left:50px;top:10px;width:30px;height:20px;box-sizing:border-box;background-color:rgba(0,0,255,1);border:none;}
     </style>
@@ -262,7 +265,7 @@ describe('DesignCompiler Phase 1 — exact HTML/CSS', () => {
   <head>
     <meta charset="utf-8" />
     <style id="hfc-compiled-css">
-#hfc-root{position:relative;width:10px;height:10px;isolation:isolate;}
+${UA}#hfc-root{position:relative;width:10px;height:10px;isolation:isolate;}
 .hfc-node-I3{position:absolute;left:0px;top:0px;width:10px;height:10px;box-sizing:border-box;background-color:transparent;border:none;}
     </style>
   </head>
@@ -409,7 +412,7 @@ describe('use_figma JSON operations → compiler', () => {
   <head>
     <meta charset="utf-8" />
     <style id="hfc-compiled-css">
-#hfc-root{position:relative;width:11px;height:13px;isolation:isolate;}
+${UA}#hfc-root{position:relative;width:11px;height:13px;isolation:isolate;}
 .hfc-node-I3{position:absolute;left:0px;top:0px;width:11px;height:13px;box-sizing:border-box;background-color:rgba(85,0,0,1);border:1px solid rgba(0,0,128,1);}
     </style>
   </head>

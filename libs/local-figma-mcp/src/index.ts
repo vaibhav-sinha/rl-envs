@@ -4,7 +4,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, parseArgv } from './config.js';
 import { PluginBridge } from './bridge/PluginBridge.js';
-import { ScreenshotAssetStore } from './bridge/ScreenshotAssetStore.js';
 import { createHttpServer } from './server/createHttpServer.js';
 
 function readPkgVersion(): string {
@@ -17,12 +16,10 @@ async function main(): Promise<void> {
   parseArgv(process.argv);
   const config = loadConfig(readPkgVersion());
   const bridge = new PluginBridge(config.toolTimeoutMs);
-  const screenshotStore = new ScreenshotAssetStore(config.screenshotAssetTtlMs);
 
   const { port, close } = await createHttpServer({
     config,
     bridge,
-    screenshotStore,
   });
 
   const mcpUrl = `http://${config.httpHost}:${port}/mcp`;

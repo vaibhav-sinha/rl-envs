@@ -12,6 +12,7 @@ import { hasMissingFont, listAvailableFonts, loadFontAsync } from '../fonts/font
 import { createNodeSpecFromSvg } from '../images/svgImport.js';
 import { fetchBytes, loadNetworkPolicyFromEnv } from '../images/networkPolicy.js';
 import { findAllNodes, findOneNode, parseFindCriteria } from '../traversal/findNodes.js';
+import { parseStyledSegmentsInput } from '../engine/styledSegmentsNormalize.js';
 import { ENGINE_MATRIX } from '../engine/phase-matrix.js';
 import type {
   BlendMode,
@@ -236,7 +237,9 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
   return new Proxy(node, {
     set(target, prop, value, receiver) {
       const p = prop as string;
+      const skipAutoPatch = target.type === 'TEXT' && p === 'styledSegments';
       if (
+        !skipAutoPatch &&
         target.attached &&
         target.getAttachedIdOrNull() !== null &&
         isPatchKeyForType(target.type, p)
@@ -475,6 +478,17 @@ class RuntimeText extends RuntimeSceneNode {
   textStyleId?: string;
   textOnPath?: { pathNodeId: string };
   private segments: StyledSegment[] = [];
+
+  get styledSegments(): StyledSegment[] {
+    return [...this.segments];
+  }
+
+  set styledSegments(raw: unknown) {
+    this.segments = parseStyledSegmentsInput(raw) ?? [];
+    if (this.attached && this._id !== null) {
+      queueUpdate(this.ctx, this._id, { styledSegments: [...this.segments] });
+    }
+  }
 
   toNewNodeSpec(): NewNodeSpec {
     return {

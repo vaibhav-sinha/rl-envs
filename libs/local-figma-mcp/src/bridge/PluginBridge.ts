@@ -137,26 +137,6 @@ export class PluginBridge {
       }
     });
   }
-
-  handleScreenshotUpload(
-    requestId: string,
-    token: string,
-    baseUrl: string
-  ): McpContent[] {
-    const url = `${baseUrl}/assets/${token}`;
-    const curl = `curl -sS "${url}" -o screenshot.png`;
-    return [
-      {
-        type: 'text',
-        text: JSON.stringify({
-          requestId,
-          url,
-          curl,
-          hint: 'Download the PNG with the curl command above. Set enableBase64Response:true if URL fetch is unavailable.',
-        }),
-      },
-    ];
-  }
 }
 
 export function parsePluginHello(msg: unknown): PluginHelloMessage | null {

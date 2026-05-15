@@ -9,7 +9,12 @@ export const TOOL_NAMES = [
 export type ToolName = (typeof TOOL_NAMES)[number];
 
 export type McpTextContent = { type: 'text'; text: string };
-export type McpImageContent = { type: 'image'; data: string; mimeType: string };
+export type McpImageContent = {
+  type: 'image';
+  data: string;
+  mimeType: string;
+  _meta?: { width: number; height: number };
+};
 export type McpContent = McpTextContent | McpImageContent;
 
 export type PluginHelloMessage = {

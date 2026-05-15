@@ -3,21 +3,18 @@ export interface LocalFigmaMcpConfig {
   httpHost: string;
   httpPort: number;
   toolTimeoutMs: number;
-  screenshotAssetTtlMs: number;
 }
 
 export function loadConfig(version: string): LocalFigmaMcpConfig {
   const httpHost = process.env.LFM_HTTP_HOST ?? '127.0.0.1';
   const httpPort = Number.parseInt(process.env.LFM_HTTP_PORT ?? '3855', 10);
   const toolTimeoutMs = Number.parseInt(process.env.LFM_TOOL_TIMEOUT_MS ?? '120000', 10);
-  const screenshotAssetTtlMs = Number.parseInt(process.env.LFM_SCREENSHOT_TTL_MS ?? '300000', 10);
 
   return {
     version,
     httpHost,
     httpPort: Number.isFinite(httpPort) ? httpPort : 3855,
     toolTimeoutMs: Number.isFinite(toolTimeoutMs) ? toolTimeoutMs : 120_000,
-    screenshotAssetTtlMs: Number.isFinite(screenshotAssetTtlMs) ? screenshotAssetTtlMs : 300_000,
   };
 }
 
