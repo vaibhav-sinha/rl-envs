@@ -27,6 +27,28 @@ function emptyEnv(): FileEnvelope {
 }
 
 describe('phase7 group flatten boolean graph ops', () => {
+  it('group orders children by prior sibling index (not API argument order)', () => {
+    const working = emptyEnv();
+    const ops: EngineOperation[] = [];
+    const pageId = 'I2';
+    const r1 = applyCreateNodeOp(working, {
+      op: 'createNode',
+      parentId: pageId,
+      node: { type: 'RECTANGLE', name: 'A', x: 0, y: 0, width: 40, height: 40 },
+    });
+    const r2 = applyCreateNodeOp(working, {
+      op: 'createNode',
+      parentId: pageId,
+      node: { type: 'RECTANGLE', name: 'B', x: 50, y: 0, width: 40, height: 40 },
+    });
+    const groupId = queueGroupNodes(working, ops, [r2, r1], { id: pageId });
+    const group = working.document.children[0]!.children.find((c) => c.id === groupId);
+    expect(group?.type).toBe('GROUP');
+    if (group?.type === 'GROUP') {
+      expect(group.children.map((c) => c.id)).toEqual([r1, r2]);
+    }
+  });
+
   it('group then ungroup preserves child ids', () => {
     const working = emptyEnv();
     const ops: EngineOperation[] = [];
