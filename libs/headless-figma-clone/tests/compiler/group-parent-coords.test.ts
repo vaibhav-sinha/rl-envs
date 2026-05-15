@@ -26,9 +26,9 @@ function emptyEnv(): FileEnvelope {
   };
 }
 
-/** Scenario 29: group offset from parent origin; children use parent-relative CSS. */
-describe('group parent-relative layout coords', () => {
-  it('positions grouped children relative to group container, not page', () => {
+/** Figma GROUP: children stay in frame space; moving the group translates descendants. */
+describe('group frame-space layout coords', () => {
+  it('positions grouped children in frame space and omits group wrapper from CSS', () => {
     const working = emptyEnv();
     const ops: EngineOperation[] = [];
     const pageId = 'I2';
@@ -64,8 +64,8 @@ describe('group parent-relative layout coords', () => {
     });
     const blob = `${out.css ?? ''}\n${out.html}`;
 
-    expect(blob).toContain(`.hfc-node-${groupId}{position:absolute;left:20px;top:120px;`);
-    expect(blob).toContain(`.hfc-node-${aId}{position:absolute;left:0px;top:0px;`);
-    expect(blob).toContain(`.hfc-node-${bId}{position:absolute;left:40px;top:30px;`);
+    expect(blob).not.toContain(`.hfc-node-${groupId}{position:absolute;`);
+    expect(blob).toContain(`.hfc-node-${aId}{position:absolute;left:20px;top:120px;`);
+    expect(blob).toContain(`.hfc-node-${bId}{position:absolute;left:60px;top:150px;`);
   });
 });

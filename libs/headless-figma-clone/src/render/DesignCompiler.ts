@@ -44,7 +44,7 @@ import type {
   TableNode,
   TextNode,
   TransformGroupNode,
-  SliceNode,
+  GroupNode,
   VectorNode,
 } from '../model/types.js';
 
@@ -108,6 +108,23 @@ function sceneChildList(n: SceneNode): SceneNode[] | null {
   if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') return n.children;
   if (n.type === 'BOOLEAN_OPERATION') return n.children;
   return null;
+}
+
+/** Numeric part of internal ids (`I12` → 12). Used for Figma-like global stacking under nested groups. */
+function internalIdSeq(id: string): number {
+  const m = /^I(\d+)$/.exec(id);
+  return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Expand GROUP to paintable scene nodes (no GROUP wrappers). Order matches a DFS over direct
+ * children; caller may re-sort for global z (Figma stacks by creation order across nesting).
+ */
+function flattenGroupPaintOrderContents(g: GroupNode, out: SceneNode[]): void {
+  for (const child of g.children) {
+    if (child.type === 'GROUP') flattenGroupPaintOrderContents(child, out);
+    else out.push(child);
+  }
 }
 
 function sceneChildPos(
@@ -804,6 +821,47 @@ function emitVector(
   );
 }
 
+/** Figma GROUP: children use frame-space x/y; the group is a layers-panel folder only. */
+function emitGroup(
+  g: GroupNode,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope
+): void {
+  const paintables: SceneNode[] = [];
+  flattenGroupPaintOrderContents(g, paintables);
+  paintables.sort((a, b) => internalIdSeq(a.id) - internalIdSeq(b.id));
+  for (const c of paintables) {
+    emitScene(
+      c,
+      originX,
+      originY,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      insideFlex,
+      env,
+      paintables,
+      undefined,
+      false
+    );
+  }
+}
+
 function emitTransformGroup(
   tg: TransformGroupNode,
   absX: number,
@@ -981,6 +1039,15 @@ function emitScene(
 ): void {
   if (n.type === 'SECTION') return;
 
+  if (n.type === 'GROUP') {
+    emitGroup(n, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env);
+    return;
+  }
+
+  if (n.type === 'SLICE') {
+    return;
+  }
+
   const pageX = originX + n.x + shiftX;
   const pageY = originY + n.y + shiftY;
   const absX = useParentCoords ? n.x : pageX;
@@ -1100,19 +1167,8 @@ function emitScene(
     return;
   }
 
-  if (n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP') {
-    emitTransformGroup(n as TransformGroupNode, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, originX, originY, shiftX, shiftY, insideFlex, env);
-    return;
-  }
-
-  if (n.type === 'SLICE') {
-    const s = n as SliceNode;
-    const pos = sceneChildPos(s, insideFlex, absX, absY);
-    htmlParts.push(`<div class="hfc-node-${s.id} hfc-slice" data-hfc-id="${s.id}" style="z-index:${String(zIndex)}">`);
-    cssParts.push(
-      `.hfc-node-${s.id}{${pos}box-sizing:border-box;outline:1px dashed rgba(120,80,255,0.7);outline-offset:-1px;${opRot}}`
-    );
-    htmlParts.push('</div>');
+  if (n.type === 'TRANSFORM_GROUP') {
+    emitTransformGroup(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, originX, originY, shiftX, shiftY, insideFlex, env);
     return;
   }
 

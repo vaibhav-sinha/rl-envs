@@ -1,4 +1,4 @@
-import type { BooleanOperationNode, DocumentNode, FileEnvelope, SceneNode, VectorPathData } from '../model/types.js';
+import type { BooleanOperationNode, DocumentNode, FileEnvelope, GroupNode, SceneNode, VectorPathData } from '../model/types.js';
 import type { EngineOperation } from './DocumentEngine.js';
 import { applyCreateNodeOp, applyEngineOp, findEnvelopeNode } from './DocumentEngine.js';
 import { ValidationErr } from '../util/errors.js';
@@ -38,6 +38,64 @@ function readNodeId(n: { id: string }): string {
   return n.id;
 }
 
+/** Leaf bounds for GROUP sizing (Figma: group fits content; nested groups contribute their box). */
+function boundsOfGroupContent(group: GroupNode): { x: number; y: number; width: number; height: number } {
+  const leaves: SceneNode[] = [];
+  const stack: SceneNode[] = [...group.children];
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (n.type === 'GROUP') {
+      stack.push(...n.children);
+    } else {
+      leaves.push(n);
+    }
+  }
+  if (leaves.length === 0) return { x: group.x, y: group.y, width: Math.max(1, group.width), height: Math.max(1, group.height) };
+  return boundsOfNodes(leaves);
+}
+
+/** Re-fit GROUP origin/size to descendant bounds; leaves child x/y in frame space. */
+export function syncGroupBounds(group: GroupNode): void {
+  const box = boundsOfGroupContent(group);
+  group.x = box.x;
+  group.y = box.y;
+  group.width = box.width;
+  group.height = box.height;
+}
+
+/** Move all frame-space descendants when a GROUP is explicitly repositioned. */
+export function translateGroupDescendants(group: GroupNode, dx: number, dy: number): void {
+  if (dx === 0 && dy === 0) return;
+  const stack: SceneNode[] = [...group.children];
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (n.type === 'GROUP') {
+      n.x += dx;
+      n.y += dy;
+      stack.push(...n.children);
+    } else {
+      n.x += dx;
+      n.y += dy;
+    }
+  }
+}
+
+/**
+ * Figma preserves canvas stacking when grouping: `children[0]` is bottom, last is top
+ * (`appendChild` adds “visually on top”). Order grouped nodes by their index under
+ * `parentId` **before** the new group is created — not by the order passed to `figma.group`.
+ */
+function sortNodeIdsBySiblingOrderUnderParent(working: FileEnvelope, parentId: string, nodeIds: string[]): string[] {
+  const parentNode = findEnvelopeNode(working, parentId);
+  if (!parentNode || !('children' in parentNode)) return [...nodeIds];
+  const list = (parentNode as { children: SceneNode[] }).children;
+  const indexOf = (id: string): number => {
+    const i = list.findIndex((c) => c.id === id);
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  return [...nodeIds].sort((a, b) => indexOf(a) - indexOf(b));
+}
+
 /** Queue ops to group nodes under a new GROUP (mutates working + ops). */
 export function queueGroupNodes(
   working: FileEnvelope,
@@ -49,8 +107,9 @@ export function queueGroupNodes(
   if (nodeIds.length < 1) {
     throw new ValidationErr('VALIDATION_ERROR', 'group requires at least one node');
   }
+  const orderedIds = sortNodeIdsBySiblingOrderUnderParent(working, parent.id, nodeIds);
   const nodes: SceneNode[] = [];
-  for (const id of nodeIds) {
+  for (const id of orderedIds) {
     const live = findEnvelopeNode(working, id);
     if (!live || live.type === 'DOCUMENT' || live.type === 'PAGE') {
       throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
@@ -66,18 +125,14 @@ export function queueGroupNodes(
   };
   ops.push(createOp);
   const groupId = applyCreateNodeOp(working, createOp);
-  for (let i = 0; i < nodeIds.length; i++) {
-    const nid = nodeIds[i]!;
-    const n = nodes[i]!;
-    const relX = n.x - box.x;
-    const relY = n.y - box.y;
+  for (let i = 0; i < orderedIds.length; i++) {
+    const nid = orderedIds[i]!;
     const mv: EngineOperation = { op: 'moveNode', nodeId: nid, newParentId: groupId, index: i };
     ops.push(mv);
     applyEngineOp(working, mv);
-    const up: EngineOperation = { op: 'updateNode', nodeId: nid, patch: { x: relX, y: relY } };
-    ops.push(up);
-    applyEngineOp(working, up);
   }
+  const group = findEnvelopeNode(working, groupId);
+  if (group?.type === 'GROUP') syncGroupBounds(group);
   return groupId;
 }
 
@@ -100,14 +155,9 @@ export function queueUngroup(
   const children = [...group.children];
   for (let i = 0; i < children.length; i++) {
     const ch = children[i]!;
-    const absX = group.x + ch.x;
-    const absY = group.y + ch.y;
     const mv: EngineOperation = { op: 'moveNode', nodeId: ch.id, newParentId: parentId, index: groupIdx + i };
     ops.push(mv);
     applyEngineOp(working, mv);
-    const up: EngineOperation = { op: 'updateNode', nodeId: ch.id, patch: { x: absX, y: absY } };
-    ops.push(up);
-    applyEngineOp(working, up);
     moved.push(ch.id);
   }
   const del: EngineOperation = { op: 'deleteNode', nodeId: groupId };

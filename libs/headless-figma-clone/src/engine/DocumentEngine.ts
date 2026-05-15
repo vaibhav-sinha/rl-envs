@@ -55,7 +55,7 @@ import { validateStyledSegments } from './utf16Segments.js';
 import { findVariableDefinition } from '../variables/resolution.js';
 import type { FrameVariableBindings, TextVariableBindings } from '../model/types.js';
 import { DEFAULT_FRAME_FILLS } from '../model/types.js';
-import { syncBooleanOperationBounds } from './graphOps.js';
+import { syncBooleanOperationBounds, syncGroupBounds, translateGroupDescendants } from './graphOps.js';
 
 export type { EngineErrorCode } from '../util/errors.js';
 
@@ -1726,6 +1726,9 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
     if (newParent.type === 'FRAME') {
       applyAutoLayoutChildDefaults(newParent, subtree);
     }
+    if (newParent.type === 'GROUP') {
+      syncGroupBounds(newParent);
+    }
     if (newParent.type === 'BOOLEAN_OPERATION') {
       const b = newParent;
       subtree.x -= b.x;
@@ -2730,6 +2733,8 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
   }
   if (node.type === 'GROUP' || node.type === 'SLICE' || node.type === 'SECTION') {
     const cn = node as GroupNode | SliceNode | SectionNode;
+    const prevX = cn.x;
+    const prevY = cn.y;
     if ('name' in patch) {
       if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
       cn.name = patch.name;
@@ -2742,6 +2747,10 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       }
     }
     validateShapeBox(cn);
+    if (node.type === 'GROUP' && ('x' in patch || 'y' in patch)) {
+      translateGroupDescendants(node, cn.x - prevX, cn.y - prevY);
+      syncGroupBounds(node);
+    }
     if (node.type === 'SECTION' && 'fills' in patch) {
       (node as SectionNode).fills = validatePaintArray(patch.fills, 'fills', env);
     }
