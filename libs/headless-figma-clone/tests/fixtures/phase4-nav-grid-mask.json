@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "P4EXIT",
+  "fileName": "phase4-nav-grid-mask",
+  "nextInternalId": 40,
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Root",
+            "x": 0,
+            "y": 0,
+            "width": 320,
+            "height": 240,
+            "fills": [{ "type": "SOLID", "color": { "r": 0.93, "g": 0.94, "b": 0.96 } }],
+            "layoutGrids": [{ "type": "COLUMNS", "count": 4, "gutter": 10, "color": { "r": 0, "g": 0.3, "b": 0.8, "a": 0.2 } }],
+            "children": [
+              {
+                "id": "I4",
+                "type": "FRAME",
+                "name": "Nav",
+                "x": 12,
+                "y": 10,
+                "width": 296,
+                "height": 44,
+                "fills": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 } }],
+                "layoutMode": "HORIZONTAL",
+                "layoutWrap": "WRAP",
+                "itemSpacing": 8,
+                "paddingLeft": 8,
+                "paddingRight": 8,
+                "paddingTop": 8,
+                "paddingBottom": 8,
+                "counterAxisAlignItems": "CENTER",
+                "children": [
+                  {
+                    "id": "I5",
+                    "type": "RECTANGLE",
+                    "name": "PillA",
+                    "x": 0,
+                    "y": 0,
+                    "width": 56,
+                    "height": 26,
+                    "fills": [{ "type": "SOLID", "color": { "r": 0.15, "g": 0.45, "b": 0.95 } }]
+                  },
+                  {
+                    "id": "I6",
+                    "type": "RECTANGLE",
+                    "name": "PillB",
+                    "x": 0,
+                    "y": 0,
+                    "width": 56,
+                    "height": 26,
+                    "fills": [{ "type": "SOLID", "color": { "r": 0.1, "g": 0.65, "b": 0.35 } }]
+                  },
+                  {
+                    "id": "I7",
+                    "type": "RECTANGLE",
+                    "name": "PillC",
+                    "x": 0,
+                    "y": 0,
+                    "width": 56,
+                    "height": 26,
+                    "fills": [{ "type": "SOLID", "color": { "r": 0.95, "g": 0.55, "b": 0.1 } }]
+                  }
+                ]
+              },
+              {
+                "id": "I8",
+                "type": "RECTANGLE",
+                "name": "MaskShape",
+                "x": 12,
+                "y": 64,
+                "width": 88,
+                "height": 64,
+                "isMask": true,
+                "fills": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 } }]
+              },
+              {
+                "id": "I9",
+                "type": "RECTANGLE",
+                "name": "MaskedFill",
+                "x": 4,
+                "y": 56,
+                "width": 120,
+                "height": 80,
+                "fills": [{ "type": "SOLID", "color": { "r": 0.85, "g": 0.15, "b": 0.2 } }]
+              },
+              {
+                "id": "I10",
+                "type": "BOOLEAN_OPERATION",
+                "name": "Cutout",
+                "x": 118,
+                "y": 64,
+                "width": 96,
+                "height": 72,
+                "booleanOperation": "SUBTRACT",
+                "fills": [{ "type": "SOLID", "color": { "r": 0.25, "g": 0.35, "b": 0.85 } }],
+                "children": [
+                  {
+                    "id": "I11",
+                    "type": "RECTANGLE",
+                    "name": "BOuter",
+                    "x": 0,
+                    "y": 0,
+                    "width": 88,
+                    "height": 64,
+                    "fills": [{ "type": "SOLID", "color": { "r": 0.25, "g": 0.35, "b": 0.85 } }]
+                  },
+                  {
+                    "id": "I12",
+                    "type": "RECTANGLE",
+                    "name": "BInner",
+                    "x": 28,
+                    "y": 18,
+                    "width": 36,
+                    "height": 32,
+                    "fills": [{ "type": "SOLID", "color": { "r": 0.9, "g": 0.2, "b": 0.15 } }]
+                  }
+                ]
+              },
+              {
+                "id": "I13",
+                "type": "VECTOR",
+                "name": "Accent",
+                "x": 228,
+                "y": 64,
+                "width": 48,
+                "height": 48,
+                "vectorPaths": [{ "windingRule": "NONZERO", "data": "M24,4 L44,40 L4,40 Z" }],
+                "fills": [{ "type": "SOLID", "color": { "r": 0.05, "g": 0.75, "b": 0.55 } }]
+              },
+              {
+                "id": "I14",
+                "type": "RECTANGLE",
+                "name": "BlurUnder",
+                "x": 8,
+                "y": 150,
+                "width": 304,
+                "height": 78,
+                "fills": [
+                  {
+                    "type": "GRADIENT_LINEAR",
+                    "gradientTransform": [
+                      [1, 0, 0],
+                      [0, 1, 0]
+                    ],
+                    "gradientStops": [
+                      { "position": 0, "color": { "r": 0.7, "g": 0.85, "b": 1, "a": 1 } },
+                      { "position": 1, "color": { "r": 0.95, "g": 0.75, "b": 0.9, "a": 1 } }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "I15",
+                "type": "FRAME",
+                "name": "BlurPanel",
+                "x": 24,
+                "y": 162,
+                "width": 200,
+                "height": 52,
+                "fills": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 }, "opacity": 0.35 }],
+                "effects": [{ "type": "BACKDROP_BLUR", "radius": 10 }],
+                "children": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -8,6 +8,9 @@ const CREATE_NODE_TYPES = new Set([
   'LINE',
   'POLYGON',
   'STAR',
+  'VECTOR',
+  'BOOLEAN_OPERATION',
+  'TRANSFORM_GROUP',
 ]);
 
 function isRecord(v: unknown): v is Record<string, unknown> {

@@ -1,5 +1,11 @@
 import type { AnyTreeNode } from '../engine/DocumentEngine.js';
-import type { Effect, FrameNode, TextNode } from '../model/types.js';
+import type {
+  BooleanOperationNode,
+  Effect,
+  FrameNode,
+  TextNode,
+  TransformGroupNode,
+} from '../model/types.js';
 
 export interface MetadataNodeDTO {
   id: string;
@@ -13,6 +19,10 @@ export interface MetadataNodeDTO {
   clipsContent?: boolean;
   textLength?: number;
   effectTypes?: string[];
+  layoutMode?: string;
+  layoutWrap?: string;
+  itemSpacing?: number;
+  layoutGridTracks?: number;
   children?: MetadataNodeDTO[];
 }
 
@@ -41,6 +51,11 @@ export function collectMetadataTree(
       if (f.clipsContent !== undefined) dto.clipsContent = f.clipsContent;
       if (f.blendMode !== undefined) dto.blendMode = f.blendMode;
       dto.effectTypes = effectList(f.effects);
+      if (f.layoutMode !== undefined) dto.layoutMode = f.layoutMode;
+      if (f.layoutWrap !== undefined) dto.layoutWrap = f.layoutWrap;
+      if (f.itemSpacing !== undefined) dto.itemSpacing = f.itemSpacing;
+      const g0 = f.layoutGrids?.[0];
+      if (g0?.type === 'COLUMNS' && typeof g0.count === 'number') dto.layoutGridTracks = g0.count;
     }
     if (node.type === 'TEXT') {
       const t = node as TextNode;
@@ -57,7 +72,8 @@ export function collectMetadataTree(
       node.type === 'ELLIPSE' ||
       node.type === 'LINE' ||
       node.type === 'POLYGON' ||
-      node.type === 'STAR'
+      node.type === 'STAR' ||
+      node.type === 'VECTOR'
     ) {
       const s = node as { x: number; y: number; width: number; height: number; effects?: Effect[]; blendMode?: string };
       dto.bounds = { x: s.x, y: s.y, width: s.width, height: s.height };
@@ -73,6 +89,23 @@ export function collectMetadataTree(
       if (s.blendMode !== undefined) dto.blendMode = s.blendMode;
       dto.effectTypes = effectList(s.effects);
     }
+    if (node.type === 'TRANSFORM_GROUP') {
+      const tg = node as TransformGroupNode;
+      dto.bounds = { x: tg.x, y: tg.y, width: tg.width, height: tg.height };
+      if (tg.visible !== undefined) dto.visible = tg.visible;
+      if (tg.opacity !== undefined) dto.opacity = tg.opacity;
+      if (tg.rotation !== undefined) dto.rotation = tg.rotation;
+      if (tg.blendMode !== undefined) dto.blendMode = tg.blendMode;
+    }
+    if (node.type === 'BOOLEAN_OPERATION') {
+      const b = node as BooleanOperationNode;
+      dto.bounds = { x: b.x, y: b.y, width: b.width, height: b.height };
+      if (b.visible !== undefined) dto.visible = b.visible;
+      if (b.opacity !== undefined) dto.opacity = b.opacity;
+      if (b.rotation !== undefined) dto.rotation = b.rotation;
+      if (b.blendMode !== undefined) dto.blendMode = b.blendMode;
+      dto.effectTypes = effectList(b.effects);
+    }
     if (depth >= max) return dto;
     if (node.type === 'DOCUMENT') {
       dto.children = node.children.map((c) => walk(c, depth + 1));
@@ -80,6 +113,10 @@ export function collectMetadataTree(
       dto.children = node.children.map((c) => walk(c, depth + 1));
     } else if (node.type === 'FRAME') {
       dto.children = (node as FrameNode).children.map((c) => walk(c, depth + 1));
+    } else if (node.type === 'TRANSFORM_GROUP') {
+      dto.children = (node as TransformGroupNode).children.map((c) => walk(c, depth + 1));
+    } else if (node.type === 'BOOLEAN_OPERATION') {
+      dto.children = (node as BooleanOperationNode).children.map((c) => walk(c as AnyTreeNode, depth + 1));
     }
     return dto;
   }

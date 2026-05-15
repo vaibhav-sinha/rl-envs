@@ -1,6 +1,6 @@
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import { applyCreateNodeOp, type EngineOperation, type NewNodeSpec } from '../engine/DocumentEngine.js';
-import type { BlendMode, Effect, FrameNode, PageNode, Paint, StyledSegment } from '../model/types.js';
+import type { BlendMode, Effect, FrameNode, PageNode, Paint, StyledSegment, VectorNode } from '../model/types.js';
 import { ValidationErr } from '../util/errors.js';
 import type { FileEnvelope } from '../model/types.js';
 
@@ -14,7 +14,7 @@ interface ScriptContext {
 }
 
 abstract class RuntimeSceneNode {
-  abstract readonly type: 'FRAME' | 'TEXT' | 'RECTANGLE';
+  abstract readonly type: string;
   name = 'Node';
   x = 0;
   y = 0;
@@ -75,8 +75,21 @@ class RuntimeFrame extends RuntimeSceneNode {
   strokeWeight?: number;
   backgrounds?: Paint[];
   clipsContent?: boolean;
+  layoutMode?: FrameNode['layoutMode'];
+  layoutWrap?: FrameNode['layoutWrap'];
+  itemSpacing?: number;
+  paddingLeft?: number;
+  paddingRight?: number;
+  paddingTop?: number;
+  paddingBottom?: number;
+  primaryAxisAlignItems?: FrameNode['primaryAxisAlignItems'];
+  counterAxisAlignItems?: FrameNode['counterAxisAlignItems'];
+  layoutGrids?: FrameNode['layoutGrids'];
 
-  appendChild(child: RuntimeFrame | RuntimeText | RuntimeRectangle, index?: number): void {
+  appendChild(
+    child: RuntimeFrame | RuntimeText | RuntimeRectangle | RuntimeVector | RuntimeTransformGroup,
+    index?: number
+  ): void {
     if (!this.attached || this._id === null) {
       throw new Error('appendChild requires the frame to be appended to the page (or parent) first');
     }
@@ -97,6 +110,16 @@ class RuntimeFrame extends RuntimeSceneNode {
       strokeWeight: this.strokeWeight,
       effects: this.effects,
       clipsContent: this.clipsContent,
+      layoutMode: this.layoutMode,
+      layoutWrap: this.layoutWrap,
+      itemSpacing: this.itemSpacing,
+      paddingLeft: this.paddingLeft,
+      paddingRight: this.paddingRight,
+      paddingTop: this.paddingTop,
+      paddingBottom: this.paddingBottom,
+      primaryAxisAlignItems: this.primaryAxisAlignItems,
+      counterAxisAlignItems: this.counterAxisAlignItems,
+      layoutGrids: this.layoutGrids,
       visible: this.visible,
       opacity: this.opacity,
       rotation: this.rotation,
@@ -189,6 +212,61 @@ class RuntimeRectangle extends RuntimeSceneNode {
   }
 }
 
+class RuntimeVector extends RuntimeSceneNode {
+  readonly type = 'VECTOR' as const;
+  name = 'Vector';
+  vectorPaths: VectorNode['vectorPaths'] = [{ windingRule: 'NONZERO', data: 'M0,0 H40 V40 H0 Z' }];
+  fills?: Paint[];
+
+  toNewNodeSpec(): NewNodeSpec {
+    return {
+      type: 'VECTOR',
+      name: this.name,
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height,
+      vectorPaths: this.vectorPaths,
+      fills: this.fills,
+      effects: this.effects,
+      visible: this.visible,
+      opacity: this.opacity,
+      rotation: this.rotation,
+      blendMode: this.blendMode,
+    };
+  }
+}
+
+class RuntimeTransformGroup extends RuntimeSceneNode {
+  readonly type = 'TRANSFORM_GROUP' as const;
+  name = 'Group';
+
+  appendChild(
+    child: RuntimeFrame | RuntimeText | RuntimeRectangle | RuntimeVector | RuntimeTransformGroup,
+    index?: number
+  ): void {
+    if (!this.attached || this._id === null) {
+      throw new Error('appendChild requires the group to be appended to the page (or parent) first');
+    }
+    child.appendUnderParent(this._id, index, this.ctx);
+  }
+
+  toNewNodeSpec(): NewNodeSpec {
+    return {
+      type: 'TRANSFORM_GROUP',
+      name: this.name,
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height,
+      visible: this.visible,
+      opacity: this.opacity,
+      rotation: this.rotation,
+      blendMode: this.blendMode,
+    };
+  }
+}
+
 class RuntimePage {
   constructor(
     private readonly ctx: ScriptContext,
@@ -199,7 +277,10 @@ class RuntimePage {
     return this.pageId;
   }
 
-  appendChild(child: RuntimeFrame | RuntimeText | RuntimeRectangle, index?: number): void {
+  appendChild(
+    child: RuntimeFrame | RuntimeText | RuntimeRectangle | RuntimeVector | RuntimeTransformGroup,
+    index?: number
+  ): void {
     child.appendUnderParent(this.pageId, index, this.ctx);
   }
 }
@@ -267,8 +348,11 @@ export async function runUseFigmaScript(
     createText(): RuntimeText {
       return new RuntimeText().bindContext(ctx);
     },
-    createRectangle(): RuntimeRectangle {
-      return new RuntimeRectangle().bindContext(ctx);
+    createTransformGroup(): RuntimeTransformGroup {
+      return new RuntimeTransformGroup().bindContext(ctx);
+    },
+    createVector(): RuntimeVector {
+      return new RuntimeVector().bindContext(ctx);
     },
     notify: (): void => {
       throw new Error('not implemented');
