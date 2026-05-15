@@ -1,4 +1,12 @@
 await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+function createAutoLayout(direction) {
+  if (typeof figma.createAutoLayout === 'function') {
+    return figma.createAutoLayout(direction);
+  }
+  const frame = figma.createFrame();
+  frame.layoutMode = direction === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL';
+  return frame;
+}
 const root = figma.createFrame();
 root.name = 'ScenarioRoot';
 root.resize(480, 360);
@@ -8,7 +16,7 @@ const brand = figma.variables.createVariableCollection('UI');
 const modeId = brand.modes[0].id;
 const primary = figma.variables.createVariable('primary', brand, 'COLOR');
 figma.variables.setValueForMode(primary.id, modeId, { type: 'COLOR', color: { r: 0.15, g: 0.45, b: 0.95 } });
-const header = figma.createAutoLayout();
+const header = createAutoLayout();
 header.resize(440, 48);
 header.x = 20;
 header.y = 12;

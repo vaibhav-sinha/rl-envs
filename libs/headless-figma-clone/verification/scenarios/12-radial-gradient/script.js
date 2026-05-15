@@ -1,3 +1,11 @@
+function createAutoLayout(direction) {
+  if (typeof figma.createAutoLayout === 'function') {
+    return figma.createAutoLayout(direction);
+  }
+  const frame = figma.createFrame();
+  frame.layoutMode = direction === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL';
+  return frame;
+}
 const root = figma.createFrame();
 root.name = 'ScenarioRoot';
 root.resize(480, 360);

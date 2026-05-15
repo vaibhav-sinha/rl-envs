@@ -1,3 +1,11 @@
+function createAutoLayout(direction) {
+  if (typeof figma.createAutoLayout === 'function') {
+    return figma.createAutoLayout(direction);
+  }
+  const frame = figma.createFrame();
+  frame.layoutMode = direction === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL';
+  return frame;
+}
 const root = figma.createFrame();
 root.name = 'ScenarioRoot';
 root.resize(480, 360);
@@ -8,7 +16,7 @@ frame.resize(400, 120);
 frame.x = 40;
 frame.y = 120;
 frame.layoutGrids = [{ pattern: 'COLUMNS', sectionSize: 80, gutterSize: 12, color: { r: 0, g: 0.3, b: 0.8, a: 0.12 } }];
-const toolbar = figma.createAutoLayout();
+const toolbar = createAutoLayout();
 toolbar.itemSpacing = 8;
 toolbar.x = 16;
 toolbar.y = 40;

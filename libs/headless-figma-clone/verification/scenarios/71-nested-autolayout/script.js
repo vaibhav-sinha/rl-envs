@@ -1,3 +1,11 @@
+function createAutoLayout(direction) {
+  if (typeof figma.createAutoLayout === 'function') {
+    return figma.createAutoLayout(direction);
+  }
+  const frame = figma.createFrame();
+  frame.layoutMode = direction === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL';
+  return frame;
+}
 const root = figma.createFrame();
 root.name = 'ScenarioRoot';
 root.resize(480, 360);
@@ -11,7 +19,7 @@ col.y = 80;
 col.fills = [{ type: 'SOLID', color: { r: 0.94, g: 0.95, b: 0.98 } }];
 col.paddingTop = 16;
 col.paddingLeft = 16;
-const row = figma.createAutoLayout();
+const row = createAutoLayout();
 row.itemSpacing = 8;
 for (let i = 0; i < 4; i++) {
   const chip = figma.createRectangle();

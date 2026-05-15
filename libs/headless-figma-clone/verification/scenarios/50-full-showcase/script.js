@@ -1,11 +1,19 @@
 await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+function createAutoLayout(direction) {
+  if (typeof figma.createAutoLayout === 'function') {
+    return figma.createAutoLayout(direction);
+  }
+  const frame = figma.createFrame();
+  frame.layoutMode = direction === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL';
+  return frame;
+}
 const root = figma.createFrame();
 root.name = 'ScenarioRoot';
 root.resize(480, 360);
 root.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
 figma.currentPage.appendChild(root);
 root.layoutGrids = [{ pattern: 'COLUMNS', sectionSize: 60, gutterSize: 12, color: { r: 0, g: 0.3, b: 0.8, a: 0.12 } }];
-const nav = figma.createAutoLayout();
+const nav = createAutoLayout();
 nav.resize(400, 40);
 nav.x = 40;
 nav.y = 16;
