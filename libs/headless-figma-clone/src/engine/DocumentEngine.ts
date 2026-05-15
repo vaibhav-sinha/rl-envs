@@ -87,10 +87,21 @@ export type SceneGraphOperation =
   | { op: 'deleteNode'; nodeId: string }
   | { op: 'moveNode'; nodeId: string; newParentId: string; index?: number };
 
-/** Scene graph + envelope (variables / local styles) mutations in one transactional batch. */
-export type EngineOperation = SceneGraphOperation | EnvelopeOperation;
+/** Registers raster bytes on the file envelope and sidecar (used by `figma.createImage` script ops). */
+export type AssetRegisterOperation = {
+  op: 'registerAssetBytes';
+  mimeType: AssetRecord['mimeType'];
+  dataBase64: string;
+};
+
+/** Scene graph + envelope (variables / local styles) + asset mutations in one transactional batch. */
+export type EngineOperation = SceneGraphOperation | EnvelopeOperation | AssetRegisterOperation;
 
 export type { EnvelopeOperation };
+
+export function isAssetRegisterOperation(op: { op: string }): op is AssetRegisterOperation {
+  return op.op === 'registerAssetBytes';
+}
 
 const EXCLUDED_PATCH_KEYS = new Set([
   'pluginData',
@@ -1545,16 +1556,39 @@ export function registerAssetBytesInEnvelope(
 ): { hash: string; assetId: string } {
   const sha256 = createHash('sha256').update(buf).digest('hex');
   if (!working.assets) working.assets = { byId: {} };
+  const ext =
+    mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'gif';
   if (!working.assets.byId[sha256]) {
     working.assets.byId[sha256] = {
       id: sha256,
       mimeType: mime,
       byteLength: buf.length,
       sha256,
-      relativePath: `sandbox/${sha256}.${mime === 'image/png' ? 'png' : 'bin'}`,
+      relativePath: `sandbox/${sha256}.${ext}`,
     };
   }
   return { hash: sha256, assetId: sha256 };
+}
+
+/** Write asset sidecar bytes and point the envelope record at the persisted relative path. */
+export async function persistAssetBytesOnDisk(
+  filePath: string,
+  working: FileEnvelope,
+  buf: Buffer,
+  mime: AssetRecord['mimeType']
+): Promise<{ hash: string; assetId: string }> {
+  const { hash, assetId } = registerAssetBytesInEnvelope(working, buf, mime);
+  const ext =
+    mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'gif';
+  const rel = relativeAssetFile(filePath, hash, ext);
+  const abs = join(dirname(filePath), rel);
+  mkdirSync(sidecarDirForHfcJson(filePath), { recursive: true });
+  if (!existsSync(abs)) {
+    await atomicWriteFileBinary(abs, buf);
+  }
+  const rec = working.assets!.byId[hash]!;
+  rec.relativePath = rel;
+  return { hash, assetId };
 }
 
 export class DocumentEngine {
@@ -1690,8 +1724,6 @@ export class DocumentEngine {
     }
     const { buf, mime } = params;
     const sha256 = createHash('sha256').update(buf).digest('hex');
-    const ext =
-      mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'gif';
 
     if (!this.activeFile.assets) this.activeFile.assets = { byId: {} };
     const existing = this.activeFile.assets.byId[sha256];
@@ -1699,24 +1731,15 @@ export class DocumentEngine {
       return { ok: true, assetId: existing.id, sha256: existing.sha256, mimeType: existing.mimeType };
     }
 
-    const rel = relativeAssetFile(this.activeFilePath, sha256, ext);
-    const abs = join(dirname(this.activeFilePath), rel);
-    mkdirSync(sidecarDirForHfcJson(this.activeFilePath), { recursive: true });
     try {
-      await atomicWriteFileBinary(abs, buf);
+      await persistAssetBytesOnDisk(this.activeFilePath, this.activeFile, buf, mime);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { ok: false, errorCode: 'VALIDATION_ERROR', message: msg };
     }
 
-    const record: AssetRecord = {
-      id: sha256,
-      mimeType: mime,
-      byteLength: buf.length,
-      sha256,
-      relativePath: rel,
-    };
-    this.activeFile.assets.byId[sha256] = record;
+    const record = this.activeFile.assets.byId[sha256]!;
+    const abs = join(dirname(this.activeFilePath), record.relativePath);
     try {
       await this.deps.persistence.save({ path: this.activeFilePath, envelope: this.activeFile });
     } catch (e) {
@@ -1827,6 +1850,14 @@ export class DocumentEngine {
 
     try {
       for (const op of ops) {
+        if (isAssetRegisterOperation(op)) {
+          const buf = Buffer.from(op.dataBase64, 'base64');
+          if (buf.length === 0) {
+            throw new ValidationErr('VALIDATION_ERROR', 'registerAssetBytes: empty payload');
+          }
+          await persistAssetBytesOnDisk(this.activeFilePath, working, buf, op.mimeType);
+          continue;
+        }
         if (isEnvelopeOperation(op)) {
           applyEnvelopeOperation(working, op);
           if (op.op === 'createVariable') touched.add(op.variableId);

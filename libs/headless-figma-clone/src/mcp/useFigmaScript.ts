@@ -1441,12 +1441,16 @@ export async function runUseFigmaScript(
     base64Encode: (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64'),
     base64Decode: (s: string): Uint8Array => new Uint8Array(Buffer.from(s, 'base64')),
     createImage: (bytes: Uint8Array): { hash: string } => {
-      const { hash } = registerAssetBytesInEnvelope(ctx.working, Buffer.from(bytes), 'image/png');
+      const buf = Buffer.from(bytes);
+      const { hash } = registerAssetBytesInEnvelope(ctx.working, buf, 'image/png');
+      ctx.ops.push({ op: 'registerAssetBytes', mimeType: 'image/png', dataBase64: buf.toString('base64') });
       return { hash };
     },
     createImageAsync: async (src: string): Promise<{ hash: string }> => {
       const bytes = await fetchBytes(networkPolicy, src);
-      const { hash } = registerAssetBytesInEnvelope(ctx.working, Buffer.from(bytes), 'image/png');
+      const buf = Buffer.from(bytes);
+      const { hash } = registerAssetBytesInEnvelope(ctx.working, buf, 'image/png');
+      ctx.ops.push({ op: 'registerAssetBytes', mimeType: 'image/png', dataBase64: buf.toString('base64') });
       return { hash };
     },
     getImageByHash: (hash: string): { hash: string; getBytesAsync: () => Promise<Uint8Array> } => {
