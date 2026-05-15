@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+        color: #e8e8e8;
+        background: #1e1e1e;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+      header {
+        padding: 10px 12px;
+        border-bottom: 1px solid #333;
+        flex-shrink: 0;
+      }
+      .status { font-weight: 600; }
+      .status.connected { color: #4ade80; }
+      .status.disconnected { color: #f87171; }
+      .meta { color: #999; margin-top: 4px; font-size: 11px; }
+      .actions { margin-top: 8px; display: flex; gap: 8px; }
+      button {
+        background: #333;
+        color: #eee;
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font-size: 11px;
+      }
+      button:hover { background: #444; }
+      #log {
+        flex: 1;
+        overflow: auto;
+        padding: 8px 12px;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .line { margin: 2px 0; color: #bbb; }
+      .line.err { color: #f87171; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="status disconnected" id="status">Disconnected</div>
+      <div class="meta" id="meta">Server: ws://localhost:3855/plugin</div>
+      <div class="actions">
+        <button id="reconnect" type="button">Reconnect</button>
+      </div>
+    </header>
+    <div id="log"></div>
+    <script>
+      const WS_URL = 'ws://localhost:3855/plugin';
+      const statusEl = document.getElementById('status');
+      const metaEl = document.getElementById('meta');
+      const logEl = document.getElementById('log');
+      const reconnectBtn = document.getElementById('reconnect');
+
+      let ws = null;
+      let reconnectTimer = null;
+      let backoff = 1000;
+
+      function log(line, isErr) {
+        const div = document.createElement('div');
+        div.className = 'line' + (isErr ? ' err' : '');
+        div.textContent = new Date().toLocaleTimeString() + ' ' + line;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function setConnected(connected, detail) {
+        statusEl.textContent = connected ? 'Connected' : 'Disconnected';
+        statusEl.className = 'status ' + (connected ? 'connected' : 'disconnected');
+        if (detail) metaEl.textContent = detail;
+      }
+
+      function sendHello() {
+        parent.postMessage({ pluginMessage: { type: 'request_hello' } }, '*');
+      }
+
+      function onHelloData(data) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(
+          JSON.stringify({
+            type: 'plugin_hello',
+            pluginVersion: data.pluginVersion,
+            fileKey: data.fileKey,
+            fileName: data.fileName,
+          })
+        );
+        const fileLabel = data.fileKey
+          ? data.fileName + ' (' + data.fileKey + ')'
+          : data.fileName;
+        setConnected(true, 'File: ' + fileLabel);
+        log('plugin_hello sent');
+      }
+
+      function connect() {
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+          ws.close();
+        }
+        setConnected(false, 'Connecting to ' + WS_URL + '…');
+        ws = new WebSocket(WS_URL);
+
+        ws.onopen = () => {
+          backoff = 1000;
+          log('WebSocket open');
+          sendHello();
+        };
+
+        ws.onmessage = (ev) => {
+          let msg;
+          try {
+            msg = JSON.parse(ev.data);
+          } catch {
+            return;
+          }
+          if (msg.type === 'ping') {
+            ws.send(JSON.stringify({ type: 'pong' }));
+            return;
+          }
+          if (msg.type === 'tool_request') {
+            log('← ' + msg.tool + ' ' + msg.id.slice(0, 8));
+            parent.postMessage(
+              {
+                pluginMessage: {
+                  type: 'tool_request',
+                  id: msg.id,
+                  tool: msg.tool,
+                  args: msg.args,
+                },
+              },
+              '*'
+            );
+          }
+        };
+
+        ws.onclose = () => {
+          setConnected(false, 'Disconnected — retrying…');
+          log('WebSocket closed', true);
+          scheduleReconnect();
+        };
+
+        ws.onerror = () => {
+          log('WebSocket error', true);
+        };
+      }
+
+      function scheduleReconnect() {
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          backoff = Math.min(backoff * 2, 30000);
+          connect();
+        }, backoff);
+      }
+
+      window.onmessage = (event) => {
+        const msg = event.data.pluginMessage;
+        if (!msg) return;
+        if (msg.type === 'hello_data') {
+          onHelloData(msg);
+          return;
+        }
+        if (msg.type === 'log') {
+          log(msg.line, msg.line.startsWith('✗'));
+          return;
+        }
+        if (msg.type === 'tool_response' && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(msg));
+        }
+      };
+
+      reconnectBtn.onclick = () => {
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        backoff = 1000;
+        connect();
+      };
+
+      connect();
+    </script>
+  </body>
+</html>
