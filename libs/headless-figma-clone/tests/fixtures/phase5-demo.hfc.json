@@ -1,0 +1,286 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "phase5demo",
+  "fileName": "Phase 5 demo",
+  "nextInternalId": 43,
+  "variableCollections": [
+    {
+      "id": "VCOL1",
+      "name": "Tokens",
+      "defaultModeId": "VM1",
+      "modes": [
+        {
+          "id": "VM1",
+          "name": "Default"
+        }
+      ],
+      "variables": [
+        {
+          "id": "VV1",
+          "name": "primary",
+          "resolvedType": "COLOR",
+          "valuesByMode": {
+            "VM1": {
+              "type": "COLOR",
+              "color": {
+                "r": 0.12,
+                "g": 0.35,
+                "b": 0.92
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "textStyles": [
+    {
+      "id": "TS1",
+      "name": "Caption",
+      "fontSize": 12,
+      "fontWeight": 600,
+      "fills": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.15,
+            "g": 0.15,
+            "b": 0.2
+          }
+        }
+      ]
+    }
+  ],
+  "components": [
+    {
+      "id": "COMP1",
+      "name": "TokenChip",
+      "root": {
+        "id": "I201",
+        "type": "FRAME",
+        "name": "Chip",
+        "x": 0,
+        "y": 0,
+        "width": 96,
+        "height": 28,
+        "children": [
+          {
+            "id": "I202",
+            "type": "RECTANGLE",
+            "name": "bg",
+            "x": 0,
+            "y": 0,
+            "width": 96,
+            "height": 28,
+            "fills": [
+              {
+                "type": "VARIABLE_COLOR",
+                "variableId": "VV1"
+              }
+            ]
+          },
+          {
+            "id": "I203",
+            "type": "TEXT",
+            "name": "label",
+            "x": 8,
+            "y": 4,
+            "width": 80,
+            "height": 20,
+            "characters": "Chip",
+            "textStyleId": "TS1"
+          }
+        ]
+      }
+    }
+  ],
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 420,
+        "height": 380,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Demo",
+            "x": 0,
+            "y": 0,
+            "width": 420,
+            "height": 380,
+            "fills": [
+              {
+                "type": "SOLID",
+                "color": {
+                  "r": 0.96,
+                  "g": 0.97,
+                  "b": 0.98
+                }
+              }
+            ],
+            "children": [
+              {
+                "id": "I4",
+                "type": "VECTOR",
+                "name": "Path",
+                "x": 24,
+                "y": 20,
+                "width": 360,
+                "height": 40,
+                "vectorPaths": [
+                  {
+                    "windingRule": "NONZERO",
+                    "data": "M0,28 Q180,4 360,28"
+                  }
+                ],
+                "fills": []
+              },
+              {
+                "id": "I5",
+                "type": "TEXT",
+                "name": "OnPath",
+                "x": 24,
+                "y": 20,
+                "width": 360,
+                "height": 40,
+                "characters": "Curved label",
+                "textOnPath": {
+                  "pathNodeId": "I4"
+                },
+                "textStyleId": "TS1"
+              },
+              {
+                "id": "I6",
+                "type": "TABLE",
+                "name": "Grid",
+                "x": 24,
+                "y": 200,
+                "width": 200,
+                "height": 90,
+                "columnCount": 2,
+                "rowCount": 2,
+                "columnWidths": [
+                  100,
+                  100
+                ],
+                "rowHeights": [
+                  45,
+                  45
+                ],
+                "cells": [
+                  {
+                    "text": "A1",
+                    "fills": [
+                      {
+                        "type": "SOLID",
+                        "color": {
+                          "r": 1,
+                          "g": 0.92,
+                          "b": 0.85
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "text": "B1"
+                  },
+                  {
+                    "text": "A2"
+                  },
+                  {
+                    "text": "B2",
+                    "fills": [
+                      {
+                        "type": "SOLID",
+                        "color": {
+                          "r": 0.9,
+                          "g": 0.95,
+                          "b": 1
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "I7",
+                "type": "COMPONENT_INSTANCE",
+                "name": "Inst A",
+                "x": 260,
+                "y": 24,
+                "width": 100,
+                "height": 32,
+                "mainComponentId": "COMP1",
+                "overrides": {
+                  "I202": {
+                    "fills": [
+                      {
+                        "type": "SOLID",
+                        "color": {
+                          "r": 0.15,
+                          "g": 0.65,
+                          "b": 0.25
+                        }
+                      }
+                    ]
+                  },
+                  "I203": {
+                    "characters": "Green"
+                  }
+                }
+              },
+              {
+                "id": "I8",
+                "type": "COMPONENT_INSTANCE",
+                "name": "Inst B",
+                "x": 260,
+                "y": 70,
+                "width": 100,
+                "height": 32,
+                "mainComponentId": "COMP1"
+              }
+            ]
+          },
+          {
+            "id": "I40",
+            "type": "COMPONENT_INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          },
+          {
+            "id": "I41",
+            "type": "COMPONENT_INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          },
+          {
+            "id": "I42",
+            "type": "COMPONENT_INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          }
+        ]
+      }
+    ]
+  }
+}

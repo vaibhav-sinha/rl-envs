@@ -1,0 +1,31 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`component instance expansion > emits two instances and override text 1`] = `
+"<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style id="hfc-compiled-css">
+#hfc-root{position:relative;width:420px;height:380px;isolation:isolate;}
+:root{--hfc-var-VV1:rgba(31,89,235,1);}
+.hfc-node-I3{position:absolute;left:0px;top:0px;width:420px;height:380px;box-sizing:border-box;background-color:rgba(245,247,250,1);border:none;}
+.hfc-node-I4{position:absolute;left:24px;top:20px;width:360px;height:40px;box-sizing:border-box;}
+.hfc-node-I5{position:absolute;left:24px;top:20px;width:360px;height:40px;box-sizing:border-box;}
+.hfc-node-I6{position:absolute;left:24px;top:200px;width:200px;height:90px;box-sizing:border-box;}
+.hfc-node-I7{position:absolute;left:260px;top:24px;width:100px;height:32px;box-sizing:border-box;overflow:hidden;}
+.hfc-node-I201{position:absolute;left:260px;top:24px;width:96px;height:28px;box-sizing:border-box;background-color:transparent;border:none;}
+.hfc-node-I202{position:absolute;left:260px;top:24px;width:96px;height:28px;box-sizing:border-box;background-color:rgba(38,166,64,1);border:none;}
+.hfc-node-I203{position:absolute;left:268px;top:28px;width:80px;height:20px;box-sizing:border-box;white-space:pre-wrap;word-break:break-word;}
+.hfc-node-I8{position:absolute;left:260px;top:70px;width:100px;height:32px;box-sizing:border-box;overflow:hidden;}
+.hfc-node-I201{position:absolute;left:260px;top:70px;width:96px;height:28px;box-sizing:border-box;background-color:transparent;border:none;}
+.hfc-node-I202{position:absolute;left:260px;top:70px;width:96px;height:28px;box-sizing:border-box;background-color:var(--hfc-var-VV1);border:none;}
+.hfc-node-I203{position:absolute;left:268px;top:74px;width:80px;height:20px;box-sizing:border-box;white-space:pre-wrap;word-break:break-word;}
+    </style>
+  </head>
+  <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">
+    <div id="hfc-root" style="position:relative;width:420px;height:380px;">
+      <div class="hfc-node-I3" data-hfc-id="I3" style="z-index:0"><div class="hfc-node-I4" data-hfc-id="I4" style="z-index:1"><svg class="hfc-vector-svg" viewBox="0 0 360 40" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><path d="M0,28 Q180,4 360,28" fill-rule="nonzero" fill="transparent"/></svg></div><div class="hfc-node-I5" data-hfc-id="I5" style="z-index:2"><svg class="hfc-textpath-svg" viewBox="0 0 360 40" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><path id="hfc-tp-I5" d="M0,28 Q180,4 360,28"/></defs><text font-size="12" font-weight="600" fill="rgba(38,38,51,1)"><textPath href="#hfc-tp-I5">Curved label</textPath></text></svg></div><div class="hfc-node-I6" data-hfc-id="I6" style="z-index:3"><table class="hfc-table" style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;"><tr><td class="hfc-table-cell" style="width:100px;height:45px;border:1px solid rgba(0,0,0,0.12);vertical-align:middle;padding:4px;box-sizing:border-box;background-color:rgba(255,235,217,1);">A1</td><td class="hfc-table-cell" style="width:100px;height:45px;border:1px solid rgba(0,0,0,0.12);vertical-align:middle;padding:4px;box-sizing:border-box;background-color:transparent;">B1</td></tr><tr><td class="hfc-table-cell" style="width:100px;height:45px;border:1px solid rgba(0,0,0,0.12);vertical-align:middle;padding:4px;box-sizing:border-box;background-color:transparent;">A2</td><td class="hfc-table-cell" style="width:100px;height:45px;border:1px solid rgba(0,0,0,0.12);vertical-align:middle;padding:4px;box-sizing:border-box;background-color:rgba(230,242,255,1);">B2</td></tr></table></div><div class="hfc-node-I7 hfc-component-instance" data-hfc-id="I7" style="z-index:4"><div class="hfc-node-I201" data-hfc-id="I201" style="z-index:5"><div class="hfc-node-I202" data-hfc-id="I202" style="z-index:6"></div><div class="hfc-node-I203" data-hfc-id="I203" style="z-index:7"><div class="hfc-text-inner"><span style="font-size:12px;font-weight:600;color:rgba(38,38,51,1);">Green</span></div></div></div></div><div class="hfc-node-I8 hfc-component-instance" data-hfc-id="I8" style="z-index:8"><div class="hfc-node-I201" data-hfc-id="I201" style="z-index:9"><div class="hfc-node-I202" data-hfc-id="I202" style="z-index:10"></div><div class="hfc-node-I203" data-hfc-id="I203" style="z-index:11"><div class="hfc-text-inner"><span style="font-size:12px;font-weight:600;color:rgba(38,38,51,1);">Chip</span></div></div></div></div></div>
+    </div>
+  </body>
+</html>"
+`;

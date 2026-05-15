@@ -8,6 +8,8 @@ import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotS
 import { collectMetadataTree } from './metadata.js';
 import { mapUseFigmaToEngineOperations, toolErrorJson, toolJson } from './useFigmaMap.js';
 import { runUseFigmaScript } from './useFigmaScript.js';
+import { buildVariableDefsPayload } from '../variables/resolution.js';
+import { searchDesignSystem } from '../designSystem/searchDesignSystem.js';
 
 export interface RegisterToolsDeps {
   engine: DocumentEngine;
@@ -144,6 +146,51 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           },
         ],
       };
+    }
+  );
+
+  server.registerTool(
+    'get_variable_defs',
+    {
+      description:
+        'Returns variable collections, active modes, and resolved values for the active file (headless-figma-clone Phase 5 subset).',
+      inputSchema: {
+        fileKey: z.string().optional(),
+      },
+    },
+    async () => {
+      const file = engine.getActiveFile();
+      if (!file) {
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
+          isError: true,
+        };
+      }
+      const payload = buildVariableDefsPayload(file);
+      return { content: [{ type: 'text' as const, text: toolJson(payload) }] };
+    }
+  );
+
+  server.registerTool(
+    'search_design_system',
+    {
+      description:
+        'Search variables, text styles, paint styles, and components in the active file. Returns deterministic ranked hits (tie-break: kind, id, name).',
+      inputSchema: {
+        query: z.string().default(''),
+        limit: z.number().int().positive().max(500).optional().default(20),
+      },
+    },
+    async (args) => {
+      const file = engine.getActiveFile();
+      if (!file) {
+        return {
+          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
+          isError: true,
+        };
+      }
+      const hits = searchDesignSystem(file, args.query ?? '', args.limit ?? 20);
+      return { content: [{ type: 'text' as const, text: toolJson({ hits }) }] };
     }
   );
 

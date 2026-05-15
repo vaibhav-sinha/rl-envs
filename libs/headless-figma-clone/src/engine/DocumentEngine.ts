@@ -19,6 +19,8 @@ import type {
   TextNode,
   TransformGroupNode,
   VectorNode,
+  TableNode,
+  ComponentInstanceNode,
 } from '../model/types.js';
 import type { Effect, StyledSegment } from '../model/types.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
@@ -56,7 +58,9 @@ export type NewNodeSpec =
   | Omit<StarNode, 'id'> & { type: 'STAR' }
   | Omit<VectorNode, 'id'> & { type: 'VECTOR' }
   | (Omit<BooleanOperationNode, 'id' | 'children'> & { type: 'BOOLEAN_OPERATION'; children?: SceneNode[] })
-  | (Omit<TransformGroupNode, 'id' | 'children'> & { type: 'TRANSFORM_GROUP'; children?: SceneNode[] });
+  | (Omit<TransformGroupNode, 'id' | 'children'> & { type: 'TRANSFORM_GROUP'; children?: SceneNode[] })
+  | Omit<TableNode, 'id'>
+  | Omit<ComponentInstanceNode, 'id'>;
 
 export type EngineOperation =
   | { op: 'createNode'; parentId: string; index?: number; node: NewNodeSpec }
@@ -300,9 +304,9 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
     layoutGrids: spec.layoutGrids,
   };
   validateFrameGeometry(frame);
-  if (frame.fills) frame.fills = validatePaintArray(frame.fills, 'fills', env.assets, env.document) ?? [];
-  if (frame.backgrounds) frame.backgrounds = validatePaintArray(frame.backgrounds, 'backgrounds', env.assets, env.document) ?? [];
-  if (frame.strokes) frame.strokes = validatePaintArray(frame.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (frame.fills) frame.fills = validatePaintArray(frame.fills, 'fills', env) ?? [];
+  if (frame.backgrounds) frame.backgrounds = validatePaintArray(frame.backgrounds, 'backgrounds', env) ?? [];
+  if (frame.strokes) frame.strokes = validatePaintArray(frame.strokes, 'strokes', env) ?? [];
   if (frame.effects) frame.effects = validateEffects(frame.effects, 'effects') ?? [];
   validateStrokeGeometry('FRAME', frame);
   validateBlendMode(spec.blendMode, 'FRAME.blendMode');
@@ -388,6 +392,18 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
   const characters = typeof spec.characters === 'string' ? spec.characters : '';
   const styledSegments = spec.styledSegments;
   validateStyledSegments(characters, styledSegments);
+  if (spec.textStyleId !== undefined) {
+    if (typeof spec.textStyleId !== 'string' || !env.textStyles?.some((s) => s.id === spec.textStyleId)) {
+      throw new ValidationErr('VALIDATION_ERROR', 'TEXT.textStyleId must reference an existing text style');
+    }
+  }
+  let textOnPath: TextNode['textOnPath'];
+  if (spec.textOnPath !== undefined) {
+    if (!isRecord(spec.textOnPath) || typeof spec.textOnPath.pathNodeId !== 'string' || !/^I[0-9]+$/.test(spec.textOnPath.pathNodeId)) {
+      throw new ValidationErr('VALIDATION_ERROR', 'TEXT.textOnPath.pathNodeId must be a node id');
+    }
+    textOnPath = { pathNodeId: spec.textOnPath.pathNodeId };
+  }
   const text: TextNode = {
     id,
     type: 'TEXT',
@@ -406,9 +422,11 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
     opacity: spec.opacity,
     rotation: spec.rotation,
     blendMode: spec.blendMode,
+    textStyleId: spec.textStyleId,
+    textOnPath,
   };
   validateTextGeometry(text);
-  if (text.fills) text.fills = validatePaintArray(text.fills, 'fills', env.assets, env.document) ?? [];
+  if (text.fills) text.fills = validatePaintArray(text.fills, 'fills', env) ?? [];
   if (text.effects) text.effects = validateEffects(text.effects, 'effects') ?? [];
   validateBlendMode(spec.blendMode, 'TEXT.blendMode');
   if (text.opacity !== undefined && (typeof text.opacity !== 'number' || text.opacity < 0 || text.opacity > 1)) {
@@ -424,6 +442,11 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
 }
 
 function normalizeNewRectangle(spec: Extract<NewNodeSpec, { type: 'RECTANGLE' }>, id: string, env: FileEnvelope): RectangleNode {
+  if (spec.fillStyleId !== undefined) {
+    if (typeof spec.fillStyleId !== 'string' || !env.paintStyles?.some((s) => s.id === spec.fillStyleId)) {
+      throw new ValidationErr('VALIDATION_ERROR', 'RECTANGLE.fillStyleId must reference an existing paint style');
+    }
+  }
   const n: RectangleNode = {
     id,
     type: 'RECTANGLE',
@@ -446,10 +469,11 @@ function normalizeNewRectangle(spec: Extract<NewNodeSpec, { type: 'RECTANGLE' }>
     opacity: spec.opacity,
     rotation: spec.rotation,
     blendMode: spec.blendMode,
+    fillStyleId: spec.fillStyleId,
   };
   validateShapeBox(n);
-  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
-  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env) ?? [];
   if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
   if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
     throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
@@ -496,8 +520,8 @@ function normalizeNewEllipse(spec: Extract<NewNodeSpec, { type: 'ELLIPSE' }>, id
     blendMode: spec.blendMode,
   };
   validateShapeBox(n);
-  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
-  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env) ?? [];
   if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
   if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
     throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
@@ -533,7 +557,7 @@ function normalizeNewLine(spec: Extract<NewNodeSpec, { type: 'LINE' }>, id: stri
     y: typeof spec.y === 'number' ? spec.y : 0,
     width: typeof spec.width === 'number' ? spec.width : 100,
     height: typeof spec.height === 'number' ? spec.height : 0,
-    strokes: validatePaintArray(strokes, 'strokes', env.assets, env.document) ?? [],
+    strokes: validatePaintArray(strokes, 'strokes', env) ?? [],
     strokeWeight: sw,
     strokeCap: spec.strokeCap,
     strokeJoin: spec.strokeJoin,
@@ -589,8 +613,8 @@ function normalizeNewPolygon(spec: Extract<NewNodeSpec, { type: 'POLYGON' }>, id
     blendMode: spec.blendMode,
   };
   validateShapeBox(n);
-  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
-  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env) ?? [];
   if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
   if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
     throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
@@ -643,8 +667,8 @@ function normalizeNewStar(spec: Extract<NewNodeSpec, { type: 'STAR' }>, id: stri
     blendMode: spec.blendMode,
   };
   validateShapeBox(n);
-  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
-  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env) ?? [];
   if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
   if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
     throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
@@ -706,11 +730,148 @@ function normalizeNewVector(spec: Extract<NewNodeSpec, { type: 'VECTOR' }>, id: 
     blendMode: spec.blendMode,
   };
   validateShapeBox(n);
-  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
-  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env) ?? [];
   if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
   validateStrokeGeometry('VECTOR', n);
   validateBlendMode(spec.blendMode, 'VECTOR.blendMode');
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  return n;
+}
+
+function normalizeNewTable(spec: Extract<NewNodeSpec, { type: 'TABLE' }>, id: string, env: FileEnvelope): TableNode {
+  const cc = spec.columnCount;
+  const rc = spec.rowCount;
+  if (typeof cc !== 'number' || !Number.isInteger(cc) || cc < 1) {
+    throw new ValidationErr('VALIDATION_ERROR', 'TABLE.columnCount must be integer >= 1');
+  }
+  if (typeof rc !== 'number' || !Number.isInteger(rc) || rc < 1) {
+    throw new ValidationErr('VALIDATION_ERROR', 'TABLE.rowCount must be integer >= 1');
+  }
+  if (!Array.isArray(spec.columnWidths) || spec.columnWidths.length !== cc) {
+    throw new ValidationErr('VALIDATION_ERROR', 'TABLE.columnWidths length must match columnCount');
+  }
+  if (!Array.isArray(spec.rowHeights) || spec.rowHeights.length !== rc) {
+    throw new ValidationErr('VALIDATION_ERROR', 'TABLE.rowHeights length must match rowCount');
+  }
+  for (let i = 0; i < spec.columnWidths.length; i++) {
+    const w = spec.columnWidths[i];
+    if (typeof w !== 'number' || !Number.isFinite(w) || w <= 0) {
+      throw new ValidationErr('VALIDATION_ERROR', `TABLE.columnWidths[${String(i)}] must be finite > 0`);
+    }
+  }
+  for (let i = 0; i < spec.rowHeights.length; i++) {
+    const h = spec.rowHeights[i];
+    if (typeof h !== 'number' || !Number.isFinite(h) || h <= 0) {
+      throw new ValidationErr('VALIDATION_ERROR', `TABLE.rowHeights[${String(i)}] must be finite > 0`);
+    }
+  }
+  if (!Array.isArray(spec.cells) || spec.cells.length !== cc * rc) {
+    throw new ValidationErr('VALIDATION_ERROR', 'TABLE.cells must have length columnCount * rowCount');
+  }
+  const cells: TableNode['cells'] = [];
+  for (let i = 0; i < spec.cells.length; i++) {
+    const c = spec.cells[i];
+    if (!isRecord(c) || typeof c.text !== 'string') {
+      throw new ValidationErr('VALIDATION_ERROR', `TABLE.cells[${String(i)}] must have text string`);
+    }
+    const fills = c.fills !== undefined ? validatePaintArray(c.fills, `TABLE.cells[${String(i)}].fills`, env) : undefined;
+    cells.push({ text: c.text, fills });
+  }
+  const n: TableNode = {
+    id,
+    type: 'TABLE',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Table',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    columnCount: cc,
+    rowCount: rc,
+    columnWidths: [...spec.columnWidths],
+    rowHeights: [...spec.rowHeights],
+    cells,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  validateBlendMode(spec.blendMode, 'TABLE.blendMode');
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  return n;
+}
+
+function normalizeNewComponentInstance(
+  spec: Extract<NewNodeSpec, { type: 'COMPONENT_INSTANCE' }>,
+  id: string,
+  env: FileEnvelope
+): ComponentInstanceNode {
+  const mid = spec.mainComponentId;
+  if (typeof mid !== 'string' || !env.components?.some((c) => c.id === mid)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'COMPONENT_INSTANCE.mainComponentId must reference an existing component');
+  }
+  let overrides: ComponentInstanceNode['overrides'];
+  if (spec.overrides !== undefined) {
+    if (!isRecord(spec.overrides)) throw new ValidationErr('VALIDATION_ERROR', 'overrides must be object');
+    overrides = {};
+    for (const [nodeId, ov] of Object.entries(spec.overrides)) {
+      if (!/^I[0-9]+$/.test(nodeId)) {
+        throw new ValidationErr('VALIDATION_ERROR', `overrides key invalid: ${nodeId}`);
+      }
+      if (!isRecord(ov)) throw new ValidationErr('VALIDATION_ERROR', `overrides.${nodeId} must be object`);
+      const entry: import('../model/types.js').ComponentOverrideFields = {};
+      if ('characters' in ov) {
+        if (typeof ov.characters !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'override.characters must be string');
+        entry.characters = ov.characters;
+      }
+      if ('fontSize' in ov) {
+        if (typeof ov.fontSize !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontSize must be number');
+        entry.fontSize = ov.fontSize;
+      }
+      if ('fontWeight' in ov) {
+        if (typeof ov.fontWeight !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontWeight must be number');
+        entry.fontWeight = ov.fontWeight;
+      }
+      if ('fills' in ov && ov.fills !== undefined) {
+        entry.fills = validatePaintArray(ov.fills, `overrides.${nodeId}.fills`, env);
+      }
+      overrides[nodeId] = entry;
+    }
+  }
+  const n: ComponentInstanceNode = {
+    id,
+    type: 'COMPONENT_INSTANCE',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Instance',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    mainComponentId: mid,
+    overrides,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  validateBlendMode(spec.blendMode, 'COMPONENT_INSTANCE.blendMode');
   if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
     throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
   }
@@ -750,7 +911,7 @@ function normalizeNewBooleanOperation(
     blendMode: spec.blendMode,
   };
   validateShapeBox(n);
-  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
   if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
   validateBlendMode(spec.blendMode, 'BOOLEAN_OPERATION.blendMode');
   if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
@@ -893,6 +1054,10 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<EngineOpera
     node = normalizeNewBooleanOperation(op.node, id, working);
   } else if (op.node.type === 'TRANSFORM_GROUP') {
     node = normalizeNewTransformGroup(op.node, id, working);
+  } else if (op.node.type === 'TABLE') {
+    node = normalizeNewTable(op.node, id, working);
+  } else if (op.node.type === 'COMPONENT_INSTANCE') {
+    node = normalizeNewComponentInstance(op.node, id, working);
   } else {
     throw new ValidationErr('VALIDATION_ERROR', `Unsupported node type ${(op.node as { type: string }).type}`);
   }
@@ -1261,13 +1426,13 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     validateFrameGeometry(f);
     if ('fills' in patch) {
-      f.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
+      f.fills = validatePaintArray(patch.fills, 'fills', env);
     }
     if ('strokes' in patch) {
-      f.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+      f.strokes = validatePaintArray(patch.strokes, 'strokes', env);
     }
     if ('backgrounds' in patch) {
-      f.backgrounds = validatePaintArray(patch.backgrounds, 'backgrounds', env.assets, env.document);
+      f.backgrounds = validatePaintArray(patch.backgrounds, 'backgrounds', env);
     }
     if ('effects' in patch) {
       f.effects = validateEffects(patch.effects, 'effects');
@@ -1348,7 +1513,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       validateStyledSegments(t.characters, t.styledSegments);
     }
     if ('fills' in patch) {
-      t.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
+      t.fills = validatePaintArray(patch.fills, 'fills', env);
     }
     if ('effects' in patch) {
       t.effects = validateEffects(patch.effects, 'effects');
@@ -1371,6 +1536,28 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       validateBlendMode(patch.blendMode, 'TEXT.blendMode');
       t.blendMode = patch.blendMode as TextNode['blendMode'];
     }
+    if ('textStyleId' in patch) {
+      const ts = patch.textStyleId;
+      if (ts === undefined || ts === null) {
+        delete t.textStyleId;
+      } else {
+        if (typeof ts !== 'string' || !env.textStyles?.some((s) => s.id === ts)) {
+          throw new ValidationErr('VALIDATION_ERROR', 'textStyleId must reference an existing text style');
+        }
+        t.textStyleId = ts;
+      }
+    }
+    if ('textOnPath' in patch) {
+      const top = patch.textOnPath;
+      if (top === undefined || top === null) {
+        delete t.textOnPath;
+      } else {
+        if (!isRecord(top) || typeof top.pathNodeId !== 'string' || !/^I[0-9]+$/.test(top.pathNodeId)) {
+          throw new ValidationErr('VALIDATION_ERROR', 'textOnPath.pathNodeId must be a node id');
+        }
+        t.textOnPath = { pathNodeId: top.pathNodeId };
+      }
+    }
     return;
   }
   if (node.type === 'RECTANGLE') {
@@ -1387,8 +1574,8 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       }
     }
     validateShapeBox(r);
-    if ('fills' in patch) r.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
-    if ('strokes' in patch) r.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('fills' in patch) r.fills = validatePaintArray(patch.fills, 'fills', env);
+    if ('strokes' in patch) r.strokes = validatePaintArray(patch.strokes, 'strokes', env);
     if ('effects' in patch) r.effects = validateEffects(patch.effects, 'effects');
     if ('visible' in patch) {
       if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
@@ -1410,6 +1597,17 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     applyStrokeFieldsFromPatch(r as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('RECTANGLE', r);
+    if ('fillStyleId' in patch) {
+      const fs = patch.fillStyleId;
+      if (fs === undefined || fs === null) {
+        delete r.fillStyleId;
+      } else {
+        if (typeof fs !== 'string' || !env.paintStyles?.some((s) => s.id === fs)) {
+          throw new ValidationErr('VALIDATION_ERROR', 'fillStyleId must reference an existing paint style');
+        }
+        r.fillStyleId = fs;
+      }
+    }
     return;
   }
   if (node.type === 'ELLIPSE') {
@@ -1427,8 +1625,8 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     if ('arcData' in patch) e.arcData = patch.arcData as EllipseNode['arcData'];
     validateShapeBox(e);
-    if ('fills' in patch) e.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
-    if ('strokes' in patch) e.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('fills' in patch) e.fills = validatePaintArray(patch.fills, 'fills', env);
+    if ('strokes' in patch) e.strokes = validatePaintArray(patch.strokes, 'strokes', env);
     if ('effects' in patch) e.effects = validateEffects(patch.effects, 'effects');
     if ('visible' in patch) {
       if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
@@ -1471,7 +1669,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       if (!Array.isArray(arr) || arr.length === 0) {
         throw new ValidationErr('VALIDATION_ERROR', 'LINE.strokes must be a non-empty array');
       }
-      ln.strokes = validatePaintArray(arr, 'strokes', env.assets, env.document) ?? [];
+      ln.strokes = validatePaintArray(arr, 'strokes', env) ?? [];
     }
     if ('effects' in patch) ln.effects = validateEffects(patch.effects, 'effects');
     if ('visible' in patch) {
@@ -1520,8 +1718,8 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       p.pointCount = pc;
     }
     validateShapeBox(p);
-    if ('fills' in patch) p.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
-    if ('strokes' in patch) p.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('fills' in patch) p.fills = validatePaintArray(patch.fills, 'fills', env);
+    if ('strokes' in patch) p.strokes = validatePaintArray(patch.strokes, 'strokes', env);
     if ('effects' in patch) p.effects = validateEffects(patch.effects, 'effects');
     if ('visible' in patch) {
       if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
@@ -1573,8 +1771,8 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       s.innerRadius = ir;
     }
     validateShapeBox(s);
-    if ('fills' in patch) s.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
-    if ('strokes' in patch) s.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('fills' in patch) s.fills = validatePaintArray(patch.fills, 'fills', env);
+    if ('strokes' in patch) s.strokes = validatePaintArray(patch.strokes, 'strokes', env);
     if ('effects' in patch) s.effects = validateEffects(patch.effects, 'effects');
     if ('visible' in patch) {
       if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
@@ -1629,8 +1827,8 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       v.vectorPaths = arr as VectorNode['vectorPaths'];
     }
     validateShapeBox(v);
-    if ('fills' in patch) v.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
-    if ('strokes' in patch) v.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('fills' in patch) v.fills = validatePaintArray(patch.fills, 'fills', env);
+    if ('strokes' in patch) v.strokes = validatePaintArray(patch.strokes, 'strokes', env);
     if ('effects' in patch) v.effects = validateEffects(patch.effects, 'effects');
     if ('visible' in patch) {
       if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
@@ -1675,7 +1873,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       b.booleanOperation = bo;
     }
     validateShapeBox(b);
-    if ('fills' in patch) b.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
+    if ('fills' in patch) b.fills = validatePaintArray(patch.fills, 'fills', env);
     if ('effects' in patch) b.effects = validateEffects(patch.effects, 'effects');
     if ('visible' in patch) {
       if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
@@ -1728,6 +1926,150 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     if ('blendMode' in patch) {
       validateBlendMode(patch.blendMode, 'TRANSFORM_GROUP.blendMode');
       tg.blendMode = patch.blendMode as TransformGroupNode['blendMode'];
+    }
+    return;
+  }
+  if (node.type === 'TABLE') {
+    const tb = node as TableNode;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      tb.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (tb as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    if ('columnCount' in patch || 'rowCount' in patch || 'columnWidths' in patch || 'rowHeights' in patch || 'cells' in patch) {
+      const cc = 'columnCount' in patch ? patch.columnCount : tb.columnCount;
+      const rc = 'rowCount' in patch ? patch.rowCount : tb.rowCount;
+      if (typeof cc !== 'number' || !Number.isInteger(cc) || cc < 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'TABLE.columnCount must be integer >= 1');
+      }
+      if (typeof rc !== 'number' || !Number.isInteger(rc) || rc < 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'TABLE.rowCount must be integer >= 1');
+      }
+      const cw = 'columnWidths' in patch ? patch.columnWidths : tb.columnWidths;
+      const rh = 'rowHeights' in patch ? patch.rowHeights : tb.rowHeights;
+      const cellsRaw = 'cells' in patch ? patch.cells : tb.cells;
+      if (!Array.isArray(cw) || cw.length !== cc) {
+        throw new ValidationErr('VALIDATION_ERROR', 'TABLE.columnWidths length must match columnCount');
+      }
+      if (!Array.isArray(rh) || rh.length !== rc) {
+        throw new ValidationErr('VALIDATION_ERROR', 'TABLE.rowHeights length must match rowCount');
+      }
+      if (!Array.isArray(cellsRaw) || cellsRaw.length !== cc * rc) {
+        throw new ValidationErr('VALIDATION_ERROR', 'TABLE.cells must have length columnCount * rowCount');
+      }
+      const cells: TableNode['cells'] = [];
+      for (let i = 0; i < cellsRaw.length; i++) {
+        const c = cellsRaw[i];
+        if (!isRecord(c) || typeof c.text !== 'string') {
+          throw new ValidationErr('VALIDATION_ERROR', `TABLE.cells[${String(i)}] must have text string`);
+        }
+        const fills = c.fills !== undefined ? validatePaintArray(c.fills, `TABLE.cells[${String(i)}].fills`, env) : undefined;
+        cells.push({ text: c.text, fills });
+      }
+      tb.columnCount = cc;
+      tb.rowCount = rc;
+      tb.columnWidths = cw as number[];
+      tb.rowHeights = rh as number[];
+      tb.cells = cells;
+    }
+    validateShapeBox(tb);
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      tb.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      tb.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      tb.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'TABLE.blendMode');
+      tb.blendMode = patch.blendMode as TableNode['blendMode'];
+    }
+    return;
+  }
+  if (node.type === 'COMPONENT_INSTANCE') {
+    const ci = node as ComponentInstanceNode;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      ci.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (ci as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    if ('mainComponentId' in patch) {
+      const mid = patch.mainComponentId;
+      if (typeof mid !== 'string' || !env.components?.some((c) => c.id === mid)) {
+        throw new ValidationErr('VALIDATION_ERROR', 'mainComponentId must reference an existing component');
+      }
+      ci.mainComponentId = mid;
+    }
+    if ('overrides' in patch) {
+      const ovr = patch.overrides;
+      if (ovr === undefined || ovr === null) {
+        delete ci.overrides;
+      } else {
+        if (!isRecord(ovr)) throw new ValidationErr('VALIDATION_ERROR', 'overrides must be object');
+        const next: Record<string, import('../model/types.js').ComponentOverrideFields> = { ...(ci.overrides ?? {}) };
+        for (const [nodeId, ov] of Object.entries(ovr)) {
+          if (!/^I[0-9]+$/.test(nodeId)) {
+            throw new ValidationErr('VALIDATION_ERROR', `overrides key invalid: ${nodeId}`);
+          }
+          if (!isRecord(ov)) throw new ValidationErr('VALIDATION_ERROR', `overrides.${nodeId} must be object`);
+          const entry: import('../model/types.js').ComponentOverrideFields = { ...next[nodeId] };
+          if ('characters' in ov) {
+            if (typeof ov.characters !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'override.characters must be string');
+            entry.characters = ov.characters;
+          }
+          if ('fontSize' in ov) {
+            if (typeof ov.fontSize !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontSize must be number');
+            entry.fontSize = ov.fontSize;
+          }
+          if ('fontWeight' in ov) {
+            if (typeof ov.fontWeight !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontWeight must be number');
+            entry.fontWeight = ov.fontWeight;
+          }
+          if ('fills' in ov && ov.fills !== undefined) {
+            entry.fills = validatePaintArray(ov.fills, `overrides.${nodeId}.fills`, env);
+          }
+          next[nodeId] = entry;
+        }
+        ci.overrides = next;
+      }
+    }
+    validateShapeBox(ci);
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      ci.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      ci.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      ci.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'COMPONENT_INSTANCE.blendMode');
+      ci.blendMode = patch.blendMode as ComponentInstanceNode['blendMode'];
     }
     return;
   }

@@ -1,0 +1,39 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`variable defs snapshot (phase 5 demo) > matches normalized snapshot 1`] = `
+"{
+  "version": 1,
+  "activeModes": {
+    "VCOL1": "VM1"
+  },
+  "collections": [
+    {
+      "id": "VCOL1",
+      "name": "Tokens",
+      "defaultModeId": "VM1",
+      "modes": [
+        {
+          "id": "VM1",
+          "name": "Default"
+        }
+      ],
+      "variables": [
+        {
+          "id": "VV1",
+          "name": "primary",
+          "resolvedType": "COLOR",
+          "activeModeId": "VM1",
+          "value": {
+            "type": "COLOR",
+            "color": {
+              "r": 0.12,
+              "g": 0.35,
+              "b": 0.92
+            }
+          }
+        }
+      ]
+    }
+  ]
+}"
+`;

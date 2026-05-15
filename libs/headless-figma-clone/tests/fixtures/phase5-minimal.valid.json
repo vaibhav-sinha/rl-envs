@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "p5min",
+  "fileName": "Phase5 minimal",
+  "nextInternalId": 10,
+  "variableCollections": [
+    {
+      "id": "VC1",
+      "name": "Core",
+      "defaultModeId": "M1",
+      "modes": [{ "id": "M1", "name": "Mode" }],
+      "variables": [
+        {
+          "id": "V1",
+          "name": "Accent",
+          "resolvedType": "COLOR",
+          "valuesByMode": {
+            "M1": { "type": "COLOR", "color": { "r": 0.9, "g": 0.2, "b": 0.2 } }
+          }
+        }
+      ]
+    }
+  ],
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 300,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Board",
+            "x": 0,
+            "y": 0,
+            "width": 200,
+            "height": 120,
+            "children": [
+              {
+                "id": "I4",
+                "type": "RECTANGLE",
+                "name": "R",
+                "x": 10,
+                "y": 10,
+                "width": 80,
+                "height": 40,
+                "fills": [{ "type": "VARIABLE_COLOR", "variableId": "V1" }]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

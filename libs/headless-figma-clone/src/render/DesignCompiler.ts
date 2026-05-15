@@ -1,10 +1,13 @@
 import { applyCompileOnlyAutoLayout } from '../layout/autoLayoutPass.js';
-import type { BlendMode, FileEnvelope, VectorNode } from '../model/types.js';
+import { buildRootCssVariableBlock, cssVarNameForVariable, resolveVariableToRgb } from '../variables/resolution.js';
 import type {
+  BlendMode,
   BooleanOperationNode,
+  ComponentInstanceNode,
   DropShadowEffect,
   Effect,
   EllipseNode,
+  FileEnvelope,
   FrameNode,
   GradientPaint,
   LineNode,
@@ -15,8 +18,10 @@ import type {
   SolidPaint,
   StarNode,
   StyledSegment,
+  TableNode,
   TextNode,
   TransformGroupNode,
+  VectorNode,
 } from '../model/types.js';
 
 export interface Rect {
@@ -107,6 +112,40 @@ function escapeHtmlText(s: string): string {
 
 function escapeAttr(s: string): string {
   return escapeHtmlText(s).replace(/'/g, '&#39;');
+}
+
+function paintColorCss(fill: Paint | undefined, _env: FileEnvelope, fallback: string, warnings: string[], label: string): string {
+  if (!fill || fill.visible === false) return fallback;
+  if (fill.type === 'SOLID') return rgbaFromSolid(fill);
+  if (fill.type === 'VARIABLE_COLOR') {
+    return `var(${cssVarNameForVariable(fill.variableId)})`;
+  }
+  warnings.push(`paint_color_unsupported:${label}`);
+  return fallback;
+}
+
+function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; fontWeight: number; fills: Paint[] | undefined } {
+  let fontSize = t.fontSize ?? 12;
+  let fontWeight = t.fontWeight ?? 400;
+  let fills = t.fills;
+  if (t.textStyleId) {
+    const st = env.textStyles?.find((s) => s.id === t.textStyleId);
+    if (st) {
+      if (st.fontSize !== undefined) fontSize = st.fontSize;
+      if (st.fontWeight !== undefined) fontWeight = st.fontWeight;
+      if (st.fills?.length) fills = st.fills;
+    }
+  }
+  return { fontSize, fontWeight, fills };
+}
+
+function effectiveRectFill(r: RectangleNode, env: FileEnvelope): Paint | undefined {
+  if (r.fills?.length) return r.fills[0];
+  if (r.fillStyleId) {
+    const ps = env.paintStyles?.find((p) => p.id === r.fillStyleId);
+    return ps?.paints?.[0];
+  }
+  return undefined;
 }
 
 interface Bounds {
@@ -232,9 +271,23 @@ function radialGradientCss(g: GradientPaint): string {
   return `radial-gradient(circle at center,${parts.join(',')})`;
 }
 
-function fillBackgroundStyles(fill: Paint | undefined, imgMap: Record<string, string>, warnings: string[], label: string): string {
+function fillBackgroundStyles(
+  fill: Paint | undefined,
+  imgMap: Record<string, string>,
+  warnings: string[],
+  label: string,
+  env: FileEnvelope
+): string {
   if (!fill || fill.visible === false) return 'background-color:transparent;';
   if (fill.type === 'SOLID') return `background-color:${rgbaFromSolid(fill)};`;
+  if (fill.type === 'VARIABLE_COLOR') {
+    const v = resolveVariableToRgb(env, fill.variableId);
+    if (!v) {
+      warnings.push(`missing_variable_color:${label}:${fill.variableId}`);
+      return 'background-color:transparent;';
+    }
+    return `background-color:var(${cssVarNameForVariable(fill.variableId)});`;
+  }
   if (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL') {
     const g = fill.type === 'GRADIENT_LINEAR' ? linearGradientCss(fill) : radialGradientCss(fill);
     return `background-image:${g};background-color:transparent;`;
@@ -290,20 +343,18 @@ function svgStrokeAttrs(n: {
   return `stroke="${escapeAttr(rgbaFromSolid(sp))}" stroke-width="${String(sw)}" stroke-linecap="${cap}" stroke-linejoin="${jn}"`;
 }
 
-function emitTextInnerHtml(t: TextNode): string {
+function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): string {
+  const base = effectiveTextBase(t, env);
   const len = t.characters.length;
   const segs = [...(t.styledSegments ?? [])].sort((a, b) => a.start - b.start || a.end - b.end);
-  const defaultColor = t.fills?.[0]?.type === 'SOLID' ? rgbaFromSolid(t.fills[0]) : 'rgba(0,0,0,1)';
-  const defaultFs = t.fontSize ?? 12;
-  const defaultFw = t.fontWeight ?? 400;
+  const defaultColor = paintColorCss(base.fills?.[0], env, 'rgba(0,0,0,1)', warnings, 'text_default');
+  const defaultFs = base.fontSize;
+  const defaultFw = base.fontWeight;
 
   function spanStyle(style: StyledSegment['style']): string {
     const fs = style.fontSize ?? defaultFs;
     const fw = style.fontWeight ?? defaultFw;
-    let color = defaultColor;
-    if (style.fills?.[0]?.type === 'SOLID') {
-      color = rgbaFromSolid(style.fills[0]);
-    }
+    const color = paintColorCss(style.fills?.[0], env, defaultColor, warnings, 'text_span');
     return `font-size:${String(fs)}px;font-weight:${String(fw)};color:${color};`;
   }
 
@@ -547,7 +598,8 @@ function emitTransformGroup(
   originY: number,
   shiftX: number,
   shiftY: number,
-  insideFlex: boolean
+  insideFlex: boolean,
+  env: FileEnvelope
 ): void {
   const pos = insideFlex
     ? `position:relative;left:0;top:0;flex:${String(tg.layoutGrow ?? 0)} 1 auto;min-width:0;`
@@ -557,7 +609,7 @@ function emitTransformGroup(
     `.hfc-node-${tg.id}{${pos}width:${String(tg.width)}px;height:${String(tg.height)}px;box-sizing:border-box;${opRot}}`
   );
   for (const c of tg.children) {
-    emitScene(c, originX + tg.x, originY + tg.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false);
+    emitScene(c, originX + tg.x, originY + tg.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env, tg.children);
   }
   htmlParts.push('</div>');
 }
@@ -576,7 +628,8 @@ function emitMaskCluster(
   cssParts: string[],
   z: { value: number },
   imgMap: Record<string, string>,
-  warnings: string[]
+  warnings: string[],
+  env: FileEnvelope
 ): void {
   const mx = maskNode.x;
   const my = maskNode.y;
@@ -596,7 +649,7 @@ function emitMaskCluster(
     `<div class="hfc-masked-inner" style="position:absolute;left:0;top:0;width:${String(f.width)}px;height:${String(f.height)}px;mask:url(#${mid});-webkit-mask:url(#${mid});transform:translate(${String(-mx)}px,${String(-my)}px)">`
   );
   for (const c of masked) {
-    emitScene(c, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false);
+    emitScene(c, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env, f.children);
   }
   htmlParts.push('</div></div>');
 }
@@ -614,7 +667,8 @@ function emitFrameChildren(
   z: { value: number },
   imgMap: Record<string, string>,
   warnings: string[],
-  flexInner: boolean
+  flexInner: boolean,
+  env: FileEnvelope
 ): void {
   let i = 0;
   while (i < f.children.length) {
@@ -626,10 +680,10 @@ function emitFrameChildren(
         masked.push(f.children[i]!);
         i++;
       }
-      emitMaskCluster(ch, masked, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings);
+      emitMaskCluster(ch, masked, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, env);
       continue;
     }
-    emitScene(ch, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, flexInner);
+    emitScene(ch, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, flexInner, env, f.children);
     i++;
   }
 }
@@ -645,7 +699,9 @@ function emitScene(
   z: { value: number },
   imgMap: Record<string, string>,
   warnings: string[],
-  insideFlex = false
+  insideFlex: boolean,
+  env: FileEnvelope,
+  parentChildren: SceneNode[] | null
 ): void {
   const absX = originX + n.x + shiftX;
   const absY = originY + n.y + shiftY;
@@ -654,6 +710,28 @@ function emitScene(
 
   if (n.type === 'TEXT') {
     const t = n;
+    if (t.textOnPath && parentChildren) {
+      const pathNode = parentChildren.find((p) => p.id === t.textOnPath!.pathNodeId);
+      const vp = pathNode?.type === 'VECTOR' ? pathNode.vectorPaths?.[0] : undefined;
+      if (vp?.data) {
+        const shadow = dropShadowCss(t.effects);
+        const pos = insideFlex
+          ? `position:relative;left:0;top:0;width:${String(t.width)}px;height:${String(t.height)}px;flex:${String(t.layoutGrow ?? 0)} 1 auto;min-width:0;`
+          : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
+        const base = effectiveTextBase(t, env);
+        const pid = `hfc-tp-${t.id}`;
+        const fs = base.fontSize;
+        const fw = base.fontWeight;
+        const col = paintColorCss(base.fills?.[0], env, '#000', warnings, `textpath:${t.id}`);
+        htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
+        cssParts.push(`.hfc-node-${t.id}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
+        htmlParts.push(
+          `<svg class="hfc-textpath-svg" viewBox="0 0 ${String(t.width)} ${String(t.height)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><path id="${pid}" d="${escapeAttr(vp.data)}"/></defs><text font-size="${String(fs)}" font-weight="${String(fw)}" fill="${escapeAttr(col)}"><textPath href="#${pid}">${escapeHtmlText(t.characters)}</textPath></text></svg></div>`
+        );
+        return;
+      }
+      warnings.push(`text_on_path_invalid:${t.id}`);
+    }
     const shadow = dropShadowCss(t.effects);
     const pos = insideFlex
       ? `position:relative;left:0;top:0;width:${String(t.width)}px;height:${String(t.height)}px;flex:${String(t.layoutGrow ?? 0)} 1 auto;min-width:0;`
@@ -662,14 +740,14 @@ function emitScene(
     cssParts.push(
       `.hfc-node-${t.id}{${pos}box-sizing:border-box;white-space:pre-wrap;word-break:break-word;${opRot}${shadow}}`
     );
-    htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t)}</div></div>`);
+    htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings)}</div></div>`);
     return;
   }
 
   if (n.type === 'FRAME') {
     const f = n;
     const fill = f.fills?.[0];
-    const fillCss = fillBackgroundStyles(fill, imgMap, warnings, `frame_fill:${f.id}`);
+    const fillCss = fillBackgroundStyles(fill, imgMap, warnings, `frame_fill:${f.id}`, env);
     const stroke = f.strokes?.[0];
     const sw = f.strokeWeight ?? 0;
     const border =
@@ -692,10 +770,10 @@ function emitScene(
         htmlParts.push(
           `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;${frameFlexInnerStyle(f)}">`
         );
-        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true);
+        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true, env);
         htmlParts.push('</div>');
       } else {
-        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false);
+        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env);
       }
       htmlParts.push(layoutGridOverlayDiv(f));
       htmlParts.push('</div>');
@@ -706,7 +784,7 @@ function emitScene(
     const bgCss =
       bgPaint && bgPaint.type === 'SOLID' && (bgPaint.visible === undefined || bgPaint.visible)
         ? `background-color:${rgbaFromSolid(bgPaint)};`
-        : fillBackgroundStyles(bgPaint, imgMap, warnings, `frame_bg:${f.id}`);
+        : fillBackgroundStyles(bgPaint, imgMap, warnings, `frame_bg:${f.id}`, env);
 
     htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
@@ -725,10 +803,10 @@ function emitScene(
       htmlParts.push(
         `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;z-index:2;${frameFlexInnerStyle(f)}">`
       );
-      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true);
+      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true, env);
       htmlParts.push('</div>');
     } else {
-      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false);
+      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env);
     }
     htmlParts.push(layoutGridOverlayDiv(f));
     htmlParts.push('</div>');
@@ -736,7 +814,7 @@ function emitScene(
   }
 
   if (n.type === 'TRANSFORM_GROUP') {
-    emitTransformGroup(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, originX, originY, shiftX, shiftY, insideFlex);
+    emitTransformGroup(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, originX, originY, shiftX, shiftY, insideFlex, env);
     return;
   }
 
@@ -751,11 +829,11 @@ function emitScene(
   }
 
   if (n.type === 'RECTANGLE') {
-    emitRectangle(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    emitRectangle(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
     return;
   }
   if (n.type === 'ELLIPSE') {
-    emitEllipse(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    emitEllipse(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
     return;
   }
   if (n.type === 'LINE') {
@@ -770,6 +848,118 @@ function emitScene(
     emitStar(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
     return;
   }
+  if (n.type === 'TABLE') {
+    emitTable(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
+    return;
+  }
+  if (n.type === 'COMPONENT_INSTANCE') {
+    emitComponentInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+    return;
+  }
+}
+
+function emitTable(
+  tb: TableNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  imgMap: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope
+): void {
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;width:${String(tb.width)}px;height:${String(tb.height)}px;flex:${String(tb.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(tb.width)}px;height:${String(tb.height)}px;`;
+  htmlParts.push(`<div class="hfc-node-${tb.id}" data-hfc-id="${tb.id}" style="z-index:${String(zIndex)}">`);
+  cssParts.push(`.hfc-node-${tb.id}{${pos}box-sizing:border-box;${opRot}}`);
+  const rows: string[] = [];
+  let idx = 0;
+  for (let r = 0; r < tb.rowCount; r++) {
+    const tds: string[] = [];
+    for (let c = 0; c < tb.columnCount; c++) {
+      const cell = tb.cells[idx]!;
+      idx += 1;
+      const w = tb.columnWidths[c]!;
+      const h = tb.rowHeights[r]!;
+      const bg = fillBackgroundStyles(cell.fills?.[0], imgMap, warnings, `table_cell:${tb.id}:${String(r)}:${String(c)}`, env);
+      tds.push(
+        `<td class="hfc-table-cell" style="width:${String(w)}px;height:${String(h)}px;border:1px solid rgba(0,0,0,0.12);vertical-align:middle;padding:4px;box-sizing:border-box;${bg}">${escapeHtmlText(cell.text)}</td>`
+      );
+    }
+    rows.push(`<tr>${tds.join('')}</tr>`);
+  }
+  htmlParts.push(
+    `<table class="hfc-table" style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${rows.join('')}</table></div>`
+  );
+}
+
+function cloneComponentRoot(root: FrameNode): FrameNode {
+  return structuredClone(root) as FrameNode;
+}
+
+function applyComponentOverrides(root: FrameNode, overrides: ComponentInstanceNode['overrides']): void {
+  if (!overrides) return;
+  const stack: SceneNode[] = [...root.children];
+  while (stack.length) {
+    const node = stack.pop()!;
+    const o = overrides[node.id];
+    if (o) {
+      if (node.type === 'TEXT') {
+        if (o.characters !== undefined) node.characters = o.characters;
+        if (o.fontSize !== undefined) node.fontSize = o.fontSize;
+        if (o.fontWeight !== undefined) node.fontWeight = o.fontWeight;
+        if (o.fills !== undefined) node.fills = o.fills;
+      } else if ('fills' in node && o.fills !== undefined) {
+        (node as { fills?: Paint[] }).fills = o.fills;
+      }
+    }
+    if (node.type === 'FRAME' || node.type === 'TRANSFORM_GROUP') {
+      for (const ch of node.children) stack.push(ch);
+    } else if (node.type === 'BOOLEAN_OPERATION') {
+      for (const ch of node.children as unknown as SceneNode[]) stack.push(ch);
+    }
+  }
+}
+
+function emitComponentInstance(
+  inst: ComponentInstanceNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number
+): void {
+  const main = env.components?.find((c) => c.id === inst.mainComponentId);
+  if (!main) {
+    warnings.push(`missing_component:${inst.mainComponentId}`);
+    return;
+  }
+  const root = cloneComponentRoot(main.root);
+  if (root.x !== 0 || root.y !== 0) {
+    warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
+  }
+  applyComponentOverrides(root, inst.overrides);
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(inst.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
+  htmlParts.push(`<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`);
+  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
+  emitScene(root, originX + inst.x, originY + inst.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, env, root.children);
+  htmlParts.push('</div>');
 }
 
 function emitRectangle(
@@ -782,10 +972,12 @@ function emitRectangle(
   cssParts: string[],
   imgMap: Record<string, string>,
   warnings: string[],
-  insideFlex = false
+  insideFlex: boolean,
+  env: FileEnvelope
 ): void {
   const shadow = dropShadowCss(r.effects);
-  const fillCss = fillBackgroundStyles(r.fills?.[0], imgMap, warnings, `rect:${r.id}`);
+  const fill0 = effectiveRectFill(r, env);
+  const fillCss = fillBackgroundStyles(fill0, imgMap, warnings, `rect:${r.id}`, env);
   const stroke = r.strokes?.[0];
   const sw = r.strokeWeight ?? 0;
   const border =
@@ -819,10 +1011,11 @@ function emitEllipse(
   cssParts: string[],
   imgMap: Record<string, string>,
   warnings: string[],
-  insideFlex = false
+  insideFlex: boolean,
+  env: FileEnvelope
 ): void {
   const shadow = dropShadowCss(e.effects);
-  const fillCss = fillBackgroundStyles(e.fills?.[0], imgMap, warnings, `ellipse:${e.id}`);
+  const fillCss = fillBackgroundStyles(e.fills?.[0], imgMap, warnings, `ellipse:${e.id}`, env);
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(e.width)}px;height:${String(e.height)}px;flex:${String(e.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(e.width)}px;height:${String(e.height)}px;`;
@@ -999,7 +1192,7 @@ function normalizeRootBounds(root: SceneNode, raw: Bounds): Bounds {
   return Number.isFinite(raw.minX) ? raw : { minX: 0, minY: 0, maxX: root.width, maxY: root.height };
 }
 
-function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions): CompiledDesign {
+function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions, envelope: FileEnvelope): CompiledDesign {
   if (roots.length === 0) {
     throw new Error('compileRootScenes: empty roots');
   }
@@ -1023,10 +1216,14 @@ function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions): Com
 
   const htmlParts: string[] = [];
   const cssParts: string[] = [];
+  const rootVarCss = buildRootCssVariableBlock(envelope);
+  if (rootVarCss) {
+    cssParts.push(rootVarCss);
+  }
   const z = { value: 0 };
   const imgMap = options.imageDataUrlByHash ?? {};
   for (const root of roots) {
-    emitScene(root, 0, 0, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings);
+    emitScene(root, 0, 0, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false, envelope, null);
   }
 
   const cssBlock = `#hfc-root{position:relative;width:${String(W)}px;height:${String(H)}px;isolation:isolate;}\n${cssParts.join('\n')}`;
@@ -1085,7 +1282,7 @@ export const designCompiler: DesignCompiler = {
     if (!rootCloned) {
       throw new Error(`compileSubtree: unknown scene node id ${rootNodeId} after clone`);
     }
-    return compileRootScenes([rootCloned], options);
+    return compileRootScenes([rootCloned], options, env);
   },
 
   compileFirstPage({ envelope, options }): CompiledDesign {
@@ -1095,6 +1292,6 @@ export const designCompiler: DesignCompiler = {
     if (!page || page.children.length === 0) {
       throw new Error('compileFirstPage: no scene nodes on first page');
     }
-    return compileRootScenes(page.children, options);
+    return compileRootScenes(page.children, options, env);
   },
 };
