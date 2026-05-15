@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "01PHASE3MINIMAL",
+  "fileName": "Phase3 minimal",
+  "nextInternalId": 10,
+  "assets": {
+    "byId": {
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+        "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mimeType": "image/png",
+        "byteLength": 68,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "relativePath": "Phase3-minimal.hfc.assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"
+      }
+    }
+  },
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "I3",
+            "type": "RECTANGLE",
+            "name": "GradRect",
+            "x": 0,
+            "y": 0,
+            "width": 60,
+            "height": 40,
+            "fills": [
+              {
+                "type": "GRADIENT_LINEAR",
+                "gradientTransform": [
+                  [1, 0, 0],
+                  [0, 1, 0]
+                ],
+                "gradientStops": [
+                  { "position": 0, "color": { "r": 1, "g": 0, "b": 0, "a": 1 } },
+                  { "position": 1, "color": { "r": 0, "g": 0, "b": 1, "a": 1 } }
+                ]
+              }
+            ],
+            "blendMode": "MULTIPLY"
+          },
+          {
+            "id": "I4",
+            "type": "POLYGON",
+            "name": "Pent",
+            "x": 70,
+            "y": 0,
+            "width": 50,
+            "height": 50,
+            "pointCount": 5,
+            "fills": [{ "type": "SOLID", "color": { "r": 0.2, "g": 0.8, "b": 0.3 } }],
+            "strokes": [{ "type": "SOLID", "color": { "r": 0, "g": 0, "b": 0 } }],
+            "strokeWeight": 2,
+            "dashPattern": [4, 2]
+          },
+          {
+            "id": "I5",
+            "type": "STAR",
+            "name": "Star",
+            "x": 0,
+            "y": 55,
+            "width": 44,
+            "height": 44,
+            "pointCount": 5,
+            "innerRadius": 0.45,
+            "fills": [
+              {
+                "type": "IMAGE",
+                "imageHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "scaleMode": "FILL"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

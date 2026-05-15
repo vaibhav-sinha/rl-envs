@@ -1,14 +1,31 @@
-import { mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { ulid } from 'ulid';
-import type { DocumentNode, FileEnvelope, FrameNode, PageNode, SceneNode, TextNode } from '../model/types.js';
-import type { Effect, Paint, SolidPaint, StyledSegment } from '../model/types.js';
+import type {
+  AssetRecord,
+  DocumentNode,
+  EllipseNode,
+  FileEnvelope,
+  FrameNode,
+  LineNode,
+  PageNode,
+  PolygonNode,
+  RectangleNode,
+  SceneNode,
+  StarNode,
+  TextNode,
+} from '../model/types.js';
+import type { Effect, StyledSegment } from '../model/types.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
+import { atomicWriteFileBinary } from '../persistence/atomicWriteFile.js';
+import { relativeAssetFile, sidecarDirForHfcJson } from '../persistence/assetPaths.js';
 import type { Logger } from '../util/logger.js';
 import type { EngineErrorCode } from '../util/errors.js';
 import { ValidationErr } from '../util/errors.js';
 import { ENGINE_MATRIX } from './phase-matrix.js';
+import { validatePaintArray } from './validatePaints.js';
 import { validateStyledSegments } from './utf16Segments.js';
 
 export type { EngineErrorCode } from '../util/errors.js';
@@ -28,7 +45,12 @@ export interface TransactionFailure {
 
 export type NewNodeSpec =
   | (Omit<FrameNode, 'id' | 'children'> & { type: 'FRAME'; children?: SceneNode[] })
-  | (Omit<TextNode, 'id'> & { type: 'TEXT' });
+  | (Omit<TextNode, 'id'> & { type: 'TEXT' })
+  | Omit<RectangleNode, 'id'> & { type: 'RECTANGLE' }
+  | Omit<EllipseNode, 'id'> & { type: 'ELLIPSE' }
+  | Omit<LineNode, 'id'> & { type: 'LINE' }
+  | Omit<PolygonNode, 'id'> & { type: 'POLYGON' }
+  | Omit<StarNode, 'id'> & { type: 'STAR' };
 
 export type EngineOperation =
   | { op: 'createNode'; parentId: string; index?: number; node: NewNodeSpec }
@@ -109,21 +131,6 @@ function validateRgb(c: { r: unknown; g: unknown; b: unknown }, label: string): 
   }
 }
 
-function assertSolidPaint(p: unknown, label: string): SolidPaint {
-  if (!isRecord(p) || p.type !== 'SOLID') {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: only SOLID paints supported`);
-  }
-  if (!isRecord(p.color)) throw new ValidationErr('VALIDATION_ERROR', `${label}: missing color`);
-  validateRgb(p.color as { r: unknown; g: unknown; b: unknown }, `${label}.color`);
-  return p as unknown as SolidPaint;
-}
-
-function validatePaintArray(arr: unknown, label: string): Paint[] | undefined {
-  if (arr === undefined) return undefined;
-  if (!Array.isArray(arr)) throw new ValidationErr('VALIDATION_ERROR', `${label}: must be array`);
-  return arr.map((p, i) => assertSolidPaint(p, `${label}[${String(i)}]`));
-}
-
 function validateEffects(arr: unknown, label: string): Effect[] | undefined {
   if (arr === undefined) return undefined;
   if (!Array.isArray(arr)) throw new ValidationErr('VALIDATION_ERROR', `${label}: must be array`);
@@ -175,7 +182,63 @@ function validateTextGeometry(n: Pick<TextNode, 'width' | 'height'>): void {
   }
 }
 
-function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: string): FrameNode {
+function validateShapeBox(n: Pick<FrameNode, 'width' | 'height'>): void {
+  if (n.width < 0 || n.height < 0) {
+    throw new ValidationErr('CONSTRAINT_VIOLATION', 'shape width/height must be >= 0');
+  }
+}
+
+const STROKE_ALIGN = new Set(['INSIDE', 'OUTSIDE', 'CENTER']);
+const STROKE_CAPS = new Set(['NONE', 'ROUND', 'SQUARE', 'ARROW_LINES', 'ARROW_EQUILATERAL']);
+const STROKE_JOINS = new Set(['MITER', 'BEVEL', 'ROUND']);
+
+function validateStrokeGeometry(
+  label: string,
+  fields: {
+    strokeAlign?: unknown;
+    strokeCap?: unknown;
+    strokeJoin?: unknown;
+    miterLimit?: unknown;
+    dashPattern?: unknown;
+  }
+): void {
+  if (fields.strokeAlign !== undefined) {
+    if (typeof fields.strokeAlign !== 'string' || !STROKE_ALIGN.has(fields.strokeAlign)) {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}: strokeAlign invalid`);
+    }
+  }
+  if (fields.strokeCap !== undefined) {
+    if (typeof fields.strokeCap !== 'string' || !STROKE_CAPS.has(fields.strokeCap)) {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}: strokeCap invalid`);
+    }
+  }
+  if (fields.strokeJoin !== undefined) {
+    if (typeof fields.strokeJoin !== 'string' || !STROKE_JOINS.has(fields.strokeJoin)) {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}: strokeJoin invalid`);
+    }
+  }
+  if (fields.miterLimit !== undefined) {
+    if (typeof fields.miterLimit !== 'number' || !Number.isFinite(fields.miterLimit) || fields.miterLimit < 0) {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}: miterLimit must be finite number >= 0`);
+    }
+  }
+  if (fields.dashPattern !== undefined) {
+    if (!Array.isArray(fields.dashPattern)) throw new ValidationErr('VALIDATION_ERROR', `${label}: dashPattern must be array`);
+    for (let i = 0; i < fields.dashPattern.length; i++) {
+      const d = fields.dashPattern[i];
+      if (typeof d !== 'number' || !Number.isFinite(d) || d < 0) {
+        throw new ValidationErr('VALIDATION_ERROR', `${label}: dashPattern entries must be finite >= 0`);
+      }
+    }
+  }
+}
+
+function validateBlendMode(v: unknown, label: string): void {
+  if (v === undefined) return;
+  if (typeof v !== 'string') throw new ValidationErr('VALIDATION_ERROR', `${label}: blendMode must be string`);
+}
+
+function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: string, env: FileEnvelope): FrameNode {
   const frame: FrameNode = {
     id,
     type: 'FRAME',
@@ -195,12 +258,20 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
     visible: spec.visible,
     opacity: spec.opacity,
     rotation: spec.rotation,
+    blendMode: spec.blendMode,
+    strokeAlign: spec.strokeAlign,
+    strokeCap: spec.strokeCap,
+    strokeJoin: spec.strokeJoin,
+    miterLimit: spec.miterLimit,
+    dashPattern: spec.dashPattern,
   };
   validateFrameGeometry(frame);
-  if (frame.fills) frame.fills = validatePaintArray(frame.fills, 'fills') ?? [];
-  if (frame.backgrounds) frame.backgrounds = validatePaintArray(frame.backgrounds, 'backgrounds') ?? [];
-  if (frame.strokes) frame.strokes = validatePaintArray(frame.strokes, 'strokes') ?? [];
+  if (frame.fills) frame.fills = validatePaintArray(frame.fills, 'fills', env.assets, env.document) ?? [];
+  if (frame.backgrounds) frame.backgrounds = validatePaintArray(frame.backgrounds, 'backgrounds', env.assets, env.document) ?? [];
+  if (frame.strokes) frame.strokes = validatePaintArray(frame.strokes, 'strokes', env.assets, env.document) ?? [];
   if (frame.effects) frame.effects = validateEffects(frame.effects, 'effects') ?? [];
+  validateStrokeGeometry('FRAME', frame);
+  validateBlendMode(spec.blendMode, 'FRAME.blendMode');
   if (frame.strokeWeight !== undefined && (typeof frame.strokeWeight !== 'number' || frame.strokeWeight < 0)) {
     throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
   }
@@ -219,7 +290,7 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
   return frame;
 }
 
-function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: string): TextNode {
+function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: string, env: FileEnvelope): TextNode {
   const characters = typeof spec.characters === 'string' ? spec.characters : '';
   const styledSegments = spec.styledSegments;
   validateStyledSegments(characters, styledSegments);
@@ -240,10 +311,12 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
     visible: spec.visible,
     opacity: spec.opacity,
     rotation: spec.rotation,
+    blendMode: spec.blendMode,
   };
   validateTextGeometry(text);
-  if (text.fills) text.fills = validatePaintArray(text.fills, 'fills') ?? [];
+  if (text.fills) text.fills = validatePaintArray(text.fills, 'fills', env.assets, env.document) ?? [];
   if (text.effects) text.effects = validateEffects(text.effects, 'effects') ?? [];
+  validateBlendMode(spec.blendMode, 'TEXT.blendMode');
   if (text.opacity !== undefined && (typeof text.opacity !== 'number' || text.opacity < 0 || text.opacity > 1)) {
     throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
   }
@@ -254,6 +327,246 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
     throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
   }
   return text;
+}
+
+function normalizeNewRectangle(spec: Extract<NewNodeSpec, { type: 'RECTANGLE' }>, id: string, env: FileEnvelope): RectangleNode {
+  const n: RectangleNode = {
+    id,
+    type: 'RECTANGLE',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Rectangle',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    fills: spec.fills,
+    strokes: spec.strokes,
+    strokeWeight: spec.strokeWeight,
+    strokeAlign: spec.strokeAlign,
+    strokeCap: spec.strokeCap,
+    strokeJoin: spec.strokeJoin,
+    miterLimit: spec.miterLimit,
+    dashPattern: spec.dashPattern,
+    cornerRadius: spec.cornerRadius,
+    effects: spec.effects,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
+  if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
+  }
+  if (n.cornerRadius !== undefined && (typeof n.cornerRadius !== 'number' || n.cornerRadius < 0)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'cornerRadius must be number >= 0');
+  }
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  validateStrokeGeometry('RECTANGLE', n);
+  validateBlendMode(spec.blendMode, 'RECTANGLE.blendMode');
+  return n;
+}
+
+function normalizeNewEllipse(spec: Extract<NewNodeSpec, { type: 'ELLIPSE' }>, id: string, env: FileEnvelope): EllipseNode {
+  const n: EllipseNode = {
+    id,
+    type: 'ELLIPSE',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Ellipse',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    fills: spec.fills,
+    strokes: spec.strokes,
+    strokeWeight: spec.strokeWeight,
+    strokeAlign: spec.strokeAlign,
+    strokeCap: spec.strokeCap,
+    strokeJoin: spec.strokeJoin,
+    miterLimit: spec.miterLimit,
+    dashPattern: spec.dashPattern,
+    arcData: spec.arcData,
+    effects: spec.effects,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
+  if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
+  }
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  validateStrokeGeometry('ELLIPSE', n);
+  validateBlendMode(spec.blendMode, 'ELLIPSE.blendMode');
+  return n;
+}
+
+function normalizeNewLine(spec: Extract<NewNodeSpec, { type: 'LINE' }>, id: string, env: FileEnvelope): LineNode {
+  const strokes = spec.strokes;
+  if (!Array.isArray(strokes) || strokes.length === 0) {
+    throw new ValidationErr('VALIDATION_ERROR', 'LINE.strokes must be a non-empty array');
+  }
+  const sw = spec.strokeWeight;
+  if (typeof sw !== 'number' || sw <= 0 || !Number.isFinite(sw)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'LINE.strokeWeight must be a positive finite number');
+  }
+  const n: LineNode = {
+    id,
+    type: 'LINE',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Line',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 0,
+    strokes: validatePaintArray(strokes, 'strokes', env.assets, env.document) ?? [],
+    strokeWeight: sw,
+    strokeCap: spec.strokeCap,
+    strokeJoin: spec.strokeJoin,
+    dashPattern: spec.dashPattern,
+    effects: spec.effects,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  validateStrokeGeometry('LINE', n);
+  validateBlendMode(spec.blendMode, 'LINE.blendMode');
+  return n;
+}
+
+function normalizeNewPolygon(spec: Extract<NewNodeSpec, { type: 'POLYGON' }>, id: string, env: FileEnvelope): PolygonNode {
+  const pc = spec.pointCount;
+  if (typeof pc !== 'number' || !Number.isInteger(pc) || pc < 3) {
+    throw new ValidationErr('VALIDATION_ERROR', 'POLYGON.pointCount must be an integer >= 3');
+  }
+  const n: PolygonNode = {
+    id,
+    type: 'POLYGON',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Polygon',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    pointCount: pc,
+    fills: spec.fills,
+    strokes: spec.strokes,
+    strokeWeight: spec.strokeWeight,
+    strokeAlign: spec.strokeAlign,
+    strokeCap: spec.strokeCap,
+    strokeJoin: spec.strokeJoin,
+    miterLimit: spec.miterLimit,
+    dashPattern: spec.dashPattern,
+    effects: spec.effects,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
+  if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
+  }
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  validateStrokeGeometry('POLYGON', n);
+  validateBlendMode(spec.blendMode, 'POLYGON.blendMode');
+  return n;
+}
+
+function normalizeNewStar(spec: Extract<NewNodeSpec, { type: 'STAR' }>, id: string, env: FileEnvelope): StarNode {
+  const pc = spec.pointCount;
+  if (typeof pc !== 'number' || !Number.isInteger(pc) || pc < 3) {
+    throw new ValidationErr('VALIDATION_ERROR', 'STAR.pointCount must be an integer >= 3');
+  }
+  const ir = spec.innerRadius;
+  if (typeof ir !== 'number' || ir < 0 || ir > 1 || !Number.isFinite(ir)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'STAR.innerRadius must be a number 0..1');
+  }
+  const n: StarNode = {
+    id,
+    type: 'STAR',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Star',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    pointCount: pc,
+    innerRadius: ir,
+    fills: spec.fills,
+    strokes: spec.strokes,
+    strokeWeight: spec.strokeWeight,
+    strokeAlign: spec.strokeAlign,
+    strokeCap: spec.strokeCap,
+    strokeJoin: spec.strokeJoin,
+    miterLimit: spec.miterLimit,
+    dashPattern: spec.dashPattern,
+    effects: spec.effects,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
+  if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
+  }
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  validateStrokeGeometry('STAR', n);
+  validateBlendMode(spec.blendMode, 'STAR.blendMode');
+  return n;
 }
 
 function parentAllowsChild(parentType: string, childType: string): boolean {
@@ -325,9 +638,19 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<EngineOpera
   working.nextInternalId += 1;
   let node: SceneNode;
   if (op.node.type === 'FRAME') {
-    node = normalizeNewFrame(op.node, id);
+    node = normalizeNewFrame(op.node, id, working);
   } else if (op.node.type === 'TEXT') {
-    node = normalizeNewText(op.node, id);
+    node = normalizeNewText(op.node, id, working);
+  } else if (op.node.type === 'RECTANGLE') {
+    node = normalizeNewRectangle(op.node, id, working);
+  } else if (op.node.type === 'ELLIPSE') {
+    node = normalizeNewEllipse(op.node, id, working);
+  } else if (op.node.type === 'LINE') {
+    node = normalizeNewLine(op.node, id, working);
+  } else if (op.node.type === 'POLYGON') {
+    node = normalizeNewPolygon(op.node, id, working);
+  } else if (op.node.type === 'STAR') {
+    node = normalizeNewStar(op.node, id, working);
   } else {
     throw new ValidationErr('VALIDATION_ERROR', `Unsupported node type ${(op.node as { type: string }).type}`);
   }
@@ -464,6 +787,154 @@ export class DocumentEngine {
     return { fileKey, filePath };
   }
 
+  private maxUploadBytes(): number {
+    const maxBRaw = process.env.HFC_UPLOAD_MAX_BYTES;
+    const maxB =
+      maxBRaw && maxBRaw.trim() !== ''
+        ? Number.parseInt(maxBRaw, 10)
+        : 10 * 1024 * 1024;
+    return Number.isFinite(maxB) && maxB > 0 ? maxB : 10 * 1024 * 1024;
+  }
+
+  private async commitRasterAssetBuffer(params: {
+    buf: Buffer;
+    mime: AssetRecord['mimeType'];
+  }): Promise<
+    | { ok: true; assetId: string; sha256: string; mimeType: string }
+    | { ok: false; errorCode: EngineErrorCode; message: string }
+  > {
+    if (!this.activeFile || !this.activeFilePath) {
+      return { ok: false, errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
+    }
+    const { buf, mime } = params;
+    const sha256 = createHash('sha256').update(buf).digest('hex');
+    const ext =
+      mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'gif';
+
+    if (!this.activeFile.assets) this.activeFile.assets = { byId: {} };
+    const existing = this.activeFile.assets.byId[sha256];
+    if (existing) {
+      return { ok: true, assetId: existing.id, sha256: existing.sha256, mimeType: existing.mimeType };
+    }
+
+    const rel = relativeAssetFile(this.activeFilePath, sha256, ext);
+    const abs = join(dirname(this.activeFilePath), rel);
+    mkdirSync(sidecarDirForHfcJson(this.activeFilePath), { recursive: true });
+    try {
+      await atomicWriteFileBinary(abs, buf);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, errorCode: 'VALIDATION_ERROR', message: msg };
+    }
+
+    const record: AssetRecord = {
+      id: sha256,
+      mimeType: mime,
+      byteLength: buf.length,
+      sha256,
+      relativePath: rel,
+    };
+    this.activeFile.assets.byId[sha256] = record;
+    try {
+      await this.deps.persistence.save({ path: this.activeFilePath, envelope: this.activeFile });
+    } catch (e) {
+      delete this.activeFile.assets.byId[sha256];
+      try {
+        unlinkSync(abs);
+      } catch {
+        /* ignore */
+      }
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, errorCode: 'VALIDATION_ERROR', message: msg };
+    }
+    this.emitDebugPreview();
+    return { ok: true, assetId: record.id, sha256: record.sha256, mimeType: record.mimeType };
+  }
+
+  async uploadAssetFromDataUrl(params: { dataUrl: string }): Promise<
+    | { ok: true; assetId: string; sha256: string; mimeType: string }
+    | { ok: false; errorCode: EngineErrorCode; message: string }
+  > {
+    if (!this.activeFile || !this.activeFilePath) {
+      return { ok: false, errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
+    }
+    const maxBytes = this.maxUploadBytes();
+
+    const m = /^data:(image\/png|image\/jpeg|image\/gif|image\/webp);base64,(.*)$/is.exec(params.dataUrl.trim());
+    if (!m) {
+      return {
+        ok: false,
+        errorCode: 'VALIDATION_ERROR',
+        message: 'dataUrl must match data:image/(png|jpeg|gif|webp);base64,...',
+      };
+    }
+    const mimeRaw = m[1]!.toLowerCase();
+    const mime = mimeRaw as AssetRecord['mimeType'];
+    let buf: Buffer;
+    try {
+      buf = Buffer.from(m[2]!, 'base64');
+    } catch {
+      return { ok: false, errorCode: 'VALIDATION_ERROR', message: 'invalid base64 payload' };
+    }
+    if (buf.length === 0) {
+      return { ok: false, errorCode: 'VALIDATION_ERROR', message: 'empty asset' };
+    }
+    if (buf.length > maxBytes) {
+      return {
+        ok: false,
+        errorCode: 'VALIDATION_ERROR',
+        message: `asset exceeds HFC_UPLOAD_MAX_BYTES (${String(maxBytes)})`,
+      };
+    }
+    return this.commitRasterAssetBuffer({ buf, mime });
+  }
+
+  /** Reads a local PNG/JPEG/GIF/WebP file and registers it like {@link uploadAssetFromDataUrl}. */
+  async uploadAssetFromFile(params: { absolutePath: string }): Promise<
+    | { ok: true; assetId: string; sha256: string; mimeType: string }
+    | { ok: false; errorCode: EngineErrorCode; message: string }
+  > {
+    if (!this.activeFile || !this.activeFilePath) {
+      return { ok: false, errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
+    }
+    const maxBytes = this.maxUploadBytes();
+    const ap = resolve(params.absolutePath);
+    if (!existsSync(ap)) {
+      return { ok: false, errorCode: 'VALIDATION_ERROR', message: `file not found: ${ap}` };
+    }
+    let buf: Buffer;
+    try {
+      buf = readFileSync(ap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, errorCode: 'VALIDATION_ERROR', message: msg };
+    }
+    if (buf.length === 0) {
+      return { ok: false, errorCode: 'VALIDATION_ERROR', message: 'empty asset' };
+    }
+    if (buf.length > maxBytes) {
+      return {
+        ok: false,
+        errorCode: 'VALIDATION_ERROR',
+        message: `asset exceeds HFC_UPLOAD_MAX_BYTES (${String(maxBytes)})`,
+      };
+    }
+    const ext = extname(ap).toLowerCase();
+    let mime: AssetRecord['mimeType'] | null = null;
+    if (ext === '.png') mime = 'image/png';
+    else if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
+    else if (ext === '.gif') mime = 'image/gif';
+    else if (ext === '.webp') mime = 'image/webp';
+    if (!mime) {
+      return {
+        ok: false,
+        errorCode: 'VALIDATION_ERROR',
+        message: 'filePath must end with .png, .jpg, .jpeg, .gif, or .webp',
+      };
+    }
+    return this.commitRasterAssetBuffer({ buf, mime });
+  }
+
   async applyTransaction(ops: EngineOperation[]): Promise<TransactionResult | TransactionFailure> {
     if (!this.activeFile || !this.activeFilePath) {
       return { success: false, errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
@@ -493,7 +964,7 @@ export class DocumentEngine {
             }
             patch[k] = v;
           }
-          applyPatch(node, patch);
+          applyPatch(working, node, patch);
           touched.add(node.id);
         } else if (op.op === 'deleteNode') {
           removeNodeById(working.document, op.nodeId);
@@ -527,7 +998,18 @@ export class DocumentEngine {
   }
 }
 
-function applyPatch(node: AnyTreeNode, patch: Record<string, unknown>): void {
+function applyStrokeFieldsFromPatch(
+  target: Record<string, unknown>,
+  patch: Record<string, unknown>
+): void {
+  if ('strokeAlign' in patch) target.strokeAlign = patch.strokeAlign;
+  if ('strokeCap' in patch) target.strokeCap = patch.strokeCap;
+  if ('strokeJoin' in patch) target.strokeJoin = patch.strokeJoin;
+  if ('miterLimit' in patch) target.miterLimit = patch.miterLimit;
+  if ('dashPattern' in patch) target.dashPattern = patch.dashPattern;
+}
+
+function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, unknown>): void {
   if (node.type === 'FRAME') {
     const f = node;
     if ('name' in patch) {
@@ -543,13 +1025,13 @@ function applyPatch(node: AnyTreeNode, patch: Record<string, unknown>): void {
     }
     validateFrameGeometry(f);
     if ('fills' in patch) {
-      f.fills = validatePaintArray(patch.fills, 'fills');
+      f.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
     }
     if ('strokes' in patch) {
-      f.strokes = validatePaintArray(patch.strokes, 'strokes');
+      f.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
     }
     if ('backgrounds' in patch) {
-      f.backgrounds = validatePaintArray(patch.backgrounds, 'backgrounds');
+      f.backgrounds = validatePaintArray(patch.backgrounds, 'backgrounds', env.assets, env.document);
     }
     if ('effects' in patch) {
       f.effects = validateEffects(patch.effects, 'effects');
@@ -572,6 +1054,12 @@ function applyPatch(node: AnyTreeNode, patch: Record<string, unknown>): void {
       if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
       f.rotation = patch.rotation;
     }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'FRAME.blendMode');
+      f.blendMode = patch.blendMode as FrameNode['blendMode'];
+    }
+    applyStrokeFieldsFromPatch(f as unknown as Record<string, unknown>, patch);
+    validateStrokeGeometry('FRAME', f);
     return;
   }
   if (node.type === 'TEXT') {
@@ -597,7 +1085,7 @@ function applyPatch(node: AnyTreeNode, patch: Record<string, unknown>): void {
       validateStyledSegments(t.characters, t.styledSegments);
     }
     if ('fills' in patch) {
-      t.fills = validatePaintArray(patch.fills, 'fills');
+      t.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
     }
     if ('effects' in patch) {
       t.effects = validateEffects(patch.effects, 'effects');
@@ -616,6 +1104,235 @@ function applyPatch(node: AnyTreeNode, patch: Record<string, unknown>): void {
       if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
       t.rotation = patch.rotation;
     }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'TEXT.blendMode');
+      t.blendMode = patch.blendMode as TextNode['blendMode'];
+    }
+    return;
+  }
+  if (node.type === 'RECTANGLE') {
+    const r = node;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      r.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height', 'strokeWeight', 'cornerRadius'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (r as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    validateShapeBox(r);
+    if ('fills' in patch) r.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
+    if ('strokes' in patch) r.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('effects' in patch) r.effects = validateEffects(patch.effects, 'effects');
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      r.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      r.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      r.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'RECTANGLE.blendMode');
+      r.blendMode = patch.blendMode as RectangleNode['blendMode'];
+    }
+    applyStrokeFieldsFromPatch(r as unknown as Record<string, unknown>, patch);
+    validateStrokeGeometry('RECTANGLE', r);
+    return;
+  }
+  if (node.type === 'ELLIPSE') {
+    const e = node;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      e.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height', 'strokeWeight'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (e as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    if ('arcData' in patch) e.arcData = patch.arcData as EllipseNode['arcData'];
+    validateShapeBox(e);
+    if ('fills' in patch) e.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
+    if ('strokes' in patch) e.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('effects' in patch) e.effects = validateEffects(patch.effects, 'effects');
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      e.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      e.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      e.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'ELLIPSE.blendMode');
+      e.blendMode = patch.blendMode as EllipseNode['blendMode'];
+    }
+    applyStrokeFieldsFromPatch(e as unknown as Record<string, unknown>, patch);
+    validateStrokeGeometry('ELLIPSE', e);
+    return;
+  }
+  if (node.type === 'LINE') {
+    const ln = node;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      ln.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height', 'strokeWeight'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (ln as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    validateShapeBox(ln);
+    if ('strokes' in patch) {
+      const arr = patch.strokes;
+      if (!Array.isArray(arr) || arr.length === 0) {
+        throw new ValidationErr('VALIDATION_ERROR', 'LINE.strokes must be a non-empty array');
+      }
+      ln.strokes = validatePaintArray(arr, 'strokes', env.assets, env.document) ?? [];
+    }
+    if ('effects' in patch) ln.effects = validateEffects(patch.effects, 'effects');
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      ln.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      ln.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      ln.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'LINE.blendMode');
+      ln.blendMode = patch.blendMode as LineNode['blendMode'];
+    }
+    applyStrokeFieldsFromPatch(ln as unknown as Record<string, unknown>, patch);
+    validateStrokeGeometry('LINE', ln);
+    if (typeof ln.strokeWeight !== 'number' || ln.strokeWeight <= 0) {
+      throw new ValidationErr('VALIDATION_ERROR', 'LINE.strokeWeight must stay positive');
+    }
+    return;
+  }
+  if (node.type === 'POLYGON') {
+    const p = node;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      p.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height', 'strokeWeight'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (p as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    if ('pointCount' in patch) {
+      const pc = patch.pointCount;
+      if (typeof pc !== 'number' || !Number.isInteger(pc) || pc < 3) {
+        throw new ValidationErr('VALIDATION_ERROR', 'POLYGON.pointCount must be integer >= 3');
+      }
+      p.pointCount = pc;
+    }
+    validateShapeBox(p);
+    if ('fills' in patch) p.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
+    if ('strokes' in patch) p.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('effects' in patch) p.effects = validateEffects(patch.effects, 'effects');
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      p.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      p.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      p.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'POLYGON.blendMode');
+      p.blendMode = patch.blendMode as PolygonNode['blendMode'];
+    }
+    applyStrokeFieldsFromPatch(p as unknown as Record<string, unknown>, patch);
+    validateStrokeGeometry('POLYGON', p);
+    return;
+  }
+  if (node.type === 'STAR') {
+    const s = node;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      s.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height', 'strokeWeight'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (s as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    if ('pointCount' in patch) {
+      const pc = patch.pointCount;
+      if (typeof pc !== 'number' || !Number.isInteger(pc) || pc < 3) {
+        throw new ValidationErr('VALIDATION_ERROR', 'STAR.pointCount must be integer >= 3');
+      }
+      s.pointCount = pc;
+    }
+    if ('innerRadius' in patch) {
+      const ir = patch.innerRadius;
+      if (typeof ir !== 'number' || ir < 0 || ir > 1 || !Number.isFinite(ir)) {
+        throw new ValidationErr('VALIDATION_ERROR', 'STAR.innerRadius must be number 0..1');
+      }
+      s.innerRadius = ir;
+    }
+    validateShapeBox(s);
+    if ('fills' in patch) s.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
+    if ('strokes' in patch) s.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('effects' in patch) s.effects = validateEffects(patch.effects, 'effects');
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      s.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      s.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      s.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'STAR.blendMode');
+      s.blendMode = patch.blendMode as StarNode['blendMode'];
+    }
+    applyStrokeFieldsFromPatch(s as unknown as Record<string, unknown>, patch);
+    validateStrokeGeometry('STAR', s);
     return;
   }
   if (node.type === 'PAGE') {

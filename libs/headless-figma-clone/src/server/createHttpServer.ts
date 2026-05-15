@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { relative, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { FileEnvelope } from '../model/types.js';
 import type { HeadlessFigmaRuntimeConfig } from '../config/types.js';
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import { designCompiler } from '../render/DesignCompiler.js';
+import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import type { Logger } from '../util/logger.js';
 import { createHeadlessMcpServer } from '../mcp/registerTools.js';
 
@@ -95,7 +97,15 @@ export async function createHttpServer(params: {
     try {
       const compiled = designCompiler.compileFirstPage({
         envelope: env,
-        options: { viewportPaddingPx: 16, includeCss: true, inlineCss: true },
+        options: {
+          viewportPaddingPx: 16,
+          includeCss: true,
+          inlineCss: true,
+          imageDataUrlByHash: (() => {
+            const fp = engine.getActiveFilePath();
+            return fp ? buildImageDataUrlByHash(env, fp) : {};
+          })(),
+        },
       });
       debugPreviewStore.html = compiled.html;
     } catch (e) {
@@ -113,6 +123,33 @@ export async function createHttpServer(params: {
   const httpServer = createServer(async (req, res) => {
     try {
       const url = req.url?.split('?')[0] ?? '';
+
+      if (req.method === 'GET' && url.startsWith('/assets/')) {
+        const id = decodeURIComponent(url.slice('/assets/'.length).split('/')[0] ?? '');
+        if (!/^[a-f0-9]{64}$/.test(id)) {
+          sendError(res, 400, 'BAD_REQUEST', 'Invalid asset id');
+          return;
+        }
+        const file = engine.getActiveFile();
+        const fp = engine.getActiveFilePath();
+        const rec = file?.assets?.byId[id];
+        if (!rec || !fp) {
+          sendError(res, 404, 'NOT_FOUND', 'Unknown asset');
+          return;
+        }
+        const abs = join(dirname(fp), rec.relativePath);
+        if (!existsSync(abs)) {
+          sendError(res, 404, 'NOT_FOUND', 'Asset file missing on disk');
+          return;
+        }
+        const buf = readFileSync(abs);
+        res.writeHead(200, {
+          'content-type': rec.mimeType,
+          'content-length': String(buf.length),
+        });
+        res.end(buf);
+        return;
+      }
 
       if (req.method === 'GET' && url === '/health') {
         sendJson(res, 200, {

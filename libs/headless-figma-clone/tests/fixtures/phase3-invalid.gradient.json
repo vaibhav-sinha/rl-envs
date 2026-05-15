@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "BADGRAD",
+  "fileName": "Bad gradient",
+  "nextInternalId": 5,
+  "assets": { "byId": {} },
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "I3",
+            "type": "RECTANGLE",
+            "name": "Bad",
+            "x": 0,
+            "y": 0,
+            "width": 10,
+            "height": 10,
+            "fills": [
+              {
+                "type": "GRADIENT_LINEAR",
+                "gradientTransform": [
+                  [1, 0, 0],
+                  [0, 1, 0]
+                ],
+                "gradientStops": [{ "position": 0, "color": { "r": 1, "g": 0, "b": 0, "a": 1 } }]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

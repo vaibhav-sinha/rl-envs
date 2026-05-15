@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style id="hfc-compiled-css">
+/* css attached separately */
+    </style>
+  </head>
+  <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">
+    <div id="hfc-root" style="position:relative;width:120px;height:99px;">
+      <div class="hfc-node-I3" data-hfc-id="I3" style="z-index:0"></div><div class="hfc-node-I4" data-hfc-id="I4" style="z-index:1"><svg class="hfc-shape-svg" viewBox="0 0 50 50" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><path d="M25,0 L48.776,17.275 L39.695,45.225 L10.305,45.225 L1.224,17.275 Z" fill="rgba(51,204,77,1)" stroke="rgba(0,0,0,1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 2"/></svg></div><div class="hfc-node-I5" data-hfc-id="I5" style="z-index:2"><svg class="hfc-shape-svg" viewBox="0 0 44 44" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><path d="M22,0 L27.819,13.991 L42.923,15.202 L31.415,25.059 L34.931,39.798 L22,31.9 L9.069,39.798 L12.585,25.059 L1.077,15.202 L16.181,13.991 Z" fill="url(#img-I5)"/></svg></div>
+    </div>
+  </body>
+</html>
+---CSS---
+#hfc-root{position:relative;width:120px;height:99px;isolation:isolate;}
+.hfc-node-I3{position:absolute;left:0px;top:0px;width:60px;height:40px;box-sizing:border-box;background-image:linear-gradient(90deg,rgba(255,0,0,1) 0%,rgba(0,0,255,1) 100%);background-color:transparent;border:none;mix-blend-mode:multiply;}
+.hfc-node-I4{position:absolute;left:70px;top:0px;width:50px;height:50px;}
+.hfc-node-I5{position:absolute;left:0px;top:55px;width:44px;height:44px;}

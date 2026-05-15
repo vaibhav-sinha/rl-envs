@@ -1,0 +1,33 @@
+POLYGON
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style id="hfc-compiled-css">
+#hfc-root{position:relative;width:42px;height:42px;isolation:isolate;}
+.hfc-node-I6{position:absolute;left:0px;top:0px;width:42px;height:42px;}
+    </style>
+  </head>
+  <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">
+    <div id="hfc-root" style="position:relative;width:42px;height:42px;">
+      <div class="hfc-node-I6" data-hfc-id="I6" style="z-index:0"><svg class="hfc-shape-svg" viewBox="0 0 42 42" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><path d="M21,0 L40.972,14.511 L33.343,37.989 L8.657,37.989 L1.028,14.511 Z" fill="rgba(242,191,26,1)" stroke="rgba(26,26,89,1)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 3"/></svg></div>
+    </div>
+  </body>
+</html>
+---
+BLEND_RECT
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style id="hfc-compiled-css">
+#hfc-root{position:relative;width:72px;height:44px;isolation:isolate;}
+.hfc-node-I4{position:absolute;left:0px;top:0px;width:72px;height:44px;box-sizing:border-box;background-image:linear-gradient(90deg,rgba(255,51,51,1) 0%,rgba(51,51,255,1) 100%);background-color:transparent;border:none;mix-blend-mode:multiply;}
+    </style>
+  </head>
+  <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">
+    <div id="hfc-root" style="position:relative;width:72px;height:44px;">
+      <div class="hfc-node-I4" data-hfc-id="I4" style="z-index:0"></div>
+    </div>
+  </body>
+</html>
