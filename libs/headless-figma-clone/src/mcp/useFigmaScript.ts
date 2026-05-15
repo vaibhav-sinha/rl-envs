@@ -3,16 +3,24 @@ import {
   applyCreateNodeOp,
   applyEngineOp,
   findEnvelopeNode,
+  registerAssetBytesInEnvelope,
   type EngineOperation,
   type NewNodeSpec,
 } from '../engine/DocumentEngine.js';
+import { queueFlattenNodes, queueGroupNodes, queueUngroup } from '../engine/graphOps.js';
+import { hasMissingFont, listAvailableFonts, loadFontAsync } from '../fonts/fontCatalog.js';
+import { createNodeSpecFromSvg } from '../images/svgImport.js';
+import { fetchBytes, loadNetworkPolicyFromEnv } from '../images/networkPolicy.js';
+import { findAllNodes, findOneNode, parseFindCriteria } from '../traversal/findNodes.js';
 import { ENGINE_MATRIX } from '../engine/phase-matrix.js';
 import type {
   BlendMode,
   BooleanOperationNode,
   Effect,
   FileEnvelope,
+  FontName,
   FrameNode,
+  LayoutSizing,
   PageNode,
   Paint,
   StyledSegment,
@@ -33,6 +41,7 @@ interface ScriptContext {
   working: FileEnvelope;
   ops: EngineOperation[];
   deletedIds: Set<string>;
+  selectionByPageId: Map<string, string[]>;
 }
 
 function queueUpdate(ctx: ScriptContext, nodeId: string, patch: Record<string, unknown>): void {
@@ -153,6 +162,10 @@ abstract class RuntimeSceneNode {
   blendMode?: BlendMode;
   layoutAlign?: FrameNode['layoutAlign'];
   layoutGrow?: number;
+  layoutSizingHorizontal?: LayoutSizing;
+  layoutSizingVertical?: LayoutSizing;
+  layoutPositioning?: 'AUTO' | 'ABSOLUTE';
+  constraints?: FrameNode['constraints'];
   minWidth?: number;
   maxWidth?: number;
   minHeight?: number;
@@ -161,6 +174,31 @@ abstract class RuntimeSceneNode {
   protected _id: string | null = null;
   attached = false;
   protected ctx!: ScriptContext;
+  private pendingChildren: Array<{ child: RuntimeSceneNode | { id: string }; index?: number }> = [];
+
+  protected appendChildInternal(child: RuntimeSceneNode | { id: string }, index?: number): void {
+    if (!this.attached || this._id === null) {
+      if (child instanceof RuntimeSceneNode && !child.attached) {
+        this.pendingChildren.push({ child, index });
+        return;
+      }
+      if (!(child instanceof RuntimeSceneNode) && typeof child.id === 'string') {
+        this.pendingChildren.push({ child, index });
+        return;
+      }
+      throw new Error('appendChild requires the parent to be appended to the document (or use a detached child)');
+    }
+    appendChildToScriptParent(this.ctx, this._id, child, index);
+  }
+
+  protected flushPendingChildren(): void {
+    if (!this.attached || this._id === null) return;
+    const pending = [...this.pendingChildren];
+    this.pendingChildren = [];
+    for (const { child, index } of pending) {
+      appendChildToScriptParent(this.ctx, this._id, child, index);
+    }
+  }
 
   resize(w: number, h: number): void {
     this.width = w;
@@ -203,9 +241,26 @@ abstract class RuntimeSceneNode {
       throw e;
     }
     this.attached = true;
+    this.flushPendingChildren();
   }
 
   abstract toNewNodeSpec(): NewNodeSpec;
+
+  protected layoutSelfSpec(): Record<string, unknown> {
+    return {
+      layoutAlign: this.layoutAlign,
+      layoutGrow: this.layoutGrow,
+      minWidth: this.minWidth,
+      maxWidth: this.maxWidth,
+      minHeight: this.minHeight,
+      maxHeight: this.maxHeight,
+      isMask: this.isMask,
+      layoutSizingHorizontal: this.layoutSizingHorizontal,
+      layoutSizingVertical: this.layoutSizingVertical,
+      layoutPositioning: this.layoutPositioning,
+      constraints: this.constraints,
+    };
+  }
 }
 
 class RuntimeFrame extends RuntimeSceneNode {
@@ -230,13 +285,12 @@ class RuntimeFrame extends RuntimeSceneNode {
   paddingBottom?: number;
   primaryAxisAlignItems?: FrameNode['primaryAxisAlignItems'];
   counterAxisAlignItems?: FrameNode['counterAxisAlignItems'];
+  primaryAxisSizingMode?: LayoutSizing;
+  counterAxisSizingMode?: LayoutSizing;
   layoutGrids?: FrameNode['layoutGrids'];
 
   appendChild(child: RuntimeSceneNode | { id: string }, index?: number): void {
-    if (!this.attached || this._id === null) {
-      throw new Error('appendChild requires the frame to be appended to the page (or parent) first');
-    }
-    appendChildToScriptParent(this.ctx, this._id, child, index);
+    this.appendChildInternal(child, index);
   }
 
   insertChild(index: number, child: RuntimeSceneNode | { id: string }): void {
@@ -271,6 +325,8 @@ class RuntimeFrame extends RuntimeSceneNode {
       paddingBottom: this.paddingBottom,
       primaryAxisAlignItems: this.primaryAxisAlignItems,
       counterAxisAlignItems: this.counterAxisAlignItems,
+      primaryAxisSizingMode: this.primaryAxisSizingMode,
+      counterAxisSizingMode: this.counterAxisSizingMode,
       layoutGrids: this.layoutGrids,
       visible: this.visible,
       opacity: this.opacity,
@@ -278,6 +334,10 @@ class RuntimeFrame extends RuntimeSceneNode {
       blendMode: this.blendMode,
       layoutAlign: this.layoutAlign,
       layoutGrow: this.layoutGrow,
+      layoutSizingHorizontal: this.layoutSizingHorizontal,
+      layoutSizingVertical: this.layoutSizingVertical,
+      layoutPositioning: this.layoutPositioning,
+      constraints: this.constraints,
       minWidth: this.minWidth,
       maxWidth: this.maxWidth,
       minHeight: this.minHeight,
@@ -381,13 +441,7 @@ class RuntimeRectangle extends RuntimeSceneNode {
       opacity: this.opacity,
       rotation: this.rotation,
       blendMode: this.blendMode,
-      layoutAlign: this.layoutAlign,
-      layoutGrow: this.layoutGrow,
-      minWidth: this.minWidth,
-      maxWidth: this.maxWidth,
-      minHeight: this.minHeight,
-      maxHeight: this.maxHeight,
-      isMask: this.isMask,
+      ...this.layoutSelfSpec(),
       fillStyleId: this.fillStyleId,
     };
   }
@@ -666,10 +720,7 @@ class RuntimeTransformGroup extends RuntimeSceneNode {
   name = 'Group';
 
   appendChild(child: RuntimeSceneNode | { id: string }, index?: number): void {
-    if (!this.attached || this._id === null) {
-      throw new Error('appendChild requires the group to be appended to the page (or parent) first');
-    }
-    appendChildToScriptParent(this.ctx, this._id, child, index);
+    this.appendChildInternal(child, index);
   }
 
   insertChild(index: number, child: RuntimeSceneNode | { id: string }): void {
@@ -782,6 +833,35 @@ class RuntimePage {
     return this.pageId;
   }
 
+  findAll(criteria?: unknown): unknown[] {
+    const p = findEnvelopeNode(this.ctx.working, this.pageId);
+    if (!p || p.type !== 'PAGE') return [];
+    return findAllNodes(p, parseFindCriteria(criteria)).map((n) => createHandleProxy(this.ctx, n.id));
+  }
+
+  findOne(criteria?: unknown): unknown | null {
+    const p = findEnvelopeNode(this.ctx.working, this.pageId);
+    if (!p || p.type !== 'PAGE') return null;
+    const hit = findOneNode(p, parseFindCriteria(criteria));
+    return hit ? createHandleProxy(this.ctx, hit.id) : null;
+  }
+
+  findAllWithCriteria(criteria: unknown): unknown[] {
+    return this.findAll(criteria);
+  }
+
+  get selection(): unknown[] {
+    const ids = this.ctx.selectionByPageId.get(this.pageId) ?? [];
+    return ids
+      .filter((id) => findEnvelopeNode(this.ctx.working, id) && !this.ctx.deletedIds.has(id))
+      .map((id) => createHandleProxy(this.ctx, id));
+  }
+
+  set selection(nodes: ReadonlyArray<RuntimeSceneNode | { id: string }>) {
+    const ids = nodes.map((n) => (n instanceof RuntimeSceneNode ? n.getAttachedIdOrNull() ?? n.id : n.id));
+    this.ctx.selectionByPageId.set(this.pageId, ids.filter(Boolean) as string[]);
+  }
+
   appendChild(child: RuntimeSceneNode | { id: string }, index?: number): void {
     appendChildToScriptParent(this.ctx, this.pageId, child, index);
   }
@@ -875,12 +955,19 @@ export async function runUseFigmaScript(
   }
 
   const working = deepClone(file);
-  const ctx: ScriptContext = { working, ops: [], deletedIds: new Set() };
+  const ctx: ScriptContext = {
+    working,
+    ops: [],
+    deletedIds: new Set(),
+    selectionByPageId: new Map(),
+  };
   const firstPage = working.document.children.find((c): c is PageNode => c.type === 'PAGE');
   if (!firstPage) {
     return { kind: 'error', errorCode: 'VALIDATION_ERROR', message: 'No PAGE in document' };
   }
   let currentPageId = firstPage.id;
+  ctx.selectionByPageId.set(currentPageId, []);
+  const networkPolicy = loadNetworkPolicyFromEnv();
 
   const figma = {
     root: {
@@ -997,6 +1084,137 @@ export async function runUseFigmaScript(
       n.mainComponentId = mainComponentId;
       return wrapRuntimeNode(n, ctx);
     },
+    loadAllPagesAsync: async (): Promise<void> => {},
+    listAvailableFontsAsync: async (): Promise<FontName[]> => listAvailableFonts(),
+    loadFontAsync: async (fontName: FontName): Promise<void> => loadFontAsync(fontName),
+    hasMissingFont: (): boolean => hasMissingFont(ctx.working),
+    base64Encode: (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64'),
+    base64Decode: (s: string): Uint8Array => new Uint8Array(Buffer.from(s, 'base64')),
+    createImage: (bytes: Uint8Array): { hash: string } => {
+      const { hash } = registerAssetBytesInEnvelope(ctx.working, Buffer.from(bytes), 'image/png');
+      return { hash };
+    },
+    createImageAsync: async (src: string): Promise<{ hash: string }> => {
+      const bytes = await fetchBytes(networkPolicy, src);
+      const { hash } = registerAssetBytesInEnvelope(ctx.working, Buffer.from(bytes), 'image/png');
+      return { hash };
+    },
+    getImageByHash: (hash: string): { hash: string; getBytesAsync: () => Promise<Uint8Array> } => {
+      const rec = ctx.working.assets?.byId[hash];
+      if (!rec) throw new Error(`Unknown image hash ${hash}`);
+      return { hash: rec.sha256, getBytesAsync: async () => new Uint8Array(0) };
+    },
+    group: (
+      nodes: ReadonlyArray<RuntimeSceneNode | { id: string }>,
+      parent: RuntimePage | RuntimeFrame | RuntimeTransformGroup | { id: string },
+      index?: number
+    ): unknown => {
+      const parentId = 'pageId' in parent ? parent.pageId : parent.id;
+      const ids = nodes.map((n) => readOperandId(n));
+      const groupId = queueGroupNodes(ctx.working, ctx.ops, ids, { id: parentId }, index);
+      return createHandleProxy(ctx, groupId);
+    },
+    ungroup: (node: { id: string }): unknown[] => {
+      const moved = queueUngroup(ctx.working, ctx.ops, node.id);
+      return moved.map((id) => createHandleProxy(ctx, id));
+    },
+    flatten: (
+      nodes: ReadonlyArray<RuntimeSceneNode | { id: string }>,
+      parent: RuntimePage | RuntimeFrame | RuntimeTransformGroup | { id: string },
+      index?: number
+    ): unknown => {
+      const parentId = 'pageId' in parent ? parent.pageId : parent.id;
+      const ids = nodes.map((n) => readOperandId(n));
+      const vecId = queueFlattenNodes(ctx.working, ctx.ops, ids, { id: parentId }, index);
+      return createHandleProxy(ctx, vecId);
+    },
+    transformGroup: (
+      nodes: ReadonlyArray<RuntimeSceneNode | { id: string }>,
+      parent: RuntimePage | RuntimeFrame | RuntimeTransformGroup | { id: string },
+      index?: number
+    ): unknown => {
+      const parentId = 'pageId' in parent ? parent.pageId : parent.id;
+      const createOp = {
+        op: 'createNode' as const,
+        parentId,
+        index,
+        node: { type: 'TRANSFORM_GROUP' as const, name: 'Transform Group', x: 0, y: 0, width: 100, height: 100 },
+      };
+      ctx.ops.push(createOp);
+      const tgId = applyCreateNodeOp(ctx.working, createOp);
+      nodes.forEach((n, i) => {
+        const nid = readOperandId(n);
+        const mv: EngineOperation = { op: 'moveNode', nodeId: nid, newParentId: tgId, index: i };
+        ctx.ops.push(mv);
+        applyEngineOp(ctx.working, mv);
+      });
+      return createHandleProxy(ctx, tgId);
+    },
+    createAutoLayout: (): RuntimeFrame => {
+      const f = new RuntimeFrame();
+      f.layoutMode = 'HORIZONTAL';
+      f.itemSpacing = 8;
+      f.paddingLeft = 8;
+      f.paddingRight = 8;
+      f.paddingTop = 8;
+      f.paddingBottom = 8;
+      return wrapRuntimeNode(f.bindContext(ctx), ctx);
+    },
+    createSlice: (): unknown => {
+      const op = {
+        op: 'createNode' as const,
+        parentId: currentPageId,
+        node: { type: 'SLICE' as const, name: 'Slice', x: 0, y: 0, width: 100, height: 100 },
+      };
+      ctx.ops.push(op);
+      return createHandleProxy(ctx, applyCreateNodeOp(ctx.working, op));
+    },
+    createSection: (): unknown => {
+      const op = {
+        op: 'createNode' as const,
+        parentId: currentPageId,
+        node: { type: 'SECTION' as const, name: 'Section', x: 0, y: 0, width: 400, height: 300 },
+      };
+      ctx.ops.push(op);
+      return createHandleProxy(ctx, applyCreateNodeOp(ctx.working, op));
+    },
+    createNodeFromSvg: (svg: string): unknown => {
+      const spec = createNodeSpecFromSvg(svg);
+      const op = { op: 'createNode' as const, parentId: currentPageId, node: spec };
+      ctx.ops.push(op);
+      return createHandleProxy(ctx, applyCreateNodeOp(ctx.working, op));
+    },
+    createTextPath: (): unknown => {
+      const op = {
+        op: 'createNode' as const,
+        parentId: currentPageId,
+        node: {
+          type: 'TEXT' as const,
+          name: 'Text Path',
+          characters: '',
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 40,
+        },
+      };
+      ctx.ops.push(op);
+      return createHandleProxy(ctx, applyCreateNodeOp(ctx.working, op));
+    },
+    createPageDivider: (): RuntimePage => {
+      const idx = ctx.working.document.children.filter((c) => c.type === 'PAGE').length;
+      const op: EngineOperation = {
+        op: 'createNode',
+        parentId: ctx.working.document.id,
+        node: { type: 'PAGE', name: `Divider ${String(idx + 1)}` },
+      };
+      ctx.ops.push(op);
+      const pageId = applyCreateNodeOp(ctx.working, op);
+      const up: EngineOperation = { op: 'updateNode', nodeId: pageId, patch: { isPageDivider: true } };
+      ctx.ops.push(up);
+      applyEngineOp(ctx.working, up);
+      return new RuntimePage(ctx, pageId);
+    },
     notify: (): void => {
       throw new Error('not implemented');
     },
@@ -1007,8 +1225,12 @@ export async function runUseFigmaScript(
 
   let rawResult: unknown;
   try {
-    const fn = new AsyncFunction('figma', code);
-    rawResult = await fn(figma);
+    const fn = new AsyncFunction('figma', 'fetch', code);
+    const sandboxFetch = async (input: string): Promise<Response> => {
+      const bytes = await fetchBytes(networkPolicy, input);
+      return new Response(bytes, { status: 200 });
+    };
+    rawResult = await fn(figma, sandboxFetch);
   } catch (e) {
     if (e instanceof ValidationErr) {
       return { kind: 'error', errorCode: e.code, message: e.message };

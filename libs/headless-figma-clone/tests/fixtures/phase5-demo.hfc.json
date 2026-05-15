@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "fileKey": "phase5demo",
   "fileName": "Phase 5 demo",
-  "nextInternalId": 45,
+  "nextInternalId": 49,
   "variableCollections": [
     {
       "id": "VCOL1",
@@ -291,6 +291,46 @@
           },
           {
             "id": "I44",
+            "type": "COMPONENT_INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          },
+          {
+            "id": "I45",
+            "type": "COMPONENT_INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          },
+          {
+            "id": "I46",
+            "type": "COMPONENT_INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          },
+          {
+            "id": "I47",
+            "type": "COMPONENT_INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          },
+          {
+            "id": "I48",
             "type": "COMPONENT_INSTANCE",
             "name": "Instance",
             "x": 4,

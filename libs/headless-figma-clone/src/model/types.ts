@@ -1,4 +1,4 @@
-/** Phase 1–5 subset of design-doc/data-model.md */
+/** Phase 1–7 subset of design-doc/data-model.md */
 
 export type SchemaVersion = number;
 
@@ -143,7 +143,22 @@ export interface NodeBase {
   visible?: boolean;
 }
 
-/** Optional auto-layout child / mask flags (Phase 4). */
+export type LayoutSizing = 'FIXED' | 'HUG' | 'FILL';
+export type LayoutPositioning = 'AUTO' | 'ABSOLUTE';
+export type LayoutConstraintHorizontal = 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'SCALE';
+export type LayoutConstraintVertical = 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'SCALE';
+
+export interface LayoutConstraints {
+  horizontal: LayoutConstraintHorizontal;
+  vertical: LayoutConstraintVertical;
+}
+
+export interface FontName {
+  family: string;
+  style: string;
+}
+
+/** Optional auto-layout child / mask flags (Phase 4) + sizing (Phase 7). */
 export interface LayoutSelfFields {
   layoutAlign?: 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'INHERIT';
   layoutGrow?: number;
@@ -153,6 +168,11 @@ export interface LayoutSelfFields {
   maxHeight?: number;
   /** When true, this node defines a vector mask for following siblings until the next mask node (compile binding). */
   isMask?: boolean;
+  /** Phase 7 — auto-layout child sizing (Figma parity subset). */
+  layoutSizingHorizontal?: LayoutSizing;
+  layoutSizingVertical?: LayoutSizing;
+  layoutPositioning?: LayoutPositioning;
+  constraints?: LayoutConstraints;
 }
 
 export type LayoutMode = 'NONE' | 'HORIZONTAL' | 'VERTICAL';
@@ -179,6 +199,8 @@ export interface PageNode extends NodeBase {
   y?: number;
   width?: number;
   height?: number;
+  /** Phase 7 — page divider marker (Figma `isPageDivider`). */
+  isPageDivider?: boolean;
 }
 
 export interface AssetRecord {
@@ -228,6 +250,9 @@ export interface FrameNode extends NodeBase, LayoutSelfFields {
   counterAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'BASELINE';
   /** Visible column guides overlay (compile-only decoration). */
   layoutGrids?: LayoutGridColumns[];
+  /** Phase 7 — frame axis sizing when auto-layout is active. */
+  primaryAxisSizingMode?: LayoutSizing;
+  counterAxisSizingMode?: LayoutSizing;
 }
 
 export interface TextRangeStyle {
@@ -255,6 +280,8 @@ export interface TextNode extends NodeBase, LayoutSelfFields {
   characters: string;
   fontSize?: number;
   fontWeight?: number;
+  /** Phase 7 — loaded via `figma.loadFontAsync` before edit. */
+  fontName?: FontName;
   fills?: Paint[];
   effects?: Effect[];
   /** Empty or absent: entire string uses node-level style. */
@@ -431,6 +458,45 @@ export interface TransformGroupNode extends NodeBase, LayoutSelfFields {
   children: SceneNode[];
 }
 
+/** Phase 7 — `figma.group` container (compiler treats like transform group). */
+export interface GroupNode extends NodeBase, LayoutSelfFields {
+  type: 'GROUP';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  children: SceneNode[];
+}
+
+/** Phase 7 — export slice region. */
+export interface SliceNode extends NodeBase, LayoutSelfFields {
+  type: 'SLICE';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+}
+
+/** Phase 7 — named canvas section. */
+export interface SectionNode extends NodeBase, LayoutSelfFields {
+  type: 'SECTION';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  fills?: Paint[];
+  children: SceneNode[];
+}
+
 export interface TableCell {
   text: string;
   fills?: Paint[];
@@ -492,6 +558,9 @@ export type SceneNode =
   | VectorNode
   | BooleanOperationNode
   | TransformGroupNode
+  | GroupNode
+  | SliceNode
+  | SectionNode
   | TableNode
   | ComponentInstanceNode;
 

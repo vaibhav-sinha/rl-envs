@@ -40,7 +40,7 @@ function findAnyNode(root: DocumentNode, id: string): boolean {
 function walkScene(nodes: SceneNode[], id: string): boolean {
   for (const n of nodes) {
     if (n.id === id) return true;
-    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP') {
+    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
       if (walkScene(n.children, id)) return true;
     } else if (n.type === 'BOOLEAN_OPERATION') {
       if (walkScene(n.children as unknown as SceneNode[], id)) return true;

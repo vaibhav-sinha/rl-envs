@@ -1,0 +1,294 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "phase7-layout",
+  "fileName": "phase7-layout",
+  "nextInternalId": 35,
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Auto Row",
+            "x": 0,
+            "y": 0,
+            "width": 320,
+            "height": 80,
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 8,
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "primaryAxisSizingMode": "FIXED",
+            "counterAxisSizingMode": "FIXED",
+            "children": [
+              {
+                "id": "I4",
+                "type": "RECTANGLE",
+                "name": "Fill Child",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40,
+                "layoutSizingHorizontal": "FILL",
+                "layoutSizingVertical": "FIXED",
+                "fills": [
+                  {
+                    "type": "SOLID",
+                    "color": {
+                      "r": 0.2,
+                      "g": 0.5,
+                      "b": 0.9
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "I5",
+                "type": "RECTANGLE",
+                "name": "Hug Child",
+                "x": 0,
+                "y": 0,
+                "width": 60,
+                "height": 40,
+                "layoutSizingHorizontal": "HUG",
+                "layoutSizingVertical": "FIXED",
+                "fills": [
+                  {
+                    "type": "SOLID",
+                    "color": {
+                      "r": 0.9,
+                      "g": 0.4,
+                      "b": 0.2
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "I6",
+            "type": "FRAME",
+            "name": "Constrained",
+            "x": 0,
+            "y": 120,
+            "width": 200,
+            "height": 100,
+            "children": [
+              {
+                "id": "I7",
+                "type": "RECTANGLE",
+                "name": "Stretch",
+                "x": 10,
+                "y": 10,
+                "width": 180,
+                "height": 80,
+                "constraints": {
+                  "horizontal": "STRETCH",
+                  "vertical": "STRETCH"
+                },
+                "fills": [
+                  {
+                    "type": "SOLID",
+                    "color": {
+                      "r": 0.3,
+                      "g": 0.7,
+                      "b": 0.3
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "I20",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I21",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I22",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          },
+          {
+            "id": "I23",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I24",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I25",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          },
+          {
+            "id": "I26",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I27",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I28",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          },
+          {
+            "id": "I29",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I30",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I31",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          },
+          {
+            "id": "I32",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I33",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40
+              },
+              {
+                "id": "I34",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "paddingBottom": 8,
+            "itemSpacing": 8
+          }
+        ]
+      }
+    ]
+  }
+}
