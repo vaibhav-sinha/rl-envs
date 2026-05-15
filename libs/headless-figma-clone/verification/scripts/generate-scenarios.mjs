@@ -512,10 +512,10 @@ const narrow = figma.createRectangle();
 narrow.name = 'Narrow';
 narrow.resize(50, 40);
 narrow.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.55, b: 0.1 } }];
+root.appendChild(row);
 row.appendChild(fill);
 fill.layoutSizingHorizontal = 'FILL';
 row.appendChild(narrow);
-root.appendChild(row);
 `,
   },
   {
@@ -633,11 +633,11 @@ row.y = 150;
 const child = figma.createRectangle();
 child.resize(200, 40);
 child.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.3, b: 0.85 } }];
+root.appendChild(row);
 row.appendChild(child);
 child.minWidth = 80;
 child.maxWidth = 160;
 child.layoutSizingHorizontal = 'FILL';
-root.appendChild(row);
 `,
   },
   {
@@ -1684,26 +1684,46 @@ figma.exclude([sq, circ], root);
     order: 71,
     tier: 'advanced',
     tags: ['autolayout'],
-    description: 'Column containing row of chips.\n\nExpected: 2x2-ish chip grid layout.',
+    description:
+      'Outer column stacking two nested auto-layout mini-cards.\nEach card: horizontal chip row + white panel below.\n\nExpected: two identical cards vertically stacked inside the tinted column frame.',
     body: `
+function makeCard() {
+  const card = figma.createFrame();
+  card.layoutMode = 'VERTICAL';
+  card.itemSpacing = 8;
+  card.fills = [{ type: 'SOLID', color: { r: 0.99, g: 0.99, b: 1 } }];
+  const row = figma.createAutoLayout('HORIZONTAL');
+  row.itemSpacing = 10;
+  row.primaryAxisAlignItems = 'MIN';
+  const wide = figma.createRectangle();
+  wide.resize(76, 26);
+  wide.fills = [{ type: 'SOLID', color: { r: 0.22, g: 0.48, b: 0.88 } }];
+  const accent = figma.createRectangle();
+  accent.resize(26, 26);
+  accent.fills = [{ type: 'SOLID', color: { r: 0.55, g: 0.32, b: 0.9 } }];
+  row.appendChild(wide);
+  row.appendChild(accent);
+  card.appendChild(row);
+  const body = figma.createRectangle();
+  body.resize(112, 40);
+  body.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  card.appendChild(body);
+  card.resize(120, 86);
+  return card;
+}
 const col = figma.createFrame();
 col.layoutMode = 'VERTICAL';
-col.itemSpacing = 12;
+col.itemSpacing = 14;
 col.x = 120;
-col.y = 80;
+col.y = 72;
 col.fills = [{ type: 'SOLID', color: { r: 0.94, g: 0.95, b: 0.98 } }];
-col.paddingTop = 16;
-col.paddingLeft = 16;
-const row = figma.createAutoLayout();
-row.itemSpacing = 8;
-for (let i = 0; i < 4; i++) {
-  const chip = figma.createRectangle();
-  chip.resize(56, 28);
-  chip.fills = [{ type: 'SOLID', color: { r: 0.2 + (i % 2) * 0.3, g: 0.5, b: 0.85 } }];
-  row.appendChild(chip);
-}
-col.appendChild(row);
+col.paddingTop = 14;
+col.paddingLeft = 14;
+col.paddingRight = 14;
+col.paddingBottom = 14;
 root.appendChild(col);
+col.appendChild(makeCard());
+col.appendChild(makeCard());
 `,
   },
   {
@@ -1728,12 +1748,12 @@ spacer.fills = [{ type: 'SOLID', color: { r: 0.75, g: 0.77, b: 0.82 } }];
 const right = figma.createRectangle();
 right.resize(80, 40);
 right.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.75, b: 0.35 } }];
+root.appendChild(row);
 row.appendChild(left);
 left.layoutSizingHorizontal = 'FILL';
 row.appendChild(spacer);
 row.appendChild(right);
 right.layoutSizingHorizontal = 'FILL';
-root.appendChild(row);
 `,
   },
   {
@@ -1768,11 +1788,11 @@ root.appendChild(row);
     order: 74,
     tier: 'advanced',
     tags: ['autolayout'],
-    description: 'STRETCH on vertical stack.\n\nExpected: children full width of column.',
+    description:
+      'Attach the vertical column to the root before children. Full-width bars: set layoutSizingHorizontal = FILL only after each rectangle is a child of that column.\n\nExpected: rectangles span the column width between horizontal padding.',
     body: `
 const col = figma.createFrame();
 col.layoutMode = 'VERTICAL';
-col.counterAxisAlignItems = 'STRETCH';
 col.itemSpacing = 8;
 col.resize(200, 180);
 col.x = 140;
@@ -1780,13 +1800,14 @@ col.y = 90;
 col.fills = [{ type: 'SOLID', color: { r: 0.92, g: 0.93, b: 0.96 } }];
 col.paddingLeft = 12;
 col.paddingRight = 12;
+root.appendChild(col);
 for (let i = 0; i < 3; i++) {
   const box = figma.createRectangle();
   box.resize(100, 32);
   box.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.45 + i * 0.15, b: 0.85 } }];
   col.appendChild(box);
+  box.layoutSizingHorizontal = 'FILL';
 }
-root.appendChild(col);
 `,
   },
   {
@@ -1880,7 +1901,7 @@ parent.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.91, b: 0.94 } }];
 const child = figma.createRectangle();
 child.resize(80, 40);
 child.x = 20;
-child.constraints = { horizontal: 'CENTER', vertical: 'TOP_BOTTOM' };
+child.constraints = { horizontal: 'CENTER', vertical: 'STRETCH' };
 child.fills = [{ type: 'SOLID', color: { r: 0.15, g: 0.5, b: 0.85 } }];
 parent.appendChild(child);
 root.appendChild(parent);

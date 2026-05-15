@@ -8,10 +8,17 @@ import {
 import { ValidationErr } from '../../src/util/errors.js';
 
 describe('figmaInterop', () => {
-  it('maps LEFT_RIGHT constraints to STRETCH', () => {
-    expect(
+  it('rejects REST-style constraint strings (Plugin API uses STRETCH, not LEFT_RIGHT / TOP_BOTTOM)', () => {
+    expect(() =>
       normalizeLayoutConstraints({ horizontal: 'LEFT_RIGHT', vertical: 'MIN' }, 'constraints')
-    ).toEqual({ horizontal: 'STRETCH', vertical: 'MIN' });
+    ).toThrow(ValidationErr);
+    expect(() =>
+      normalizeLayoutConstraints({ horizontal: 'CENTER', vertical: 'TOP_BOTTOM' }, 'constraints')
+    ).toThrow(ValidationErr);
+    expect(normalizeLayoutConstraints({ horizontal: 'STRETCH', vertical: 'MIN' }, 'constraints')).toEqual({
+      horizontal: 'STRETCH',
+      vertical: 'MIN',
+    });
   });
 
   it('converts valid plugin layoutGrids to internal column count', () => {

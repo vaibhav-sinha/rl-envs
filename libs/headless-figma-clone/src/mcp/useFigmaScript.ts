@@ -324,10 +324,25 @@ function normalizeTextOnPathInput(value: unknown): RuntimeText['textOnPath'] {
   return { pathId, startOffset: v.startOffset };
 }
 
+function runtimeMaySetLayoutSizingDetached(node: RuntimeSceneNode): boolean {
+  if (node.type === 'TEXT') return true;
+  if (node.type !== 'FRAME') return false;
+  const m = (node as { layoutMode?: FrameNode['layoutMode'] }).layoutMode;
+  return m === 'HORIZONTAL' || m === 'VERTICAL';
+}
+
 function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext): N {
   return new Proxy(node, {
     set(target, prop, value, receiver) {
       const p = prop as string;
+      if (p === 'layoutSizingHorizontal' || p === 'layoutSizingVertical') {
+        if (!target.attached && !runtimeMaySetLayoutSizingDetached(target)) {
+          throw new ValidationErr(
+            'VALIDATION_ERROR',
+            `${p}: node must be an auto-layout frame or a child of an auto-layout frame`
+          );
+        }
+      }
       const skipAutoPatch = target.type === 'TEXT' && p === 'styledSegments';
       let normalized = value;
       if (target.type === 'TEXT' && p === 'textOnPath') {

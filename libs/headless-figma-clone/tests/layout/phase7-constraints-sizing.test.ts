@@ -184,6 +184,35 @@ describe('phase7 constraints and sizing compile', () => {
     }
   });
 
+  it('rejects layoutSizingHorizontal FILL before appendChild (matches Figma)', async () => {
+    const engine = new DocumentEngine({
+      persistence: new JsonPersistence(),
+      logger: createConsoleLogger('error'),
+    });
+    await engine.createEmptyFile({ fileName: 'sizing-order' });
+    const run = await runUseFigmaScript(
+      `
+const root = figma.createFrame();
+root.name = 'ScenarioRoot';
+root.resize(480, 360);
+figma.currentPage.appendChild(root);
+const col = figma.createFrame();
+col.layoutMode = 'VERTICAL';
+const box = figma.createRectangle();
+box.resize(80, 32);
+box.layoutSizingHorizontal = 'FILL';
+col.appendChild(box);
+root.appendChild(col);
+return {};
+`,
+      engine
+    );
+    expect(run.kind).toBe('error');
+    if (run.kind === 'error') {
+      expect(run.message).toMatch(/layoutSizingHorizontal/);
+    }
+  });
+
   it('runs verification scenarios 26, 27, and 30 scripts', async () => {
     const ids = ['26-constraints', '27-layout-grid', '30-section'];
     for (const id of ids) {

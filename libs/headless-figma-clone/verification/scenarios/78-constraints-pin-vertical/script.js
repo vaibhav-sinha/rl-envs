@@ -19,7 +19,7 @@ parent.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.91, b: 0.94 } }];
 const child = figma.createRectangle();
 child.resize(80, 40);
 child.x = 20;
-child.constraints = { horizontal: 'CENTER', vertical: 'TOP_BOTTOM' };
+child.constraints = { horizontal: 'CENTER', vertical: 'STRETCH' };
 child.fills = [{ type: 'SOLID', color: { r: 0.15, g: 0.5, b: 0.85 } }];
 parent.appendChild(child);
 root.appendChild(parent);

@@ -709,7 +709,7 @@ function frameFlexInnerStyle(f: FrameNode, env: FileEnvelope): string {
       ? 'center'
       : f.counterAxisAlignItems === 'MAX'
         ? 'flex-end'
-        : f.counterAxisAlignItems === 'STRETCH'
+        : (f.counterAxisAlignItems as string | undefined) === 'STRETCH'
           ? 'stretch'
           : 'flex-start';
   return `display:flex;flex-direction:${dir};flex-wrap:${wrap};${gapCss}${alignContentCss}padding:${ptCss} ${prCss} ${pbCss} ${plCss};box-sizing:border-box;justify-content:${jc};align-items:${ai};`;
@@ -1144,11 +1144,16 @@ function emitScene(
     const flex = frameUsesFlexCss(f);
     const frameAbsX = pageX;
     const frameAbsY = pageY;
+    const frameOuterCss = insideFlex
+      ? sceneChildPos(f, insideFlex, absX, absY, parentFrame)
+      : f.constraints && parentFrame
+        ? constraintPositionCss(f, parentFrame.width, parentFrame.height)
+        : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(f.width)}px;height:${String(f.height)}px;`;
 
     if (!layered) {
       htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
       cssParts.push(
-        `.hfc-node-${f.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(f.width)}px;height:${String(f.height)}px;box-sizing:border-box;${fillCss}border:${border};${radiusCss}${clip}${opRot}${shadow}}`
+        `.hfc-node-${f.id}{${frameOuterCss}box-sizing:border-box;${fillCss}border:${border};${radiusCss}${clip}${opRot}${shadow}}`
       );
       if (flex) {
         htmlParts.push(
@@ -1171,7 +1176,7 @@ function emitScene(
 
     htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${f.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(f.width)}px;height:${String(f.height)}px;box-sizing:border-box;border:${border};background-color:transparent;${radiusCss}${clip}${opRot}${shadow}}`
+      `.hfc-node-${f.id}{${frameOuterCss}box-sizing:border-box;border:${border};background-color:transparent;${radiusCss}${clip}${opRot}${shadow}}`
     );
     cssParts.push(
       `.hfc-node-${f.id} > .hfc-bg-layer{${bgCss}}.hfc-node-${f.id} > .hfc-fill-layer{${fillCss}}`
