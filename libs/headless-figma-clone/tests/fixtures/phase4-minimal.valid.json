@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "P4MIN",
+  "fileName": "phase4-minimal",
+  "nextInternalId": 20,
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Root",
+            "x": 0,
+            "y": 0,
+            "width": 200,
+            "height": 120,
+            "fills": [{ "type": "SOLID", "color": { "r": 0.98, "g": 0.98, "b": 0.98 } }],
+            "children": [
+              {
+                "id": "I4",
+                "type": "VECTOR",
+                "name": "V1",
+                "x": 8,
+                "y": 8,
+                "width": 48,
+                "height": 40,
+                "vectorPaths": [
+                  { "windingRule": "NONZERO", "data": "M0,0 H48 V40 H0 Z" }
+                ],
+                "fills": [{ "type": "SOLID", "color": { "r": 0.2, "g": 0.5, "b": 0.9 } }]
+              },
+              {
+                "id": "I5",
+                "type": "TRANSFORM_GROUP",
+                "name": "G1",
+                "x": 70,
+                "y": 8,
+                "width": 60,
+                "height": 50,
+                "children": [
+                  {
+                    "id": "I6",
+                    "type": "RECTANGLE",
+                    "name": "Inner",
+                    "x": 4,
+                    "y": 4,
+                    "width": 52,
+                    "height": 42,
+                    "fills": [{ "type": "SOLID", "color": { "r": 0.9, "g": 0.3, "b": 0.2 } }]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

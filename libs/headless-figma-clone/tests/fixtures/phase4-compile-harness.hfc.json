@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "P4HARNESS",
+  "fileName": "phase4-compile-harness",
+  "nextInternalId": 15,
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Harness",
+            "x": 0,
+            "y": 0,
+            "width": 200,
+            "height": 80,
+            "fills": [{ "type": "SOLID", "color": { "r": 0.96, "g": 0.96, "b": 0.97 } }],
+            "layoutMode": "HORIZONTAL",
+            "itemSpacing": 6,
+            "paddingLeft": 6,
+            "paddingRight": 6,
+            "paddingTop": 6,
+            "paddingBottom": 6,
+            "children": [
+              {
+                "id": "I4",
+                "type": "RECTANGLE",
+                "name": "A",
+                "x": 0,
+                "y": 0,
+                "width": 40,
+                "height": 28,
+                "fills": [{ "type": "SOLID", "color": { "r": 0.3, "g": 0.5, "b": 0.9 } }]
+              },
+              {
+                "id": "I5",
+                "type": "RECTANGLE",
+                "name": "B",
+                "x": 0,
+                "y": 0,
+                "width": 40,
+                "height": 28,
+                "fills": [{ "type": "SOLID", "color": { "r": 0.2, "g": 0.75, "b": 0.35 } }]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -5,6 +5,7 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { ulid } from 'ulid';
 import type {
   AssetRecord,
+  BooleanOperationNode,
   DocumentNode,
   EllipseNode,
   FileEnvelope,
@@ -16,6 +17,8 @@ import type {
   SceneNode,
   StarNode,
   TextNode,
+  TransformGroupNode,
+  VectorNode,
 } from '../model/types.js';
 import type { Effect, StyledSegment } from '../model/types.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
@@ -50,7 +53,10 @@ export type NewNodeSpec =
   | Omit<EllipseNode, 'id'> & { type: 'ELLIPSE' }
   | Omit<LineNode, 'id'> & { type: 'LINE' }
   | Omit<PolygonNode, 'id'> & { type: 'POLYGON' }
-  | Omit<StarNode, 'id'> & { type: 'STAR' };
+  | Omit<StarNode, 'id'> & { type: 'STAR' }
+  | Omit<VectorNode, 'id'> & { type: 'VECTOR' }
+  | (Omit<BooleanOperationNode, 'id' | 'children'> & { type: 'BOOLEAN_OPERATION'; children?: SceneNode[] })
+  | (Omit<TransformGroupNode, 'id' | 'children'> & { type: 'TRANSFORM_GROUP'; children?: SceneNode[] });
 
 export type EngineOperation =
   | { op: 'createNode'; parentId: string; index?: number; node: NewNodeSpec }
@@ -90,15 +96,19 @@ function findNode(root: DocumentNode, id: string): AnyTreeNode | null {
 function findInSceneList(nodes: SceneNode[], id: string): AnyTreeNode | null {
   for (const n of nodes) {
     if (n.id === id) return n;
-    if (n.type === 'FRAME') {
+    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP') {
       const inner = findInSceneList(n.children, id);
+      if (inner) return inner;
+    }
+    if (n.type === 'BOOLEAN_OPERATION') {
+      const inner = findInSceneList(n.children as unknown as SceneNode[], id);
       if (inner) return inner;
     }
   }
   return null;
 }
 
-function findParent(root: DocumentNode, id: string): DocumentNode | PageNode | FrameNode | null {
+function findParent(root: DocumentNode, id: string): DocumentNode | PageNode | FrameNode | TransformGroupNode | BooleanOperationNode | null {
   for (const page of root.children) {
     if (page.id === id) return root;
     const hit = findParentInFrames(page.children, id, page);
@@ -110,12 +120,16 @@ function findParent(root: DocumentNode, id: string): DocumentNode | PageNode | F
 function findParentInFrames(
   nodes: SceneNode[],
   id: string,
-  parent: PageNode | FrameNode
-): PageNode | FrameNode | null {
+  parent: PageNode | FrameNode | TransformGroupNode | BooleanOperationNode
+): PageNode | FrameNode | TransformGroupNode | BooleanOperationNode | null {
   for (const n of nodes) {
     if (n.id === id) return parent;
-    if (n.type === 'FRAME') {
+    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP') {
       const inner = findParentInFrames(n.children, id, n);
+      if (inner) return inner;
+    }
+    if (n.type === 'BOOLEAN_OPERATION') {
+      const inner = findParentInFrames(n.children as unknown as SceneNode[], id, n);
       if (inner) return inner;
     }
   }
@@ -137,17 +151,27 @@ function validateEffects(arr: unknown, label: string): Effect[] | undefined {
   const out: Effect[] = [];
   for (let i = 0; i < arr.length; i++) {
     const e = arr[i];
-    if (!isRecord(e) || e.type !== 'DROP_SHADOW') {
-      throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: only DROP_SHADOW is supported`);
+    if (!isRecord(e)) throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: invalid`);
+    if (e.type === 'DROP_SHADOW') {
+      if (!isRecord(e.offset) || typeof e.offset.x !== 'number' || typeof e.offset.y !== 'number') {
+        throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: DROP_SHADOW.offset {x,y} required`);
+      }
+      if (e.color !== undefined) {
+        if (!isRecord(e.color)) throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].color invalid`);
+        validateRgb(e.color as { r: unknown; g: unknown; b: unknown }, `${label}[${String(i)}].color`);
+      }
+      out.push(e as unknown as Effect);
+      continue;
     }
-    if (!isRecord(e.offset) || typeof e.offset.x !== 'number' || typeof e.offset.y !== 'number') {
-      throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: DROP_SHADOW.offset {x,y} required`);
+    if (e.type === 'BACKDROP_BLUR') {
+      const r = e.radius;
+      if (typeof r !== 'number' || !Number.isFinite(r) || r < 0) {
+        throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: BACKDROP_BLUR.radius must be finite number >= 0`);
+      }
+      out.push(e as unknown as Effect);
+      continue;
     }
-    if (e.color !== undefined) {
-      if (!isRecord(e.color)) throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].color invalid`);
-      validateRgb(e.color as { r: unknown; g: unknown; b: unknown }, `${label}[${String(i)}].color`);
-    }
-    out.push(e as unknown as Effect);
+    throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: unsupported effect type`);
   }
   return out;
 }
@@ -264,6 +288,16 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
     strokeJoin: spec.strokeJoin,
     miterLimit: spec.miterLimit,
     dashPattern: spec.dashPattern,
+    layoutMode: spec.layoutMode,
+    paddingLeft: spec.paddingLeft,
+    paddingRight: spec.paddingRight,
+    paddingTop: spec.paddingTop,
+    paddingBottom: spec.paddingBottom,
+    itemSpacing: spec.itemSpacing,
+    layoutWrap: spec.layoutWrap,
+    primaryAxisAlignItems: spec.primaryAxisAlignItems,
+    counterAxisAlignItems: spec.counterAxisAlignItems,
+    layoutGrids: spec.layoutGrids,
   };
   validateFrameGeometry(frame);
   if (frame.fills) frame.fills = validatePaintArray(frame.fills, 'fills', env.assets, env.document) ?? [];
@@ -287,7 +321,67 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
   if (frame.clipsContent !== undefined && typeof frame.clipsContent !== 'boolean') {
     throw new ValidationErr('VALIDATION_ERROR', 'clipsContent must be boolean');
   }
+  validateOptionalLayoutMode(frame.layoutMode);
+  validateOptionalLayoutWrap(frame.layoutWrap);
+  validateOptionalAxisAlign(frame.primaryAxisAlignItems, 'primaryAxisAlignItems');
+  validateOptionalAxisAlign(frame.counterAxisAlignItems, 'counterAxisAlignItems');
+  validateLayoutNumbers(frame);
   return frame;
+}
+
+function validateOptionalLayoutMode(v: unknown): void {
+  if (v === undefined) return;
+  if (v !== 'NONE' && v !== 'HORIZONTAL' && v !== 'VERTICAL') {
+    throw new ValidationErr('VALIDATION_ERROR', 'layoutMode must be NONE, HORIZONTAL, or VERTICAL');
+  }
+}
+
+function validateOptionalLayoutWrap(v: unknown): void {
+  if (v === undefined) return;
+  if (v !== 'NO_WRAP' && v !== 'WRAP') {
+    throw new ValidationErr('VALIDATION_ERROR', 'layoutWrap must be NO_WRAP or WRAP');
+  }
+}
+
+function validateOptionalAxisAlign(v: unknown, label: string): void {
+  if (v === undefined) return;
+  const ok = new Set(['MIN', 'CENTER', 'MAX', 'SPACE_BETWEEN', 'STRETCH', 'BASELINE', 'INHERIT']);
+  if (typeof v !== 'string' || !ok.has(v)) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label} invalid`);
+  }
+}
+
+function validateLayoutNumbers(f: FrameNode): void {
+  for (const [k, v] of [
+    ['paddingLeft', f.paddingLeft],
+    ['paddingRight', f.paddingRight],
+    ['paddingTop', f.paddingTop],
+    ['paddingBottom', f.paddingBottom],
+    ['itemSpacing', f.itemSpacing],
+  ] as const) {
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+      throw new ValidationErr('VALIDATION_ERROR', `${k} must be finite number >= 0`);
+    }
+  }
+  if (f.layoutGrids !== undefined) {
+    if (!Array.isArray(f.layoutGrids)) throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids must be array');
+    for (let i = 0; i < f.layoutGrids.length; i++) {
+      const g = f.layoutGrids[i];
+      if (!g || typeof g !== 'object') throw new ValidationErr('VALIDATION_ERROR', `layoutGrids[${String(i)}] invalid`);
+      if (g.type !== 'COLUMNS') throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids: only COLUMNS supported');
+      if (typeof g.count !== 'number' || !Number.isInteger(g.count) || g.count < 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids.count must be integer >= 1');
+      }
+      if (typeof g.gutter !== 'number' || !Number.isFinite(g.gutter) || g.gutter < 0) {
+        throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids.gutter must be finite >= 0');
+      }
+      if (g.color !== undefined) {
+        if (!isRecord(g.color)) throw new ValidationErr('VALIDATION_ERROR', 'layoutGrids.color invalid');
+        validateRgb(g.color as { r: unknown; g: unknown; b: unknown }, `layoutGrids[${String(i)}].color`);
+      }
+    }
+  }
 }
 
 function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: string, env: FileEnvelope): TextNode {
@@ -569,6 +663,141 @@ function normalizeNewStar(spec: Extract<NewNodeSpec, { type: 'STAR' }>, id: stri
   return n;
 }
 
+function isBooleanOperandType(t: string): boolean {
+  return t === 'RECTANGLE' || t === 'ELLIPSE' || t === 'POLYGON' || t === 'STAR' || t === 'VECTOR';
+}
+
+function normalizeNewVector(spec: Extract<NewNodeSpec, { type: 'VECTOR' }>, id: string, env: FileEnvelope): VectorNode {
+  const vps = spec.vectorPaths;
+  if (!Array.isArray(vps) || vps.length === 0) {
+    throw new ValidationErr('VALIDATION_ERROR', 'VECTOR.vectorPaths must be a non-empty array');
+  }
+  for (let i = 0; i < vps.length; i++) {
+    const p = vps[i] as unknown;
+    if (!isRecord(p)) throw new ValidationErr('VALIDATION_ERROR', `vectorPaths[${String(i)}] invalid`);
+    if (p.windingRule !== 'NONZERO' && p.windingRule !== 'EVENODD') {
+      throw new ValidationErr('VALIDATION_ERROR', `vectorPaths[${String(i)}].windingRule invalid`);
+    }
+    if (typeof p.data !== 'string' || p.data.length === 0) {
+      throw new ValidationErr('VALIDATION_ERROR', `vectorPaths[${String(i)}].data must be non-empty string`);
+    }
+  }
+  const n: VectorNode = {
+    id,
+    type: 'VECTOR',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Vector',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    vectorPaths: vps as VectorNode['vectorPaths'],
+    fills: spec.fills,
+    strokes: spec.strokes,
+    strokeWeight: spec.strokeWeight,
+    strokeAlign: spec.strokeAlign,
+    strokeCap: spec.strokeCap,
+    strokeJoin: spec.strokeJoin,
+    miterLimit: spec.miterLimit,
+    dashPattern: spec.dashPattern,
+    effects: spec.effects,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env.assets, env.document) ?? [];
+  if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
+  validateStrokeGeometry('VECTOR', n);
+  validateBlendMode(spec.blendMode, 'VECTOR.blendMode');
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  return n;
+}
+
+function normalizeNewBooleanOperation(
+  spec: Extract<NewNodeSpec, { type: 'BOOLEAN_OPERATION' }>,
+  id: string,
+  env: FileEnvelope
+): BooleanOperationNode {
+  const bo = spec.booleanOperation;
+  if (bo !== 'UNION' && bo !== 'SUBTRACT' && bo !== 'INTERSECT' && bo !== 'EXCLUDE') {
+    throw new ValidationErr('VALIDATION_ERROR', 'BOOLEAN_OPERATION.booleanOperation invalid');
+  }
+  const n: BooleanOperationNode = {
+    id,
+    type: 'BOOLEAN_OPERATION',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Boolean',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    booleanOperation: bo,
+    children: [],
+    fills: spec.fills,
+    effects: spec.effects,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env.assets, env.document) ?? [];
+  if (n.effects) n.effects = validateEffects(n.effects, 'effects') ?? [];
+  validateBlendMode(spec.blendMode, 'BOOLEAN_OPERATION.blendMode');
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  return n;
+}
+
+function normalizeNewTransformGroup(
+  spec: Extract<NewNodeSpec, { type: 'TRANSFORM_GROUP' }>,
+  id: string,
+  _env: FileEnvelope
+): TransformGroupNode {
+  const n: TransformGroupNode = {
+    id,
+    type: 'TRANSFORM_GROUP',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Group',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    children: [],
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+  };
+  validateShapeBox(n);
+  validateBlendMode(spec.blendMode, 'TRANSFORM_GROUP.blendMode');
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  return n;
+}
+
 function parentAllowsChild(parentType: string, childType: string): boolean {
   const rules = ENGINE_MATRIX.createNode.allowedChildPairs;
   return rules.some((r) => r.parent === parentType && r.child === childType);
@@ -620,8 +849,15 @@ function attachSceneNode(root: DocumentNode, parentId: string, index: number | u
     insertAt(parent.children, index, node);
     return;
   }
-  if (parent.type === 'FRAME') {
+  if (parent.type === 'FRAME' || parent.type === 'TRANSFORM_GROUP') {
     insertAt(parent.children, index, node);
+    return;
+  }
+  if (parent.type === 'BOOLEAN_OPERATION') {
+    if (!isBooleanOperandType(node.type)) {
+      throw new ValidationErr('VALIDATION_ERROR', `Cannot attach ${node.type} under BOOLEAN_OPERATION`);
+    }
+    insertAt(parent.children as unknown as SceneNode[], index, node);
     return;
   }
   throw new ValidationErr('VALIDATION_ERROR', `Invalid parent type ${parent.type}`);
@@ -651,16 +887,16 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<EngineOpera
     node = normalizeNewPolygon(op.node, id, working);
   } else if (op.node.type === 'STAR') {
     node = normalizeNewStar(op.node, id, working);
+  } else if (op.node.type === 'VECTOR') {
+    node = normalizeNewVector(op.node, id, working);
+  } else if (op.node.type === 'BOOLEAN_OPERATION') {
+    node = normalizeNewBooleanOperation(op.node, id, working);
+  } else if (op.node.type === 'TRANSFORM_GROUP') {
+    node = normalizeNewTransformGroup(op.node, id, working);
   } else {
     throw new ValidationErr('VALIDATION_ERROR', `Unsupported node type ${(op.node as { type: string }).type}`);
   }
-  if (parent.type === 'PAGE') {
-    insertAt(parent.children, op.index, node);
-  } else if (parent.type === 'FRAME') {
-    insertAt(parent.children, op.index, node);
-  } else {
-    throw new ValidationErr('VALIDATION_ERROR', 'Invalid parent for scene node');
-  }
+  attachSceneNode(working.document, op.parentId, op.index, node);
   return id;
 }
 
@@ -1058,6 +1294,33 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       validateBlendMode(patch.blendMode, 'FRAME.blendMode');
       f.blendMode = patch.blendMode as FrameNode['blendMode'];
     }
+    if ('layoutMode' in patch) {
+      f.layoutMode = patch.layoutMode as FrameNode['layoutMode'];
+      validateOptionalLayoutMode(f.layoutMode);
+    }
+    if ('layoutWrap' in patch) {
+      f.layoutWrap = patch.layoutWrap as FrameNode['layoutWrap'];
+      validateOptionalLayoutWrap(f.layoutWrap);
+    }
+    if ('primaryAxisAlignItems' in patch) {
+      f.primaryAxisAlignItems = patch.primaryAxisAlignItems as FrameNode['primaryAxisAlignItems'];
+      validateOptionalAxisAlign(f.primaryAxisAlignItems, 'primaryAxisAlignItems');
+    }
+    if ('counterAxisAlignItems' in patch) {
+      f.counterAxisAlignItems = patch.counterAxisAlignItems as FrameNode['counterAxisAlignItems'];
+      validateOptionalAxisAlign(f.counterAxisAlignItems, 'counterAxisAlignItems');
+    }
+    for (const k of ['paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom', 'itemSpacing'] as const) {
+      if (k in patch) {
+        const v = patch[k];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${k} must be number`);
+        (f as unknown as Record<string, number>)[k] = v;
+      }
+    }
+    if ('layoutGrids' in patch) {
+      f.layoutGrids = patch.layoutGrids as FrameNode['layoutGrids'];
+    }
+    validateLayoutNumbers(f);
     applyStrokeFieldsFromPatch(f as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('FRAME', f);
     return;
@@ -1333,6 +1596,139 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     applyStrokeFieldsFromPatch(s as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('STAR', s);
+    return;
+  }
+  if (node.type === 'VECTOR') {
+    const v = node;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      v.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height', 'strokeWeight'] as const) {
+      if (g in patch) {
+        const val = patch[g];
+        if (typeof val !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (v as unknown as Record<string, number>)[g] = val;
+      }
+    }
+    if ('vectorPaths' in patch) {
+      const arr = patch.vectorPaths;
+      if (!Array.isArray(arr) || arr.length === 0) {
+        throw new ValidationErr('VALIDATION_ERROR', 'VECTOR.vectorPaths must be a non-empty array');
+      }
+      for (let i = 0; i < arr.length; i++) {
+        const p = arr[i] as unknown;
+        if (!isRecord(p)) throw new ValidationErr('VALIDATION_ERROR', `vectorPaths[${String(i)}] invalid`);
+        if (p.windingRule !== 'NONZERO' && p.windingRule !== 'EVENODD') {
+          throw new ValidationErr('VALIDATION_ERROR', `vectorPaths[${String(i)}].windingRule invalid`);
+        }
+        if (typeof p.data !== 'string' || p.data.length === 0) {
+          throw new ValidationErr('VALIDATION_ERROR', `vectorPaths[${String(i)}].data must be non-empty string`);
+        }
+      }
+      v.vectorPaths = arr as VectorNode['vectorPaths'];
+    }
+    validateShapeBox(v);
+    if ('fills' in patch) v.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
+    if ('strokes' in patch) v.strokes = validatePaintArray(patch.strokes, 'strokes', env.assets, env.document);
+    if ('effects' in patch) v.effects = validateEffects(patch.effects, 'effects');
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      v.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      v.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      v.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'VECTOR.blendMode');
+      v.blendMode = patch.blendMode as VectorNode['blendMode'];
+    }
+    applyStrokeFieldsFromPatch(v as unknown as Record<string, unknown>, patch);
+    validateStrokeGeometry('VECTOR', v);
+    return;
+  }
+  if (node.type === 'BOOLEAN_OPERATION') {
+    const b = node;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      b.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height'] as const) {
+      if (g in patch) {
+        const val = patch[g];
+        if (typeof val !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (b as unknown as Record<string, number>)[g] = val;
+      }
+    }
+    if ('booleanOperation' in patch) {
+      const bo = patch.booleanOperation;
+      if (bo !== 'UNION' && bo !== 'SUBTRACT' && bo !== 'INTERSECT' && bo !== 'EXCLUDE') {
+        throw new ValidationErr('VALIDATION_ERROR', 'booleanOperation invalid');
+      }
+      b.booleanOperation = bo;
+    }
+    validateShapeBox(b);
+    if ('fills' in patch) b.fills = validatePaintArray(patch.fills, 'fills', env.assets, env.document);
+    if ('effects' in patch) b.effects = validateEffects(patch.effects, 'effects');
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      b.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      b.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      b.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'BOOLEAN_OPERATION.blendMode');
+      b.blendMode = patch.blendMode as BooleanOperationNode['blendMode'];
+    }
+    return;
+  }
+  if (node.type === 'TRANSFORM_GROUP') {
+    const tg = node;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      tg.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height'] as const) {
+      if (g in patch) {
+        const val = patch[g];
+        if (typeof val !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (tg as unknown as Record<string, number>)[g] = val;
+      }
+    }
+    validateShapeBox(tg);
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      tg.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      tg.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      tg.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'TRANSFORM_GROUP.blendMode');
+      tg.blendMode = patch.blendMode as TransformGroupNode['blendMode'];
+    }
     return;
   }
   if (node.type === 'PAGE') {

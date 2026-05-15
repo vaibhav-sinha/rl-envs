@@ -1,4 +1,4 @@
-/** Phase 1–3 subset of design-doc/data-model.md */
+/** Phase 1–4 subset of design-doc/data-model.md */
 
 export type SchemaVersion = number;
 
@@ -82,13 +82,44 @@ export interface DropShadowEffect {
   color?: RGBA;
 }
 
-export type Effect = DropShadowEffect;
+export interface BackdropBlurEffect {
+  type: 'BACKDROP_BLUR';
+  visible?: boolean;
+  /** Blur radius in CSS px. */
+  radius: number;
+}
+
+export type Effect = DropShadowEffect | BackdropBlurEffect;
 
 export interface NodeBase {
   id: string;
   type: string;
   name: string;
   visible?: boolean;
+}
+
+/** Optional auto-layout child / mask flags (Phase 4). */
+export interface LayoutSelfFields {
+  layoutAlign?: 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'INHERIT';
+  layoutGrow?: number;
+  minWidth?: number;
+  maxWidth?: number;
+  minHeight?: number;
+  maxHeight?: number;
+  /** When true, this node defines a vector mask for following siblings until the next mask node (compile binding). */
+  isMask?: boolean;
+}
+
+export type LayoutMode = 'NONE' | 'HORIZONTAL' | 'VERTICAL';
+
+export interface LayoutGridColumns {
+  type: 'COLUMNS';
+  /** Number of column tracks. */
+  count: number;
+  /** Gap between column lines in px. */
+  gutter: number;
+  /** Optional RGBA 0..1 for grid line color (default light gray). */
+  color?: RGBA;
 }
 
 export interface DocumentNode extends NodeBase {
@@ -118,7 +149,7 @@ export interface AssetRegistry {
   byId: Record<string, AssetRecord>;
 }
 
-export interface FrameNode extends NodeBase {
+export interface FrameNode extends NodeBase, LayoutSelfFields {
   type: 'FRAME';
   x: number;
   y: number;
@@ -140,6 +171,18 @@ export interface FrameNode extends NodeBase {
   dashPattern?: number[];
   effects?: Effect[];
   clipsContent?: boolean;
+  /** Phase 4 auto layout (compile-time resolved positions on ephemeral clone). */
+  layoutMode?: LayoutMode;
+  paddingLeft?: number;
+  paddingRight?: number;
+  paddingTop?: number;
+  paddingBottom?: number;
+  itemSpacing?: number;
+  layoutWrap?: 'NO_WRAP' | 'WRAP';
+  primaryAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'SPACE_BETWEEN';
+  counterAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'BASELINE';
+  /** Visible column guides overlay (compile-only decoration). */
+  layoutGrids?: LayoutGridColumns[];
 }
 
 export interface TextRangeStyle {
@@ -155,7 +198,7 @@ export interface StyledSegment {
   style: TextRangeStyle;
 }
 
-export interface TextNode extends NodeBase {
+export interface TextNode extends NodeBase, LayoutSelfFields {
   type: 'TEXT';
   x: number;
   y: number;
@@ -173,7 +216,7 @@ export interface TextNode extends NodeBase {
   styledSegments?: StyledSegment[];
 }
 
-export interface RectangleNode extends NodeBase {
+export interface RectangleNode extends NodeBase, LayoutSelfFields {
   type: 'RECTANGLE';
   x: number;
   y: number;
@@ -194,7 +237,7 @@ export interface RectangleNode extends NodeBase {
   effects?: Effect[];
 }
 
-export interface EllipseNode extends NodeBase {
+export interface EllipseNode extends NodeBase, LayoutSelfFields {
   type: 'ELLIPSE';
   x: number;
   y: number;
@@ -215,7 +258,7 @@ export interface EllipseNode extends NodeBase {
   arcData?: { startingAngle: number; endingAngle: number; innerRadius: number };
 }
 
-export interface LineNode extends NodeBase {
+export interface LineNode extends NodeBase, LayoutSelfFields {
   type: 'LINE';
   x: number;
   y: number;
@@ -232,7 +275,7 @@ export interface LineNode extends NodeBase {
   effects?: Effect[];
 }
 
-export interface PolygonNode extends NodeBase {
+export interface PolygonNode extends NodeBase, LayoutSelfFields {
   type: 'POLYGON';
   x: number;
   y: number;
@@ -254,7 +297,7 @@ export interface PolygonNode extends NodeBase {
   effects?: Effect[];
 }
 
-export interface StarNode extends NodeBase {
+export interface StarNode extends NodeBase, LayoutSelfFields {
   type: 'STAR';
   x: number;
   y: number;
@@ -277,7 +320,74 @@ export interface StarNode extends NodeBase {
   effects?: Effect[];
 }
 
-export type SceneNode = FrameNode | TextNode | RectangleNode | EllipseNode | LineNode | PolygonNode | StarNode;
+export interface VectorPathData {
+  windingRule: 'NONZERO' | 'EVENODD';
+  /** SVG path `d` in local coordinates (0,0)–(width,height). */
+  data: string;
+}
+
+export interface VectorNode extends NodeBase, LayoutSelfFields {
+  type: 'VECTOR';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  vectorPaths: VectorPathData[];
+  fills?: Paint[];
+  strokes?: Paint[];
+  strokeWeight?: number;
+  strokeAlign?: 'INSIDE' | 'OUTSIDE' | 'CENTER';
+  strokeCap?: StrokeCap;
+  strokeJoin?: StrokeJoin;
+  miterLimit?: number;
+  dashPattern?: number[];
+  effects?: Effect[];
+}
+
+export type BooleanOperandNode = RectangleNode | EllipseNode | PolygonNode | StarNode | VectorNode;
+
+export interface BooleanOperationNode extends NodeBase, LayoutSelfFields {
+  type: 'BOOLEAN_OPERATION';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  booleanOperation: 'UNION' | 'SUBTRACT' | 'INTERSECT' | 'EXCLUDE';
+  /** Operand subtree (Phase 4: shapes only, ≥2 children). */
+  children: BooleanOperandNode[];
+  fills?: Paint[];
+  effects?: Effect[];
+}
+
+export interface TransformGroupNode extends NodeBase, LayoutSelfFields {
+  type: 'TRANSFORM_GROUP';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  children: SceneNode[];
+}
+
+export type SceneNode =
+  | FrameNode
+  | TextNode
+  | RectangleNode
+  | EllipseNode
+  | LineNode
+  | PolygonNode
+  | StarNode
+  | VectorNode
+  | BooleanOperationNode
+  | TransformGroupNode;
 
 export type AnyTreeNode = DocumentNode | PageNode | SceneNode;
 

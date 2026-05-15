@@ -1,5 +1,7 @@
-import type { BlendMode, FileEnvelope } from '../model/types.js';
+import { applyCompileOnlyAutoLayout } from '../layout/autoLayoutPass.js';
+import type { BlendMode, FileEnvelope, VectorNode } from '../model/types.js';
 import type {
+  BooleanOperationNode,
   DropShadowEffect,
   Effect,
   EllipseNode,
@@ -14,6 +16,7 @@ import type {
   StarNode,
   StyledSegment,
   TextNode,
+  TransformGroupNode,
 } from '../model/types.js';
 
 export interface Rect {
@@ -60,11 +63,18 @@ function findSceneNode(envelope: FileEnvelope, id: string): SceneNode | null {
   return null;
 }
 
+function sceneChildList(n: SceneNode): SceneNode[] | null {
+  if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP') return n.children;
+  if (n.type === 'BOOLEAN_OPERATION') return n.children;
+  return null;
+}
+
 function findSceneInList(nodes: SceneNode[], id: string): SceneNode | null {
   for (const n of nodes) {
     if (n.id === id) return n;
-    if (n.type === 'FRAME') {
-      const inner = findSceneInList(n.children, id);
+    const ch = sceneChildList(n);
+    if (ch) {
+      const inner = findSceneInList(ch, id);
       if (inner) return inner;
     }
   }
@@ -124,8 +134,9 @@ function measureScene(n: SceneNode, originX: number, originY: number): Bounds {
     maxX: absX + n.width,
     maxY: absY + n.height,
   };
-  if (n.type === 'FRAME') {
-    for (const c of n.children) {
+  const ch = sceneChildList(n);
+  if (ch) {
+    for (const c of ch) {
       b = unionBounds(b, measureScene(c, absX, absY));
     }
   }
@@ -151,6 +162,19 @@ function dropShadowCss(effects: Effect[] | undefined): string {
     parts.push(`${String(ox)}px ${String(oy)}px ${String(blur)}px ${String(spread)}px ${col}`);
   }
   return parts.length ? `box-shadow:${parts.join(',')};` : '';
+}
+
+function backdropBlurCss(effects: Effect[] | undefined): string {
+  if (!effects?.length) return '';
+  let r = 0;
+  for (const e of effects) {
+    if (e.type !== 'BACKDROP_BLUR') continue;
+    if (e.visible === false) continue;
+    if (typeof e.radius === 'number' && e.radius > r) r = e.radius;
+  }
+  return r > 0
+    ? `backdrop-filter:blur(${String(r)}px);-webkit-backdrop-filter:blur(${String(r)}px);`
+    : '';
 }
 
 function mixBlendCss(m: BlendMode | undefined): string {
@@ -188,6 +212,7 @@ function transformOpacityCss(n: SceneNode): string {
     s += 'display:none;';
   }
   s += mixBlendCss(n.blendMode);
+  if ('effects' in n) s += backdropBlurCss(n.effects);
   return s;
 }
 
@@ -344,8 +369,205 @@ function starPathD(points: number, innerR: number, w: number, h: number): string
   return `M${parts[0]} L${parts.slice(1).join(' L')} Z`;
 }
 
-function emitScene(
-  n: SceneNode,
+function frameUsesFlexCss(f: FrameNode): boolean {
+  return f.layoutMode === 'HORIZONTAL' || f.layoutMode === 'VERTICAL';
+}
+
+function frameFlexInnerStyle(f: FrameNode): string {
+  const dir = f.layoutMode === 'VERTICAL' ? 'column' : 'row';
+  const wrap = f.layoutWrap === 'WRAP' ? 'wrap' : 'nowrap';
+  const pl = f.paddingLeft ?? 0;
+  const pr = f.paddingRight ?? 0;
+  const pt = f.paddingTop ?? 0;
+  const pb = f.paddingBottom ?? 0;
+  const gap = f.itemSpacing ?? 0;
+  const jc =
+    f.primaryAxisAlignItems === 'CENTER'
+      ? 'center'
+      : f.primaryAxisAlignItems === 'MAX'
+        ? 'flex-end'
+        : f.primaryAxisAlignItems === 'SPACE_BETWEEN'
+          ? 'space-between'
+          : 'flex-start';
+  const ai =
+    f.counterAxisAlignItems === 'CENTER'
+      ? 'center'
+      : f.counterAxisAlignItems === 'MAX'
+        ? 'flex-end'
+        : f.counterAxisAlignItems === 'STRETCH'
+          ? 'stretch'
+          : 'flex-start';
+  return `display:flex;flex-direction:${dir};flex-wrap:${wrap};gap:${String(gap)}px;padding:${String(pt)}px ${String(pr)}px ${String(pb)}px ${String(pl)}px;box-sizing:border-box;justify-content:${jc};align-items:${ai};`;
+}
+
+function layoutGridOverlayDiv(f: FrameNode): string {
+  const g0 = f.layoutGrids?.[0];
+  if (!g0 || g0.type !== 'COLUMNS' || g0.count < 1) return '';
+  const n = Math.max(1, Math.floor(g0.count));
+  const gutter = Math.max(0, g0.gutter);
+  const w = f.width;
+  const cell = (w - (n - 1) * gutter) / n;
+  const col = g0.color ? rgbaFromRgba(g0.color) : 'rgba(0,80,200,0.12)';
+  const period = cell + gutter;
+  const bg = `repeating-linear-gradient(90deg,${col} 0 1px,transparent 1px ${String(period)}px)`;
+  return `<div class="hfc-layout-grid-overlay hfc-grid-${f.id}" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:10;background-image:${bg};background-size:100% 100%;"></div>`;
+}
+
+function rectPathLocal(r: RectangleNode): string {
+  const w = r.width;
+  const h = r.height;
+  return `M0,0 H${String(w)} V${String(h)} H0 Z`;
+}
+
+function operandPathD(op: SceneNode): string {
+  if (op.type === 'RECTANGLE') return rectPathLocal(op);
+  if (op.type === 'VECTOR' && op.vectorPaths?.[0]?.data) return op.vectorPaths[0].data;
+  if (op.type === 'POLYGON') return polygonPointsD(op.pointCount, op.width, op.height);
+  if (op.type === 'STAR') return starPathD(op.pointCount, op.innerRadius, op.width, op.height);
+  if (op.type === 'ELLIPSE') {
+    const w = op.width;
+    const h = op.height;
+    return `M${String(w / 2)},0 A${String(w / 2)},${String(h / 2)} 0 1,1 ${String(w / 2)},${String(h)} A${String(w / 2)},${String(h / 2)} 0 1,1 ${String(w / 2)},0 Z`;
+  }
+  return 'M0,0';
+}
+
+function emitBooleanOperation(
+  b: BooleanOperationNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  _imgMap: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean
+): void {
+  const w = b.width;
+  const h = b.height;
+  const fill = b.fills?.[0];
+  const fillAttr =
+    fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)
+      ? `fill="${escapeAttr(rgbaFromSolid(fill))}"`
+      : 'fill="rgba(0,100,200,0.85)"';
+  const shadow = dropShadowCss(b.effects);
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;flex:${String(b.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
+  htmlParts.push(`<div class="hfc-node-${b.id}" data-hfc-id="${b.id}" style="z-index:${String(zIndex)}">`);
+  cssParts.push(`.hfc-node-${b.id}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
+
+  const a0 = b.children[0];
+  const a1 = b.children[1];
+  if (
+    b.booleanOperation === 'SUBTRACT' &&
+    a0?.type === 'RECTANGLE' &&
+    a1?.type === 'RECTANGLE' &&
+    b.children.length === 2
+  ) {
+    const outer = a0;
+    const inner = a1;
+    const mid = `hfc-bool-sub-${b.id}`;
+    htmlParts.push(
+      `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="0" y="0" width="${String(w)}" height="${String(h)}"><rect x="${String(outer.x)}" y="${String(outer.y)}" width="${String(outer.width)}" height="${String(outer.height)}" fill="white"/><rect x="${String(inner.x)}" y="${String(inner.y)}" width="${String(inner.width)}" height="${String(inner.height)}" fill="black"/></mask></defs><rect x="0" y="0" width="${String(w)}" height="${String(h)}" ${fillAttr} mask="url(#${mid})"/></svg></div>`
+    );
+    return;
+  }
+
+  const chunks = b.children
+    .map((ch) => {
+      const d0 = operandPathD(ch);
+      return `<g transform="translate(${String(ch.x)},${String(ch.y)})"><path d="${escapeAttr(d0)}" ${fillAttr} fill-rule="nonzero"/></g>`;
+    })
+    .join('');
+  htmlParts.push(
+    `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${chunks}</svg></div>`
+  );
+  if (b.booleanOperation === 'INTERSECT' || b.booleanOperation === 'EXCLUDE') {
+    warnings.push(`boolean_op_simplified:${b.id}:${b.booleanOperation}`);
+  }
+}
+
+function emitVector(
+  v: VectorNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  _imgMap: Record<string, string>,
+  _warnings: string[],
+  insideFlex: boolean
+): void {
+  const w = v.width;
+  const h = v.height;
+  const fill = v.fills?.[0];
+  let fillAttr = 'fill="transparent"';
+  if (fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)) {
+    fillAttr = `fill="${escapeAttr(rgbaFromSolid(fill))}"`;
+  } else if (fill && (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL')) {
+    fillAttr = `fill="url(#grad-${v.id})"`;
+  }
+  const shadow = dropShadowCss(v.effects);
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;flex:${String(v.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
+  htmlParts.push(`<div class="hfc-node-${v.id}" data-hfc-id="${v.id}" style="z-index:${String(zIndex)}">`);
+  cssParts.push(`.hfc-node-${v.id}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
+  let defs = '';
+  if (fill?.type === 'GRADIENT_LINEAR') {
+    defs += `<linearGradient id="grad-${v.id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${String(w)}" y2="0">`;
+    for (const s of fill.gradientStops) {
+      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
+    }
+    defs += `</linearGradient>`;
+  }
+  const pathHtml = v.vectorPaths
+    .map((p) => `<path d="${escapeAttr(p.data)}" fill-rule="${p.windingRule.toLowerCase()}" ${fillAttr}/>`)
+    .join('');
+  htmlParts.push(
+    `<svg class="hfc-vector-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}${pathHtml}</svg></div>`
+  );
+}
+
+function emitTransformGroup(
+  tg: TransformGroupNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  warnings: string[],
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number,
+  insideFlex: boolean
+): void {
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;flex:${String(tg.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
+  htmlParts.push(`<div class="hfc-node-${tg.id}" data-hfc-id="${tg.id}" style="z-index:${String(zIndex)}">`);
+  cssParts.push(
+    `.hfc-node-${tg.id}{${pos}width:${String(tg.width)}px;height:${String(tg.height)}px;box-sizing:border-box;${opRot}}`
+  );
+  for (const c of tg.children) {
+    emitScene(c, originX + tg.x, originY + tg.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false);
+  }
+  htmlParts.push('</div>');
+}
+
+function emitMaskCluster(
+  maskNode: SceneNode,
+  masked: SceneNode[],
+  f: FrameNode,
+  frameAbsX: number,
+  frameAbsY: number,
   originX: number,
   originY: number,
   shiftX: number,
@@ -356,6 +578,75 @@ function emitScene(
   imgMap: Record<string, string>,
   warnings: string[]
 ): void {
+  const mx = maskNode.x;
+  const my = maskNode.y;
+  const mw = maskNode.width;
+  const mh = maskNode.height;
+  const maskAbsL = frameAbsX + mx;
+  const maskAbsT = frameAbsY + my;
+  const mid = `hfc-svg-mask-${maskNode.id}`;
+  const zi = z.value++;
+  htmlParts.push(
+    `<div class="hfc-mask-wrap" data-hfc-mask="${maskNode.id}" style="position:absolute;left:${String(maskAbsL)}px;top:${String(maskAbsT)}px;width:${String(mw)}px;height:${String(mh)}px;overflow:hidden;z-index:${String(zi)}">`
+  );
+  htmlParts.push(
+    `<svg width="0" height="0" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="0" y="0" width="${String(mw)}" height="${String(mh)}"><rect x="0" y="0" width="${String(mw)}" height="${String(mh)}" fill="white"/></mask></defs></svg>`
+  );
+  htmlParts.push(
+    `<div class="hfc-masked-inner" style="position:absolute;left:0;top:0;width:${String(f.width)}px;height:${String(f.height)}px;mask:url(#${mid});-webkit-mask:url(#${mid});transform:translate(${String(-mx)}px,${String(-my)}px)">`
+  );
+  for (const c of masked) {
+    emitScene(c, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false);
+  }
+  htmlParts.push('</div></div>');
+}
+
+function emitFrameChildren(
+  f: FrameNode,
+  frameAbsX: number,
+  frameAbsY: number,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  warnings: string[],
+  flexInner: boolean
+): void {
+  let i = 0;
+  while (i < f.children.length) {
+    const ch = f.children[i]!;
+    if (ch.isMask && !flexInner) {
+      const masked: SceneNode[] = [];
+      i++;
+      while (i < f.children.length && !f.children[i]!.isMask) {
+        masked.push(f.children[i]!);
+        i++;
+      }
+      emitMaskCluster(ch, masked, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings);
+      continue;
+    }
+    emitScene(ch, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, flexInner);
+    i++;
+  }
+}
+
+function emitScene(
+  n: SceneNode,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  warnings: string[],
+  insideFlex = false
+): void {
   const absX = originX + n.x + shiftX;
   const absY = originY + n.y + shiftY;
   const zIndex = z.value++;
@@ -364,9 +655,12 @@ function emitScene(
   if (n.type === 'TEXT') {
     const t = n;
     const shadow = dropShadowCss(t.effects);
+    const pos = insideFlex
+      ? `position:relative;left:0;top:0;width:${String(t.width)}px;height:${String(t.height)}px;flex:${String(t.layoutGrow ?? 0)} 1 auto;min-width:0;`
+      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
     htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${t.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;box-sizing:border-box;white-space:pre-wrap;word-break:break-word;${opRot}${shadow}}`
+      `.hfc-node-${t.id}{${pos}box-sizing:border-box;white-space:pre-wrap;word-break:break-word;${opRot}${shadow}}`
     );
     htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t)}</div></div>`);
     return;
@@ -385,15 +679,25 @@ function emitScene(
     const shadow = dropShadowCss(f.effects);
     const clip = overflowClipCss(f.clipsContent);
     const layered = frameNeedsLayeredBackground(f);
+    const flex = frameUsesFlexCss(f);
+    const frameAbsX = originX + f.x + shiftX;
+    const frameAbsY = originY + f.y + shiftY;
 
     if (!layered) {
       htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
       cssParts.push(
         `.hfc-node-${f.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(f.width)}px;height:${String(f.height)}px;box-sizing:border-box;${fillCss}border:${border};${clip}${opRot}${shadow}}`
       );
-      for (const c of f.children) {
-        emitScene(c, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings);
+      if (flex) {
+        htmlParts.push(
+          `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;${frameFlexInnerStyle(f)}">`
+        );
+        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true);
+        htmlParts.push('</div>');
+      } else {
+        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false);
       }
+      htmlParts.push(layoutGridOverlayDiv(f));
       htmlParts.push('</div>');
       return;
     }
@@ -417,31 +721,53 @@ function emitScene(
     htmlParts.push(
       `<div class="hfc-fill-layer" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:1"></div>`
     );
-    for (const c of f.children) {
-      emitScene(c, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings);
+    if (flex) {
+      htmlParts.push(
+        `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;z-index:2;${frameFlexInnerStyle(f)}">`
+      );
+      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, true);
+      htmlParts.push('</div>');
+    } else {
+      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, warnings, false);
     }
+    htmlParts.push(layoutGridOverlayDiv(f));
     htmlParts.push('</div>');
     return;
   }
 
+  if (n.type === 'TRANSFORM_GROUP') {
+    emitTransformGroup(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, warnings, originX, originY, shiftX, shiftY, insideFlex);
+    return;
+  }
+
+  if (n.type === 'BOOLEAN_OPERATION') {
+    emitBooleanOperation(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    return;
+  }
+
+  if (n.type === 'VECTOR') {
+    emitVector(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    return;
+  }
+
   if (n.type === 'RECTANGLE') {
-    emitRectangle(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings);
+    emitRectangle(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
     return;
   }
   if (n.type === 'ELLIPSE') {
-    emitEllipse(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings);
+    emitEllipse(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
     return;
   }
   if (n.type === 'LINE') {
-    emitLine(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings);
+    emitLine(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
     return;
   }
   if (n.type === 'POLYGON') {
-    emitPolygon(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings);
+    emitPolygon(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
     return;
   }
   if (n.type === 'STAR') {
-    emitStar(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings);
+    emitStar(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
     return;
   }
 }
@@ -455,7 +781,8 @@ function emitRectangle(
   htmlParts: string[],
   cssParts: string[],
   imgMap: Record<string, string>,
-  warnings: string[]
+  warnings: string[],
+  insideFlex = false
 ): void {
   const shadow = dropShadowCss(r.effects);
   const fillCss = fillBackgroundStyles(r.fills?.[0], imgMap, warnings, `rect:${r.id}`);
@@ -466,14 +793,17 @@ function emitRectangle(
       ? `${String(sw)}px solid ${rgbaFromSolid(stroke)}`
       : 'none';
   const radius = r.cornerRadius !== undefined ? `border-radius:${String(r.cornerRadius)}px;` : '';
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;width:${String(r.width)}px;height:${String(r.height)}px;flex:${String(r.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${r.id}" data-hfc-id="${r.id}" style="z-index:${String(zIndex)}">`);
   if (r.dashPattern?.length && stroke?.type === 'SOLID' && sw > 0) {
     cssParts.push(
-      `.hfc-node-${r.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;box-sizing:border-box;${fillCss}border:${String(sw)}px dashed ${rgbaFromSolid(stroke)};${radius}${opRot}${shadow}}`
+      `.hfc-node-${r.id}{${pos}box-sizing:border-box;${fillCss}border:${String(sw)}px dashed ${rgbaFromSolid(stroke)};${radius}${opRot}${shadow}}`
     );
   } else {
     cssParts.push(
-      `.hfc-node-${r.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;box-sizing:border-box;${fillCss}border:${border};${radius}${opRot}${shadow}}`
+      `.hfc-node-${r.id}{${pos}box-sizing:border-box;${fillCss}border:${border};${radius}${opRot}${shadow}}`
     );
   }
   htmlParts.push('</div>');
@@ -488,13 +818,17 @@ function emitEllipse(
   htmlParts: string[],
   cssParts: string[],
   imgMap: Record<string, string>,
-  warnings: string[]
+  warnings: string[],
+  insideFlex = false
 ): void {
   const shadow = dropShadowCss(e.effects);
   const fillCss = fillBackgroundStyles(e.fills?.[0], imgMap, warnings, `ellipse:${e.id}`);
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;width:${String(e.width)}px;height:${String(e.height)}px;flex:${String(e.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(e.width)}px;height:${String(e.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${e.id}" data-hfc-id="${e.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(
-    `.hfc-node-${e.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(e.width)}px;height:${String(e.height)}px;box-sizing:border-box;border-radius:50%;${fillCss}${opRot}${shadow}}`
+    `.hfc-node-${e.id}{${pos}box-sizing:border-box;border-radius:50%;${fillCss}${opRot}${shadow}}`
   );
   const stroke = e.strokes?.[0];
   const sw = e.strokeWeight ?? 0;
@@ -515,7 +849,8 @@ function emitLine(
   htmlParts: string[],
   cssParts: string[],
   _imgMap: Record<string, string>,
-  _warnings: string[]
+  _warnings: string[],
+  insideFlex = false
 ): void {
   const w = Math.max(1, ln.width);
   const h = Math.max(1, ln.height);
@@ -524,10 +859,11 @@ function emitLine(
   const col = stroke.type === 'SOLID' ? rgbaFromSolid(stroke) : '#000';
   const dash = ln.dashPattern?.length ? ` stroke-dasharray="${escapeAttr(ln.dashPattern.map((x) => String(x)).join(' '))}"` : '';
   const cap = mapStrokeCapSvg(ln.strokeCap);
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(ln.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${ln.id}" data-hfc-id="${ln.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(
-    `.hfc-node-${ln.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;${opRot}${shadow}}`
-  );
+  cssParts.push(`.hfc-node-${ln.id}{${pos}${opRot}${shadow}}`);
   htmlParts.push(
     `<svg class="hfc-line-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><line x1="0" y1="0" x2="${String(w)}" y2="${String(h)}" stroke="${escapeAttr(col)}" stroke-width="${String(ln.strokeWeight)}" stroke-linecap="${cap}" fill="none"${dash}/></svg></div>`
   );
@@ -542,7 +878,8 @@ function emitPolygon(
   htmlParts: string[],
   cssParts: string[],
   imgMap: Record<string, string>,
-  warnings: string[]
+  warnings: string[],
+  insideFlex = false
 ): void {
   const w = p.width;
   const h = p.height;
@@ -557,10 +894,11 @@ function emitPolygon(
     fillAttr = `fill="url(#img-${p.id})"`;
   }
   const shadow = dropShadowCss(p.effects);
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(p.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${p.id}" data-hfc-id="${p.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(
-    `.hfc-node-${p.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;${opRot}${shadow}}`
-  );
+  cssParts.push(`.hfc-node-${p.id}{${pos}${opRot}${shadow}}`);
   let defs = '';
   if (fill?.type === 'GRADIENT_LINEAR') {
     defs += `<linearGradient id="grad-${p.id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${String(w)}" y2="0">`;
@@ -603,7 +941,8 @@ function emitStar(
   htmlParts: string[],
   cssParts: string[],
   imgMap: Record<string, string>,
-  warnings: string[]
+  warnings: string[],
+  insideFlex = false
 ): void {
   const w = s.width;
   const h = s.height;
@@ -618,10 +957,11 @@ function emitStar(
     fillAttr = `fill="url(#img-${s.id})"`;
   }
   const shadow = dropShadowCss(s.effects);
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(s.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${s.id}" data-hfc-id="${s.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(
-    `.hfc-node-${s.id}{position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;${opRot}${shadow}}`
-  );
+  cssParts.push(`.hfc-node-${s.id}{${pos}${opRot}${shadow}}`);
   let defs = '';
   if (fill?.type === 'GRADIENT_LINEAR') {
     defs += `<linearGradient id="grad-${s.id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${String(w)}" y2="0">`;
@@ -739,11 +1079,19 @@ export const designCompiler: DesignCompiler = {
     if (!root) {
       throw new Error(`compileSubtree: unknown scene node id ${rootNodeId}`);
     }
-    return compileRootScenes([root], options);
+    const env = structuredClone(envelope);
+    applyCompileOnlyAutoLayout(env);
+    const rootCloned = findSceneNode(env, rootNodeId);
+    if (!rootCloned) {
+      throw new Error(`compileSubtree: unknown scene node id ${rootNodeId} after clone`);
+    }
+    return compileRootScenes([rootCloned], options);
   },
 
   compileFirstPage({ envelope, options }): CompiledDesign {
-    const page = envelope.document.children[0];
+    const env = structuredClone(envelope);
+    applyCompileOnlyAutoLayout(env);
+    const page = env.document.children[0];
     if (!page || page.children.length === 0) {
       throw new Error('compileFirstPage: no scene nodes on first page');
     }
