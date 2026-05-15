@@ -1,0 +1,3 @@
+Fixed spacer between FILL siblings.
+
+Expected: gray gap between expanding panels.

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Figma Clone Verification</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-meta">
+        <h1 id="scenario-title">Loading…</h1>
+        <p id="scenario-id" class="scenario-id"></p>
+      </div>
+      <p id="scenario-index" class="scenario-index">— / —</p>
+    </header>
+
+    <main class="compare">
+      <section class="panel">
+        <h2>Figma</h2>
+        <div class="image-wrap" id="figma-wrap">
+          <img id="figma-img" alt="Figma screenshot" hidden />
+          <p class="placeholder" id="figma-placeholder">figma.png not found</p>
+        </div>
+      </section>
+      <section class="panel">
+        <h2>Clone</h2>
+        <div class="image-wrap" id="clone-wrap">
+          <img id="clone-img" alt="Clone screenshot" hidden />
+          <p class="placeholder" id="clone-placeholder">clone.png not found</p>
+        </div>
+      </section>
+    </main>
+
+    <aside class="description-panel" id="description-panel">
+      <button type="button" id="toggle-description" class="toggle-description" aria-expanded="true">
+        Description
+      </button>
+      <pre id="description-text" class="description-text"></pre>
+    </aside>
+
+    <footer class="controls">
+      <button type="button" id="btn-prev">← Previous</button>
+      <button type="button" id="btn-next">Next →</button>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

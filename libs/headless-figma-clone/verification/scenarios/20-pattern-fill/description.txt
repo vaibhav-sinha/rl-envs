@@ -1,0 +1,3 @@
+PATTERN fill (may be simplified in clone).
+
+Expected: repeating tile or documented approximation.

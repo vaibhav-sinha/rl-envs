@@ -1,0 +1,3 @@
+Two children layoutGrow 1.
+
+Expected: equal width columns.

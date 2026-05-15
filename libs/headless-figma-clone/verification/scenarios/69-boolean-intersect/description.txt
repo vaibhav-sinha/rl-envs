@@ -1,0 +1,3 @@
+intersect circle and square.
+
+Expected: lens-shaped intersection.

@@ -1,0 +1,3 @@
+Full screen: header, hero, mask, badge, variables, instances, blur modal, overlapping cards.
+
+Expected: rich UI with clear z-order — modal and badge on top.

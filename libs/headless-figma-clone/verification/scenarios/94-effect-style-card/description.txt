@@ -1,0 +1,3 @@
+Effect style on card.
+
+Expected: shared shadow from effect style.

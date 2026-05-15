@@ -1,0 +1,3 @@
+STRETCH on vertical stack.
+
+Expected: children full width of column.

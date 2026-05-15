@@ -1,0 +1,3 @@
+Circle mask on image fill.
+
+Expected: circular photo crop.

@@ -1,0 +1,3 @@
+GROUP inside GROUP.
+
+Expected: nested offset shapes.

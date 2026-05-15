@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,7 +56,25 @@ function parseArgv(argv: string[]): {
   return { transport, httpHost, httpPort, initialFile };
 }
 
+function runVerifyView(argv: string[]): void {
+  const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const serverPath = join(pkgRoot, 'verification', 'viewer', 'server.mjs');
+  const forward = argv.slice(3);
+  const child = spawn(process.execPath, [serverPath, ...forward], {
+    stdio: 'inherit',
+    cwd: pkgRoot,
+  });
+  child.on('exit', (code) => {
+    process.exit(code ?? 0);
+  });
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === 'verify-view') {
+    runVerifyView(process.argv);
+    return;
+  }
+
   const version = readPkgVersion();
   const argvOpts = parseArgv(process.argv);
   const config = loadConfig({ version, cliInitialFile: argvOpts.initialFile ?? null });

@@ -1,0 +1,3 @@
+Two mask regions in one parent.
+
+Expected: two circular windows into gradient.

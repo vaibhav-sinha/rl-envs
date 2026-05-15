@@ -1,0 +1,3 @@
+FLOAT variable on itemSpacing.
+
+Expected: wide gap between row items.

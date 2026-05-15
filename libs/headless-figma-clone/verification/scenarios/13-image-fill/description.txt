@@ -1,0 +1,3 @@
+createImage + IMAGE paint.
+
+Expected: small PNG pattern visible in rectangle.

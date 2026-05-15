@@ -1,0 +1,3 @@
+Instance overrides child fill.
+
+Expected: button instance with orange fill vs blue component.

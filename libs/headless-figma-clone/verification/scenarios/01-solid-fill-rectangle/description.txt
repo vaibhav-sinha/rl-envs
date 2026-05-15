@@ -1,0 +1,3 @@
+Tests a single RECTANGLE with a solid red fill.
+
+Expected: one red rectangle centered on a light gray artboard.

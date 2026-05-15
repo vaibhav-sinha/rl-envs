@@ -1,0 +1,3 @@
+SPACE_BETWEEN with 4 items.
+
+Expected: items pinned to edges and distributed.

@@ -1,0 +1,3 @@
+STRING variable bound to characters.
+
+Expected: text reads token value "Hello".

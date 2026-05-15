@@ -1,0 +1,3 @@
+Striped bg + backdrop blur + white overlay.
+
+Expected: frosted panel with 50% white veil on top.

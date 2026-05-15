@@ -1,0 +1,3 @@
+Image fill with gradient overlay.
+
+Expected: photo tint with gradient veil.

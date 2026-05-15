@@ -1,0 +1,3 @@
+SLICE around export region.
+
+Expected: slice bounds overlay on content (may be subtle in screenshot).

@@ -1,0 +1,3 @@
+DROP_SHADOW on card.
+
+Expected: soft shadow below white card.

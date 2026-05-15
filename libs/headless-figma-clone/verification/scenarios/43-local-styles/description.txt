@@ -1,0 +1,3 @@
+Paint and text styles applied.
+
+Expected: styled heading with paint style fill.

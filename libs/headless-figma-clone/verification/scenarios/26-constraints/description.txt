@@ -1,0 +1,3 @@
+Child with left+right constraints.
+
+Expected: bar stretches full width of parent.

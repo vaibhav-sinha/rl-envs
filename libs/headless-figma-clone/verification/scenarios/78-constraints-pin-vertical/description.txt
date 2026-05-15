@@ -1,0 +1,3 @@
+Top+bottom pinned child.
+
+Expected: bar stretches vertically in tall parent.

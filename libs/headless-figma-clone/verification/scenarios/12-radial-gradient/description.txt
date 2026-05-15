@@ -1,0 +1,3 @@
+GRADIENT_RADIAL fill.
+
+Expected: radial glow centered in rectangle.

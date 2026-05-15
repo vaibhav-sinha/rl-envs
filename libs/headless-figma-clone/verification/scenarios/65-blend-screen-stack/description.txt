@@ -1,0 +1,3 @@
+3 layers; top SCREEN blend.
+
+Expected: lighter blend in overlap.

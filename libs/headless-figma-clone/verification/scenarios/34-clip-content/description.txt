@@ -1,0 +1,3 @@
+clipsContent with rotated overflow.
+
+Expected: rotated rect clipped by parent.

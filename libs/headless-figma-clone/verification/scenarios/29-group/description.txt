@@ -1,0 +1,3 @@
+figma.group over shapes.
+
+Expected: grouped shapes move as unit (visually offset stack).

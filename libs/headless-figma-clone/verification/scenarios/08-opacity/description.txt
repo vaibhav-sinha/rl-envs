@@ -1,0 +1,3 @@
+Semi-transparent rect over opaque background.
+
+Expected: blended purple over blue background.

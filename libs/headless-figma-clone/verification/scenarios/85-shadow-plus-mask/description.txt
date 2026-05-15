@@ -1,0 +1,3 @@
+Shadow on back card; masked front content.
+
+Expected: shadow visible on rear card; front masked gradient.

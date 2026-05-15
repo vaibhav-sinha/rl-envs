@@ -1,0 +1,3 @@
+Same stack with OVERLAY blend on top.
+
+Expected: higher contrast overlap vs screen.

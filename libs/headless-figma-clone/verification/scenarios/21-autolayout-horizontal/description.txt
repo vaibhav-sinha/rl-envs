@@ -1,0 +1,3 @@
+Horizontal auto layout with 3 children.
+
+Expected: row of colored pills with gap.

@@ -1,0 +1,3 @@
+Empty fills vs semi-transparent fill.
+
+Expected: left shows bg through; right shows tinted overlay.

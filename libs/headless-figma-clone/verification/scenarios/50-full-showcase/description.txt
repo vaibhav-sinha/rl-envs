@@ -1,0 +1,3 @@
+Phase 4–5 style combo: grid, mask, boolean, vector.
+
+Expected: mini UI with nav pills, masked panel, boolean cutout.

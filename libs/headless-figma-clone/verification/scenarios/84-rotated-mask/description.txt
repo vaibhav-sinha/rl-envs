@@ -1,0 +1,3 @@
+Mask shape rotated 30deg.
+
+Expected: diagonal window into gradient fill.

@@ -1,0 +1,3 @@
+3 offset overlapping rects without blend.
+
+Expected: crisp occlusion, no blend darkening.

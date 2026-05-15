@@ -1,0 +1,15 @@
+const root = figma.createFrame();
+root.name = 'ScenarioRoot';
+root.resize(480, 360);
+root.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
+figma.currentPage.appendChild(root);
+const gridStyle = figma.createGridStyle();
+gridStyle.name = 'Columns8';
+gridStyle.layoutGrids = [{ pattern: 'COLUMNS', sectionSize: 48, gutterSize: 8, color: { r: 0, g: 0.4, b: 0.7, a: 0.18 } }];
+const frame = figma.createFrame();
+frame.resize(400, 200);
+frame.x = 40;
+frame.y = 80;
+frame.layoutGrids = gridStyle.layoutGrids;
+root.appendChild(frame);
+return { rootId: root.id };

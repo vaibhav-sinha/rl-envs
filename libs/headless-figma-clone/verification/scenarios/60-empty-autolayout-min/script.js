@@ -1,0 +1,17 @@
+const root = figma.createFrame();
+root.name = 'ScenarioRoot';
+root.resize(480, 360);
+root.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
+figma.currentPage.appendChild(root);
+const row = figma.createAutoLayout();
+row.x = 160;
+row.y = 140;
+row.paddingLeft = 24;
+row.paddingRight = 24;
+row.paddingTop = 16;
+row.paddingBottom = 16;
+row.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.92, b: 0.96 } }];
+row.strokes = [{ type: 'SOLID', color: { r: 0.6, g: 0.65, b: 0.75 } }];
+row.strokeWeight = 1;
+root.appendChild(row);
+return { rootId: root.id };

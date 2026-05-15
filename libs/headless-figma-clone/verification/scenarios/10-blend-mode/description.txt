@@ -1,0 +1,3 @@
+Two overlapping rects; top uses MULTIPLY.
+
+Expected: darker overlap region vs simple alpha.

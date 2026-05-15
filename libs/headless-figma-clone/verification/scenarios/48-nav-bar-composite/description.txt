@@ -1,0 +1,3 @@
+Nav bar: logo + links + CTA.
+
+Expected: horizontal nav with brand block and button.

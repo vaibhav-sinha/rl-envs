@@ -1,0 +1,3 @@
+5 rects same position; last child on top.
+
+Expected: topmost color is purple (5th appended).

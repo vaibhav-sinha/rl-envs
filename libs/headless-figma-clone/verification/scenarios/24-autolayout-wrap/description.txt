@@ -1,0 +1,3 @@
+layoutWrap with many chips.
+
+Expected: chips wrap to second row.

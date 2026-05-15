@@ -1,0 +1,3 @@
+combineAsVariants with two frames.
+
+Expected: component set with variant property.

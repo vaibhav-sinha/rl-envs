@@ -1,0 +1,3 @@
+Card with gradient, shadow, blur panel.
+
+Expected: dashboard card with frosted overlay.

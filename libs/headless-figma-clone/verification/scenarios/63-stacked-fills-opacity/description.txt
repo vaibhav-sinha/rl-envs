@@ -1,0 +1,3 @@
+Two fills; top has reduced alpha.
+
+Expected: blue base with white haze overlay.

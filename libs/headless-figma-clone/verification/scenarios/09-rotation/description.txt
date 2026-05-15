@@ -1,0 +1,3 @@
+Rectangle rotated 45 degrees.
+
+Expected: diamond-oriented orange square.

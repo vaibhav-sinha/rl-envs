@@ -1,0 +1,3 @@
+Grid frame with toolbar auto-layout inside.
+
+Expected: column grid with horizontal tool buttons.

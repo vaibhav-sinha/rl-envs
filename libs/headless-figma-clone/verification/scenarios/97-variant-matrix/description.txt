@@ -1,0 +1,3 @@
+2x2 variant instances in grid.
+
+Expected: four button variants visible.

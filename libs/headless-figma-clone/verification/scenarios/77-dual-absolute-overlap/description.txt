@@ -1,0 +1,3 @@
+Two absolute children same position; badge on top.
+
+Expected: red badge circle covers blue icon square.
