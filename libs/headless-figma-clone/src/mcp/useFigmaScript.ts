@@ -28,6 +28,7 @@ import type {
   StyledSegment,
   VectorNode,
 } from '../model/types.js';
+import { DEFAULT_FRAME_FILLS } from '../model/types.js';
 import { createStylesApi } from '../styles/StylesAPI.js';
 import { bindVariableToNodeField, createVariablesApi } from '../variables/VariablesAPI.js';
 import { ValidationErr } from '../util/errors.js';
@@ -393,7 +394,7 @@ abstract class RuntimeSceneNode {
 class RuntimeFrame extends RuntimeSceneNode {
   readonly type = 'FRAME' as const;
   name = 'Frame';
-  fills?: FrameNode['fills'];
+  fills: FrameNode['fills'] = [...DEFAULT_FRAME_FILLS];
   strokes?: FrameNode['strokes'];
   strokeWeight?: number;
   strokeAlign?: FrameNode['strokeAlign'];

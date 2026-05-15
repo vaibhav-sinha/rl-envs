@@ -866,7 +866,7 @@ function emitFrameChildren(
       emitMaskCluster(ch, masked, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, env);
       continue;
     }
-    emitScene(ch, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, flexInner, env, f.children);
+    emitScene(ch, originX + f.x, originY + f.y, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, flexInner, env, f.children, flexInner ? f : undefined);
     i++;
   }
 }
@@ -885,7 +885,8 @@ function emitScene(
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope,
-  parentChildren: SceneNode[] | null
+  parentChildren: SceneNode[] | null,
+  parentFrame?: FrameNode
 ): void {
   const absX = originX + n.x + shiftX;
   const absY = originY + n.y + shiftY;
@@ -1039,7 +1040,7 @@ function emitScene(
   }
 
   if (n.type === 'RECTANGLE') {
-    emitRectangle(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, patternTiles, warnings, insideFlex, env);
+    emitRectangle(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, patternTiles, warnings, insideFlex, env, parentFrame);
     return;
   }
   if (n.type === 'ELLIPSE') {
@@ -1372,7 +1373,8 @@ function emitRectangle(
   patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
-  env: FileEnvelope
+  env: FileEnvelope,
+  parentFrame?: FrameNode
 ): void {
   const shadow = dropShadowCss(r.effects);
   const fillCss = stackedFillsCss(effectiveRectFills(r, env), imgMap, patternTiles, warnings, `rect:${r.id}`, env);
@@ -1384,7 +1386,7 @@ function emitRectangle(
       : 'none';
   const radius = r.cornerRadius !== undefined ? `border-radius:${String(r.cornerRadius)}px;` : '';
   const pos = insideFlex
-    ? sceneChildPos(r, insideFlex, absX, absY)
+    ? sceneChildPos(r, insideFlex, absX, absY, parentFrame)
     : r.constraints
       ? constraintPositionCss(r, 200, 100)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;`;

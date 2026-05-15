@@ -82,6 +82,9 @@ export interface VariableColorPaint extends PaintBase {
 
 export type Paint = SolidPaint | GradientPaint | ImagePaint | PatternPaint | VariableColorPaint;
 
+/** Figma parity: `createFrame()` / `createAutoLayout()` default to a white fill when fills are omitted. */
+export const DEFAULT_FRAME_FILLS: Paint[] = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+
 export interface VariableMode {
   id: string;
   name: string;

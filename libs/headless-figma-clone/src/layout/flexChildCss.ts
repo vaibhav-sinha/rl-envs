@@ -95,16 +95,14 @@ export function flexChildLayoutCss(
           ? 'align-self:flex-end;'
           : '';
   const crossDim =
-    crossSizing === 'FIXED'
+    crossSizing === 'HUG'
       ? isRow
-        ? `height:${String(crossSize)}px;`
-        : `width:${String(crossSize)}px;`
-      : crossSizing === 'HUG'
-        ? isRow
-          ? 'height:auto;'
-          : 'width:auto;'
+        ? 'height:auto;'
+        : 'width:auto;'
+      : crossSizing === 'FILL'
+        ? ''
         : isRow
-          ? 'height:auto;min-height:0;'
-          : 'width:auto;min-width:0;';
+          ? `height:${String(crossSize)}px;`
+          : `width:${String(crossSize)}px;`;
   return `position:relative;left:0;top:0;flex:${String(grow)} ${String(shrink)} ${basisMain};min-width:0;${alignSelf}${crossDim}`;
 }
