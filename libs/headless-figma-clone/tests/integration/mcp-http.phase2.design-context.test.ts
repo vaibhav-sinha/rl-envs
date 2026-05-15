@@ -68,7 +68,15 @@ describe('mcp-http design context', () => {
               fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
               backgrounds: [{ type: 'SOLID', color: { r: 0.9, g: 0.92, b: 0.98 } }],
               clipsContent: true,
-              effects: [{ type: 'DROP_SHADOW', offset: { x: 0, y: 2 }, radius: 6, color: { r: 0, g: 0, b: 0, a: 0.2 } }],
+              effects: [
+                {
+                  type: 'DROP_SHADOW',
+                  offset: { x: 0, y: 2 },
+                  radius: 6,
+                  color: { r: 0, g: 0, b: 0, a: 0.2 },
+                  blendMode: 'NORMAL',
+                },
+              ],
               children: [],
             },
           },
@@ -133,7 +141,15 @@ describe('mcp-http design context', () => {
           f.backgrounds = [{ type: 'SOLID', color: { r: 0.95, g: 0.95, b: 1 } }];
           f.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
           f.clipsContent = true;
-          f.effects = [{ type: 'DROP_SHADOW', offset: { x: 1, y: 1 }, radius: 4 }];
+          f.effects = [
+            {
+              type: 'DROP_SHADOW',
+              offset: { x: 1, y: 1 },
+              radius: 4,
+              color: { r: 0, g: 0, b: 0, a: 0.25 },
+              blendMode: 'NORMAL',
+            },
+          ];
           figma.currentPage.appendChild(f);
           const t = figma.createText();
           t.name = 'CodeTitle';

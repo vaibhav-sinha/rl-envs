@@ -173,7 +173,15 @@ describe('envelopeOps extended', () => {
       op: 'createEffectStyle',
       id: 'ES1',
       name: 'Shadow',
-      effects: [{ type: 'DROP_SHADOW', offset: { x: 0, y: 2 }, radius: 4 }],
+      effects: [
+        {
+          type: 'DROP_SHADOW',
+          offset: { x: 0, y: 2 },
+          radius: 4,
+          color: { r: 0, g: 0, b: 0, a: 0.25 },
+          blendMode: 'NORMAL',
+        },
+      ],
     });
     applyEnvelopeOperation(env, {
       op: 'updateTextStyle',

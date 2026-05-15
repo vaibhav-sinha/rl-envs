@@ -23,6 +23,7 @@ card.effects = [{
   offset: { x: 0, y: 8 },
   radius: 16,
   spread: 0,
+  blendMode: 'NORMAL',
   visible: true,
 }];
 root.appendChild(card);

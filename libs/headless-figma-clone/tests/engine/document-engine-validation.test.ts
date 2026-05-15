@@ -196,6 +196,81 @@ describe('DocumentEngine validation and ops', () => {
     expect(findEnvelopeNode(env, setId)).toBeNull();
   });
 
+  it('rejects DROP_SHADOW without blendMode', () => {
+    const env = emptyEnvelope();
+    const pid = pageId(env);
+    const rectId = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'RECTANGLE', name: 'R', x: 0, y: 0, width: 10, height: 10 },
+    });
+    expect(() =>
+      applyEngineOp(env, {
+        op: 'updateNode',
+        nodeId: rectId,
+        patch: {
+          effects: [
+            {
+              type: 'DROP_SHADOW',
+              offset: { x: 0, y: 2 },
+              radius: 4,
+              color: { r: 0, g: 0, b: 0, a: 0.2 },
+            },
+          ],
+        },
+      })
+    ).toThrow(/blendMode required/);
+  });
+
+  it('rejects BACKDROP_BLUR in favor of BACKGROUND_BLUR', () => {
+    const env = emptyEnvelope();
+    const pid = pageId(env);
+    const frameId = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'FRAME', name: 'F', x: 0, y: 0, width: 50, height: 50, children: [] },
+    });
+    expect(() =>
+      applyEngineOp(env, {
+        op: 'updateNode',
+        nodeId: frameId,
+        patch: { effects: [{ type: 'BACKDROP_BLUR', radius: 8 }] },
+      })
+    ).toThrow(/BACKGROUND_BLUR/);
+  });
+
+  it('accepts valid DROP_SHADOW and BACKGROUND_BLUR effects', () => {
+    const env = emptyEnvelope();
+    const pid = pageId(env);
+    const frameId = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'FRAME', name: 'F', x: 0, y: 0, width: 50, height: 50, children: [] },
+    });
+    applyEngineOp(env, {
+      op: 'updateNode',
+      nodeId: frameId,
+      patch: {
+        effects: [
+          {
+            type: 'DROP_SHADOW',
+            offset: { x: 0, y: 4 },
+            radius: 8,
+            color: { r: 0, g: 0, b: 0, a: 0.25 },
+            blendMode: 'NORMAL',
+          },
+          { type: 'BACKGROUND_BLUR', radius: 12 },
+        ],
+      },
+    });
+    const frame = findEnvelopeNode(env, frameId);
+    expect(frame?.type).toBe('FRAME');
+    if (frame?.type === 'FRAME') {
+      expect(frame.effects?.[0]?.type).toBe('DROP_SHADOW');
+      expect(frame.effects?.[1]?.type).toBe('BACKGROUND_BLUR');
+    }
+  });
+
   it('can create SLICE, SECTION, and TRANSFORM_GROUP via engine', () => {
     const env = emptyEnvelope();
     const pid = pageId(env);

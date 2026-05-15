@@ -65,7 +65,15 @@ describe('persistence round-trip', () => {
             height: 40,
             children: [],
             backgrounds: [{ type: 'SOLID', color: { r: 0.1, g: 0.2, b: 0.3 } }],
-            effects: [{ type: 'DROP_SHADOW', offset: { x: 1, y: 2 }, radius: 3 }],
+            effects: [
+              {
+                type: 'DROP_SHADOW',
+                offset: { x: 1, y: 2 },
+                radius: 3,
+                color: { r: 0, g: 0, b: 0, a: 0.25 },
+                blendMode: 'NORMAL',
+              },
+            ],
             clipsContent: true,
             rotation: 5,
           },
@@ -82,7 +90,15 @@ describe('persistence round-trip', () => {
             height: 16,
             characters: 'ab',
             styledSegments: [{ start: 0, end: 1, style: { fontSize: 20 } }],
-            effects: [{ type: 'DROP_SHADOW', offset: { x: 0, y: 0 }, radius: 1 }],
+            effects: [
+              {
+                type: 'DROP_SHADOW',
+                offset: { x: 0, y: 0 },
+                radius: 1,
+                color: { r: 0, g: 0, b: 0, a: 0.25 },
+                blendMode: 'NORMAL',
+              },
+            ],
           },
         },
       ]);
