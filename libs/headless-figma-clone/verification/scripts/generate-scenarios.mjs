@@ -497,7 +497,8 @@ root.appendChild(col);
     order: 23,
     tier: 'foundational',
     tags: ['autolayout', 'layoutSizing'],
-    description: 'FILL and HUG siblings in a row.\n\nExpected: green bar expands, orange stays narrow.',
+    description:
+      'FILL sibling beside a fixed-width bar (HUG on shapes is text-only in Desktop; fixed width matches the narrow bar).\n\nExpected: green bar expands, orange stays narrow.',
     body: `
 const row = figma.createAutoLayout();
 row.resize(360, 48);
@@ -507,15 +508,14 @@ row.itemSpacing = 8;
 const fill = figma.createRectangle();
 fill.name = 'Fill';
 fill.resize(80, 40);
-fill.layoutSizingHorizontal = 'FILL';
 fill.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.75, b: 0.35 } }];
-const hug = figma.createRectangle();
-hug.name = 'Hug';
-hug.resize(50, 40);
-hug.layoutSizingHorizontal = 'HUG';
-hug.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.55, b: 0.1 } }];
+const narrow = figma.createRectangle();
+narrow.name = 'Narrow';
+narrow.resize(50, 40);
+narrow.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.55, b: 0.1 } }];
 row.appendChild(fill);
-row.appendChild(hug);
+fill.layoutSizingHorizontal = 'FILL';
+row.appendChild(narrow);
 root.appendChild(row);
 `,
   },
@@ -561,11 +561,11 @@ a.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.5, b: 0.9 } }];
 row.appendChild(a);
 const badge = figma.createEllipse();
 badge.resize(32, 32);
+badge.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.2, b: 0.2 } }];
+row.appendChild(badge);
 badge.layoutPositioning = 'ABSOLUTE';
 badge.x = 250;
 badge.y = 8;
-badge.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.2, b: 0.2 } }];
-row.appendChild(badge);
 root.appendChild(row);
 `,
   },
@@ -626,9 +626,9 @@ const child = figma.createRectangle();
 child.resize(200, 40);
 child.minWidth = 80;
 child.maxWidth = 160;
-child.layoutSizingHorizontal = 'FILL';
 child.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.3, b: 0.85 } }];
 row.appendChild(child);
+child.layoutSizingHorizontal = 'FILL';
 root.appendChild(row);
 `,
   },
@@ -1711,18 +1711,18 @@ row.y = 156;
 row.itemSpacing = 0;
 const left = figma.createRectangle();
 left.resize(80, 40);
-left.layoutSizingHorizontal = 'FILL';
 left.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.6, b: 0.9 } }];
 const spacer = figma.createRectangle();
 spacer.resize(24, 40);
 spacer.fills = [{ type: 'SOLID', color: { r: 0.75, g: 0.77, b: 0.82 } }];
 const right = figma.createRectangle();
 right.resize(80, 40);
-right.layoutSizingHorizontal = 'FILL';
 right.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.75, b: 0.35 } }];
 row.appendChild(left);
+left.layoutSizingHorizontal = 'FILL';
 row.appendChild(spacer);
 row.appendChild(right);
+right.layoutSizingHorizontal = 'FILL';
 root.appendChild(row);
 `,
   },
@@ -1741,14 +1741,14 @@ row.y = 150;
 row.itemSpacing = 12;
 const a = figma.createRectangle();
 a.resize(60, 40);
-a.layoutGrow = 1;
 a.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.3, b: 0.25 } }];
 const b = figma.createRectangle();
 b.resize(60, 40);
-b.layoutGrow = 1;
 b.fills = [{ type: 'SOLID', color: { r: 0.25, g: 0.55, b: 0.9 } }];
 row.appendChild(a);
+a.layoutGrow = 1;
 row.appendChild(b);
+b.layoutGrow = 1;
 root.appendChild(row);
 `,
   },
@@ -1839,18 +1839,18 @@ host.x = 140;
 host.y = 120;
 const icon = figma.createRectangle();
 icon.resize(48, 48);
-icon.layoutPositioning = 'ABSOLUTE';
-icon.x = 76;
-icon.y = 36;
 icon.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.45, b: 0.9 } }];
 const badge = figma.createEllipse();
 badge.resize(28, 28);
+badge.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.2, b: 0.2 } }];
+host.appendChild(icon);
+icon.layoutPositioning = 'ABSOLUTE';
+icon.x = 76;
+icon.y = 36;
+host.appendChild(badge);
 badge.layoutPositioning = 'ABSOLUTE';
 badge.x = 100;
 badge.y = 28;
-badge.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.2, b: 0.2 } }];
-host.appendChild(icon);
-host.appendChild(badge);
 root.appendChild(host);
 `,
   },
@@ -2477,16 +2477,28 @@ root.appendChild(modal);
   },
 ];
 
+/** MCP-only on Figma Desktop; shim uses createFrame + layoutMode for local-figma-mcp. */
+const AUTO_LAYOUT_SHIM = `function createAutoLayout(direction) {
+  if (typeof figma.createAutoLayout === 'function') {
+    return figma.createAutoLayout(direction);
+  }
+  const frame = figma.createFrame();
+  frame.layoutMode = direction === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL';
+  return frame;
+}`;
+
 function buildScript(s) {
   const fontLine = s.needsFont
     ? "await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });\n"
     : '';
-  return `${fontLine}const root = figma.createFrame();
+  const body = s.body.trim().replace(/figma\.createAutoLayout/g, 'createAutoLayout');
+  return `${fontLine}${AUTO_LAYOUT_SHIM}
+const root = figma.createFrame();
 root.name = 'ScenarioRoot';
 root.resize(480, 360);
 root.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
 figma.currentPage.appendChild(root);
-${s.body.trim()}
+${body}
 return { rootId: root.id };
 `;
 }

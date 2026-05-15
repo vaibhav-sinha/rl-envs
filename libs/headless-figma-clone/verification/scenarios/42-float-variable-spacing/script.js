@@ -1,3 +1,11 @@
+function createAutoLayout(direction) {
+  if (typeof figma.createAutoLayout === 'function') {
+    return figma.createAutoLayout(direction);
+  }
+  const frame = figma.createFrame();
+  frame.layoutMode = direction === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL';
+  return frame;
+}
 const root = figma.createFrame();
 root.name = 'ScenarioRoot';
 root.resize(480, 360);
@@ -7,7 +15,7 @@ const col = figma.variables.createVariableCollection('Layout');
 const modeId = col.modes[0].id;
 const gap = figma.variables.createVariable('gap', col, 'FLOAT');
 figma.variables.setValueForMode(gap.id, modeId, { type: 'FLOAT', value: 32 });
-const row = figma.createAutoLayout();
+const row = createAutoLayout();
 row.resize(320, 48);
 row.x = 80;
 row.y = 156;

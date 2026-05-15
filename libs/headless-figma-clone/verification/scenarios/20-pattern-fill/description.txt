@@ -1,3 +1,3 @@
-PATTERN fill from an ellipse tile (setFillsAsync).
+PATTERN fill (may be simplified in clone).
 
-Expected: repeating blue dot pattern; spacing is relative to tile size (0.5 = half-tile gap).
+Expected: repeating tile or documented approximation.
