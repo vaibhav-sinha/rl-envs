@@ -15,6 +15,7 @@ import { fontFamilyCss } from '../fonts/fontCatalog.js';
 import {
   buildRootCssVariableBlock,
   cssVarNameForVariable,
+  findVariableDefinition,
   resolveVariableToFloat,
   resolveVariableToRgb,
   resolveVariableToStringValue,
@@ -238,6 +239,15 @@ function effectiveRectFills(r: RectangleNode, env: FileEnvelope): Paint[] {
     return ps?.paints ?? [];
   }
   return [];
+}
+
+function effectiveRectEffects(r: RectangleNode, env: FileEnvelope): Effect[] | undefined {
+  if (r.effects?.length) return r.effects;
+  if (r.effectStyleId) {
+    const st = env.effectStyles?.find((s) => s.id === r.effectStyleId);
+    if (st?.effects?.length) return st.effects;
+  }
+  return r.effects;
 }
 
 function patternPaintCss(
@@ -469,9 +479,16 @@ function fillBackgroundStyles(
   if (fill.type === 'SOLID') return `background-color:${rgbaFromSolid(fill)};`;
   if (fill.type === 'VARIABLE_COLOR') {
     const v = resolveVariableToRgb(env, fill.variableId);
+    const def = findVariableDefinition(env, fill.variableId);
+    const isAlias = Boolean(def?.variable.aliasOfVariableId);
+    if (isAlias && v) {
+      return `background-color:rgba(${String(Math.round(v.r * 255))},${String(Math.round(v.g * 255))},${String(
+        Math.round(v.b * 255)
+      )},1);`;
+    }
     if (!v) {
       warnings.push(`missing_variable_color:${label}:${fill.variableId}`);
-      return 'background-color:transparent;';
+      return `background-color:var(${cssVarNameForVariable(fill.variableId)},transparent);`;
     }
     return `background-color:var(${cssVarNameForVariable(fill.variableId)});`;
   }
@@ -894,6 +911,11 @@ function emitGroup(
   }
 }
 
+/**
+ * Frame / transform-group local box for mask clusters (children stack in `x`/`y` space).
+ */
+type MaskLayoutParent = Pick<TransformGroupNode, 'width' | 'height' | 'children' | 'x' | 'y'>;
+
 function emitTransformGroup(
   tg: TransformGroupNode,
   absX: number,
@@ -920,35 +942,16 @@ function emitTransformGroup(
   cssParts.push(
     `.hfc-node-${tg.id}{${pos}width:${String(tg.width)}px;height:${String(tg.height)}px;box-sizing:border-box;${opRot}}`
   );
-  for (const c of tg.children) {
-    emitScene(
-      c,
-      originX + tg.x,
-      originY + tg.y,
-      shiftX,
-      shiftY,
-      htmlParts,
-      cssParts,
-      z,
-      imgMap,
-      patternTiles,
-      warnings,
-      false,
-      env,
-      tg.children,
-      undefined,
-      true
-    );
-  }
+  emitChildrenWithMasks(tg, undefined, absX, absY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env);
   htmlParts.push('</div>');
 }
 
 function emitMaskCluster(
   maskNode: SceneNode,
   masked: SceneNode[],
-  f: FrameNode,
-  frameAbsX: number,
-  frameAbsY: number,
+  parent: MaskLayoutParent,
+  containerAbsX: number,
+  containerAbsY: number,
   originX: number,
   originY: number,
   shiftX: number,
@@ -968,19 +971,23 @@ function emitMaskCluster(
   const mid = `hfc-svg-mask-${maskNode.id}`;
   const zi = z.value++;
   htmlParts.push(
-    `<div class="hfc-mask-wrap" data-hfc-mask="${maskNode.id}" style="position:absolute;left:${String(frameAbsX)}px;top:${String(frameAbsY)}px;width:${String(f.width)}px;height:${String(f.height)}px;overflow:visible;z-index:${String(zi)}">`
+    `<div class="hfc-mask-wrap" data-hfc-mask="${maskNode.id}" style="position:absolute;left:${String(containerAbsX)}px;top:${String(
+      containerAbsY
+    )}px;width:${String(parent.width)}px;height:${String(parent.height)}px;overflow:visible;z-index:${String(zi)}">`
   );
   htmlParts.push(
     `<svg width="0" height="0" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="${String(mx)}" y="${String(my)}" width="${String(mw)}" height="${String(mh)}"><rect x="${String(mx)}" y="${String(my)}" width="${String(mw)}" height="${String(mh)}" fill="white"/></mask></defs></svg>`
   );
   htmlParts.push(
-    `<div class="hfc-masked-inner" style="position:absolute;left:0;top:0;width:${String(f.width)}px;height:${String(f.height)}px;mask:url(#${mid});-webkit-mask:url(#${mid});">`
+    `<div class="hfc-masked-inner" style="position:absolute;left:0;top:0;width:${String(parent.width)}px;height:${String(
+      parent.height
+    )}px;mask:url(#${mid});-webkit-mask:url(#${mid});">`
   );
   for (const c of masked) {
     emitScene(
       c,
-      originX + f.x,
-      originY + f.y,
+      originX + parent.x,
+      originY + parent.y,
       shiftX,
       shiftY,
       htmlParts,
@@ -991,12 +998,82 @@ function emitMaskCluster(
       warnings,
       false,
       env,
-      f.children,
+      parent.children,
       undefined,
       true
     );
   }
   htmlParts.push('</div></div>');
+}
+
+function emitChildrenWithMasks(
+  ctn: MaskLayoutParent,
+  parentFrame: FrameNode | undefined,
+  containerAbsX: number,
+  containerAbsY: number,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  flexInner: boolean,
+  env: FileEnvelope
+): void {
+  let i = 0;
+  while (i < ctn.children.length) {
+    const ch = ctn.children[i]!;
+    if (ch.isMask && !flexInner) {
+      const masked: SceneNode[] = [];
+      i++;
+      while (i < ctn.children.length && !ctn.children[i]!.isMask) {
+        masked.push(ctn.children[i]!);
+        i++;
+      }
+      emitMaskCluster(
+        ch,
+        masked,
+        ctn,
+        containerAbsX,
+        containerAbsY,
+        originX,
+        originY,
+        shiftX,
+        shiftY,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        patternTiles,
+        warnings,
+        env
+      );
+      continue;
+    }
+    emitScene(
+      ch,
+      originX + ctn.x,
+      originY + ctn.y,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      flexInner,
+      env,
+      ctn.children,
+      parentFrame,
+      !flexInner
+    );
+    i++;
+  }
 }
 
 function emitFrameChildren(
@@ -1016,39 +1093,7 @@ function emitFrameChildren(
   flexInner: boolean,
   env: FileEnvelope
 ): void {
-  let i = 0;
-  while (i < f.children.length) {
-    const ch = f.children[i]!;
-    if (ch.isMask && !flexInner) {
-      const masked: SceneNode[] = [];
-      i++;
-      while (i < f.children.length && !f.children[i]!.isMask) {
-        masked.push(f.children[i]!);
-        i++;
-      }
-      emitMaskCluster(ch, masked, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, env);
-      continue;
-    }
-    emitScene(
-      ch,
-      originX + f.x,
-      originY + f.y,
-      shiftX,
-      shiftY,
-      htmlParts,
-      cssParts,
-      z,
-      imgMap,
-      patternTiles,
-      warnings,
-      flexInner,
-      env,
-      f.children,
-      f,
-      !flexInner
-    );
-    i++;
-  }
+  emitChildrenWithMasks(f, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, flexInner, env);
 }
 
 function emitScene(
@@ -1588,7 +1633,7 @@ function emitRectangle(
   env: FileEnvelope,
   parentFrame?: FrameNode
 ): void {
-  const shadow = dropShadowCss(r.effects);
+  const shadow = dropShadowCss(effectiveRectEffects(r, env));
   const fillCss = stackedFillsCss(effectiveRectFills(r, env), imgMap, patternTiles, warnings, `rect:${r.id}`, env);
   const stroke = r.strokes?.[0];
   const sw = r.strokeWeight ?? 0;

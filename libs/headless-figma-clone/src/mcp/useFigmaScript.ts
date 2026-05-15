@@ -784,6 +784,7 @@ class RuntimeRectangle extends RuntimeSceneNode {
   bottomRightRadius?: number;
   bottomLeftRadius?: number;
   fillStyleId?: string;
+  effectStyleId?: string;
 
   toNewNodeSpec(): NewNodeSpec {
     return {
@@ -813,6 +814,7 @@ class RuntimeRectangle extends RuntimeSceneNode {
       blendMode: this.blendMode,
       ...this.layoutSelfSpec(),
       fillStyleId: this.fillStyleId,
+      effectStyleId: this.effectStyleId,
     };
   }
 }

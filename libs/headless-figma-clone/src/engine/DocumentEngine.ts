@@ -595,6 +595,11 @@ function normalizeNewRectangle(spec: Extract<NewNodeSpec, { type: 'RECTANGLE' }>
       throw new ValidationErr('VALIDATION_ERROR', 'RECTANGLE.fillStyleId must reference an existing paint style');
     }
   }
+  if (spec.effectStyleId !== undefined) {
+    if (typeof spec.effectStyleId !== 'string' || !env.effectStyles?.some((s) => s.id === spec.effectStyleId)) {
+      throw new ValidationErr('VALIDATION_ERROR', 'RECTANGLE.effectStyleId must reference an existing effect style');
+    }
+  }
   const n: RectangleNode = {
     id,
     type: 'RECTANGLE',
@@ -622,6 +627,7 @@ function normalizeNewRectangle(spec: Extract<NewNodeSpec, { type: 'RECTANGLE' }>
     rotation: spec.rotation,
     blendMode: spec.blendMode,
     fillStyleId: spec.fillStyleId,
+    effectStyleId: spec.effectStyleId,
   };
   validateShapeBox(n);
   if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
@@ -2458,6 +2464,17 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
           throw new ValidationErr('VALIDATION_ERROR', 'fillStyleId must reference an existing paint style');
         }
         r.fillStyleId = fs;
+      }
+    }
+    if ('effectStyleId' in patch) {
+      const es = patch.effectStyleId;
+      if (es === undefined || es === null) {
+        delete r.effectStyleId;
+      } else {
+        if (typeof es !== 'string' || !env.effectStyles?.some((s) => s.id === es)) {
+          throw new ValidationErr('VALIDATION_ERROR', 'effectStyleId must reference an existing effect style');
+        }
+        r.effectStyleId = es;
       }
     }
     return;

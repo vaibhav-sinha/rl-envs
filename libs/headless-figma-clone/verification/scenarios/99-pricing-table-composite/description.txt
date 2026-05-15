@@ -1,3 +1,0 @@
-Table + header + variable prices.
-
-Expected: pricing grid with striped rows and bound price text.

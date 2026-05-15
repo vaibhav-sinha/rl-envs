@@ -59,10 +59,55 @@ describe('figmaInterop', () => {
     ).toEqual({ type: 'COLUMNS', count: 4, gutter: 16, color: undefined });
   });
 
-  it('rejects shorthand layoutGrids without alignment/count/offset', () => {
+  it('rejects plugin shorthand missing alignment, count, or offset (matches Figma)', () => {
     expect(() =>
       validatePluginLayoutGrids(
         [{ pattern: 'COLUMNS', sectionSize: 80, gutterSize: 16, color: { r: 0, g: 0.3, b: 0.8, a: 0.15 } }],
+        'layoutGrids'
+      )
+    ).toThrow(ValidationErr);
+    expect(() =>
+      normalizeLayoutGrids(
+        [{ pattern: 'COLUMNS', sectionSize: 80, gutterSize: 16, color: { r: 0, g: 0.3, b: 0.8, a: 0.15 } }],
+        400
+      )
+    ).toThrow(ValidationErr);
+  });
+
+  it('accepts count Infinity as Auto with sectionSize (Plugin API)', () => {
+    const grids = normalizeLayoutGrids(
+      [
+        {
+          pattern: 'COLUMNS',
+          alignment: 'MIN',
+          sectionSize: 80,
+          gutterSize: 16,
+          count: Infinity,
+          offset: 0,
+          color: { r: 0, g: 0.3, b: 0.8, a: 0.15 },
+        },
+      ],
+      400
+    );
+    expect(grids).toEqual([
+      { type: 'COLUMNS', count: 4, gutter: 16, color: { r: 0, g: 0.3, b: 0.8, a: 0.15 } },
+    ]);
+  });
+
+  it('rejects count null (Plugin API uses Infinity for Auto, not null)', () => {
+    expect(() =>
+      validatePluginLayoutGrids(
+        [
+          {
+            pattern: 'COLUMNS',
+            alignment: 'MIN',
+            sectionSize: 80,
+            gutterSize: 16,
+            count: null,
+            offset: 0,
+            color: { r: 0, g: 0.3, b: 0.8, a: 0.15 },
+          },
+        ],
         'layoutGrids'
       )
     ).toThrow(ValidationErr);
