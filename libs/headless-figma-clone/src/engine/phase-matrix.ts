@@ -89,6 +89,8 @@ export const ENGINE_MATRIX = {
       'paddingBottom',
       'itemSpacing',
       'layoutWrap',
+      'counterAxisSpacing',
+      'counterAxisAlignContent',
       'primaryAxisAlignItems',
       'counterAxisAlignItems',
       'layoutGrids',

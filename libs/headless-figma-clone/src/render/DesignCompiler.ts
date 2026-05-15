@@ -590,6 +590,43 @@ function frameUsesFlexCss(f: FrameNode): boolean {
   return f.layoutMode === 'HORIZONTAL' || f.layoutMode === 'VERTICAL';
 }
 
+function frameFlexWrapTracksStretch(f: FrameNode): boolean {
+  const kids = f.children;
+  if (!kids?.length) return false;
+  return kids.every((c) => c.layoutAlign === 'STRETCH');
+}
+
+function frameFlexAlignContentCss(f: FrameNode): string {
+  if (f.layoutWrap !== 'WRAP') return '';
+  if (f.counterAxisAlignContent === 'SPACE_BETWEEN') {
+    return 'align-content:space-between;';
+  }
+  if (f.counterAxisAlignContent !== 'AUTO' && f.counterAxisAlignContent !== undefined) {
+    return '';
+  }
+  if (frameFlexWrapTracksStretch(f)) {
+    return 'align-content:stretch;';
+  }
+  const ai = f.counterAxisAlignItems ?? 'MIN';
+  const ac =
+    ai === 'CENTER' ? 'center' : ai === 'MAX' ? 'flex-end' : 'flex-start';
+  return `align-content:${ac};`;
+}
+
+function frameFlexGapCss(f: FrameNode, env: FileEnvelope): string {
+  const item = f.itemSpacing ?? 0;
+  const itemCss = boundFloatCss(env, f.boundVariables?.itemSpacing, item);
+  if (f.layoutWrap !== 'WRAP') {
+    return `gap:${itemCss};`;
+  }
+  const counter = f.counterAxisSpacing ?? item;
+  const counterCss = boundFloatCss(env, undefined, counter);
+  if (f.layoutMode === 'VERTICAL') {
+    return `row-gap:${itemCss};column-gap:${counterCss};`;
+  }
+  return `column-gap:${itemCss};row-gap:${counterCss};`;
+}
+
 function frameFlexInnerStyle(f: FrameNode, env: FileEnvelope): string {
   const dir = f.layoutMode === 'VERTICAL' ? 'column' : 'row';
   const wrap = f.layoutWrap === 'WRAP' ? 'wrap' : 'nowrap';
@@ -597,12 +634,12 @@ function frameFlexInnerStyle(f: FrameNode, env: FileEnvelope): string {
   const pr = f.paddingRight ?? 0;
   const pt = f.paddingTop ?? 0;
   const pb = f.paddingBottom ?? 0;
-  const gap = f.itemSpacing ?? 0;
   const plCss = boundFloatCss(env, f.boundVariables?.paddingLeft, pl);
   const prCss = boundFloatCss(env, f.boundVariables?.paddingRight, pr);
   const ptCss = boundFloatCss(env, f.boundVariables?.paddingTop, pt);
   const pbCss = boundFloatCss(env, f.boundVariables?.paddingBottom, pb);
-  const gapCss = boundFloatCss(env, f.boundVariables?.itemSpacing, gap);
+  const gapCss = frameFlexGapCss(f, env);
+  const alignContentCss = frameFlexAlignContentCss(f);
   const jc =
     f.primaryAxisAlignItems === 'CENTER'
       ? 'center'
@@ -619,7 +656,7 @@ function frameFlexInnerStyle(f: FrameNode, env: FileEnvelope): string {
         : f.counterAxisAlignItems === 'STRETCH'
           ? 'stretch'
           : 'flex-start';
-  return `display:flex;flex-direction:${dir};flex-wrap:${wrap};gap:${gapCss};padding:${ptCss} ${prCss} ${pbCss} ${plCss};box-sizing:border-box;justify-content:${jc};align-items:${ai};`;
+  return `display:flex;flex-direction:${dir};flex-wrap:${wrap};${gapCss}${alignContentCss}padding:${ptCss} ${prCss} ${pbCss} ${plCss};box-sizing:border-box;justify-content:${jc};align-items:${ai};`;
 }
 
 function layoutGridOverlayDiv(f: FrameNode): string {
@@ -1044,7 +1081,7 @@ function emitScene(
     return;
   }
   if (n.type === 'ELLIPSE') {
-    emitEllipse(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, patternTiles, warnings, insideFlex, env);
+    emitEllipse(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, patternTiles, warnings, insideFlex, env, parentFrame);
     return;
   }
   if (n.type === 'LINE') {
@@ -1415,12 +1452,13 @@ function emitEllipse(
   patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
-  env: FileEnvelope
+  env: FileEnvelope,
+  parentFrame?: FrameNode
 ): void {
   const shadow = dropShadowCss(e.effects);
   const fillCss = fillBackgroundStyles(e.fills?.[0], imgMap, patternTiles, warnings, `ellipse:${e.id}`, env);
   const pos = insideFlex
-    ? `position:relative;left:0;top:0;width:${String(e.width)}px;height:${String(e.height)}px;flex:${String(e.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(e.width)}px;height:${String(e.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${e.id}" data-hfc-id="${e.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(

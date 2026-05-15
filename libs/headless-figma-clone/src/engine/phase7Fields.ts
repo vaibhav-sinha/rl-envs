@@ -60,6 +60,29 @@ export function validateFontName(v: unknown, label: string): FontName | undefine
   return { family: v.family, style: v.style };
 }
 
+const LAYOUT_SELF_SPEC_KEYS = [
+  'layoutAlign',
+  'layoutGrow',
+  'minWidth',
+  'maxWidth',
+  'minHeight',
+  'maxHeight',
+  'isMask',
+  'layoutSizingHorizontal',
+  'layoutSizingVertical',
+  'layoutPositioning',
+  'constraints',
+] as const;
+
+/** Copy layout-self fields from a create-node spec onto a new scene node. */
+export function applyLayoutSelfFromSpec(target: LayoutSelfFields, spec: Record<string, unknown>): void {
+  const patch: Record<string, unknown> = {};
+  for (const k of LAYOUT_SELF_SPEC_KEYS) {
+    if (k in spec && spec[k] !== undefined) patch[k] = spec[k];
+  }
+  if (Object.keys(patch).length > 0) applyLayoutSelfPatch(target, patch);
+}
+
 /** Apply Phase 7 layout-self patch keys onto any node carrying {@link LayoutSelfFields}. */
 export function applyLayoutSelfPatch(target: LayoutSelfFields, patch: Record<string, unknown>): void {
   if ('layoutAlign' in patch) {

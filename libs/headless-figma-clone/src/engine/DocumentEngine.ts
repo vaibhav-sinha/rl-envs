@@ -28,6 +28,7 @@ import type {
   ComponentSetNode,
   InstanceNode,
   ComponentPropertyValue,
+  LayoutSelfFields,
 } from '../model/types.js';
 import type { Effect, StyledSegment } from '../model/types.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
@@ -37,8 +38,13 @@ import type { Logger } from '../util/logger.js';
 import type { EngineErrorCode } from '../util/errors.js';
 import { ValidationErr } from '../util/errors.js';
 import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } from './envelopeOps.js';
-import { ENGINE_MATRIX } from './phase-matrix.js';
-import { applyLayoutSelfPatch, validateFontName, validateLayoutSizing } from './phase7Fields.js';
+import { ENGINE_MATRIX, sceneShapeTypes } from './phase-matrix.js';
+import {
+  applyLayoutSelfFromSpec,
+  applyLayoutSelfPatch,
+  validateFontName,
+  validateLayoutSizing,
+} from './phase7Fields.js';
 import { validatePaintArray } from './validatePaints.js';
 import { parseStyledSegmentsInput } from './styledSegmentsNormalize.js';
 import { validateStyledSegments } from './utf16Segments.js';
@@ -324,6 +330,8 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
     paddingBottom: spec.paddingBottom,
     itemSpacing: spec.itemSpacing,
     layoutWrap: spec.layoutWrap,
+    counterAxisSpacing: spec.counterAxisSpacing,
+    counterAxisAlignContent: spec.counterAxisAlignContent,
     primaryAxisAlignItems: spec.primaryAxisAlignItems,
     counterAxisAlignItems: spec.counterAxisAlignItems,
     layoutGrids: spec.layoutGrids,
@@ -354,9 +362,11 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
   }
   validateOptionalLayoutMode(frame.layoutMode);
   validateOptionalLayoutWrap(frame.layoutWrap);
+  validateOptionalCounterAxisAlignContent(frame.counterAxisAlignContent);
   validateOptionalAxisAlign(frame.primaryAxisAlignItems, 'primaryAxisAlignItems');
   validateOptionalAxisAlign(frame.counterAxisAlignItems, 'counterAxisAlignItems');
   validateLayoutNumbers(frame);
+  applyLayoutSelfFromSpec(frame, spec as Record<string, unknown>);
   return frame;
 }
 
@@ -371,6 +381,13 @@ function validateOptionalLayoutWrap(v: unknown): void {
   if (v === undefined) return;
   if (v !== 'NO_WRAP' && v !== 'WRAP') {
     throw new ValidationErr('VALIDATION_ERROR', 'layoutWrap must be NO_WRAP or WRAP');
+  }
+}
+
+function validateOptionalCounterAxisAlignContent(v: unknown): void {
+  if (v === undefined) return;
+  if (v !== 'AUTO' && v !== 'SPACE_BETWEEN') {
+    throw new ValidationErr('VALIDATION_ERROR', 'counterAxisAlignContent must be AUTO or SPACE_BETWEEN');
   }
 }
 
@@ -389,6 +406,7 @@ function validateLayoutNumbers(f: FrameNode): void {
     ['paddingTop', f.paddingTop],
     ['paddingBottom', f.paddingBottom],
     ['itemSpacing', f.itemSpacing],
+    ['counterAxisSpacing', f.counterAxisSpacing],
   ] as const) {
     if (v === undefined) continue;
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
@@ -466,6 +484,7 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
   if (text.visible !== undefined && typeof text.visible !== 'boolean') {
     throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
   }
+  applyLayoutSelfFromSpec(text, spec as Record<string, unknown>);
   return text;
 }
 
@@ -520,6 +539,7 @@ function normalizeNewRectangle(spec: Extract<NewNodeSpec, { type: 'RECTANGLE' }>
   }
   validateStrokeGeometry('RECTANGLE', n);
   validateBlendMode(spec.blendMode, 'RECTANGLE.blendMode');
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -565,6 +585,7 @@ function normalizeNewEllipse(spec: Extract<NewNodeSpec, { type: 'ELLIPSE' }>, id
   }
   validateStrokeGeometry('ELLIPSE', n);
   validateBlendMode(spec.blendMode, 'ELLIPSE.blendMode');
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -609,6 +630,7 @@ function normalizeNewLine(spec: Extract<NewNodeSpec, { type: 'LINE' }>, id: stri
   }
   validateStrokeGeometry('LINE', n);
   validateBlendMode(spec.blendMode, 'LINE.blendMode');
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -658,6 +680,7 @@ function normalizeNewPolygon(spec: Extract<NewNodeSpec, { type: 'POLYGON' }>, id
   }
   validateStrokeGeometry('POLYGON', n);
   validateBlendMode(spec.blendMode, 'POLYGON.blendMode');
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -712,6 +735,7 @@ function normalizeNewStar(spec: Extract<NewNodeSpec, { type: 'STAR' }>, id: stri
   }
   validateStrokeGeometry('STAR', n);
   validateBlendMode(spec.blendMode, 'STAR.blendMode');
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -772,6 +796,7 @@ function normalizeNewVector(spec: Extract<NewNodeSpec, { type: 'VECTOR' }>, id: 
   if (n.visible !== undefined && typeof n.visible !== 'boolean') {
     throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
   }
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -1180,6 +1205,7 @@ function normalizeNewBooleanOperation(
   if (n.visible !== undefined && typeof n.visible !== 'boolean') {
     throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
   }
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -1213,6 +1239,7 @@ function normalizeNewTransformGroup(
   if (n.visible !== undefined && typeof n.visible !== 'boolean') {
     throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
   }
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -1233,6 +1260,7 @@ function normalizeNewGroup(spec: Extract<NewNodeSpec, { type: 'GROUP' }>, id: st
   };
   validateShapeBox(n);
   validateBlendMode(spec.blendMode, 'GROUP.blendMode');
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -1252,6 +1280,7 @@ function normalizeNewSlice(spec: Extract<NewNodeSpec, { type: 'SLICE' }>, id: st
   };
   validateShapeBox(n);
   validateBlendMode(spec.blendMode, 'SLICE.blendMode');
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -1278,6 +1307,7 @@ function normalizeNewSection(
   validateShapeBox(n);
   if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
   validateBlendMode(spec.blendMode, 'SECTION.blendMode');
+  applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
 }
 
@@ -1442,12 +1472,8 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
       patch[k] = v;
     }
     applyPatch(working, node, patch);
-    if (
-      node.type !== 'DOCUMENT' &&
-      node.type !== 'PAGE' &&
-      'layoutAlign' in node
-    ) {
-      applyLayoutSelfPatch(node, patch);
+    if ((sceneShapeTypes as readonly string[]).includes(node.type)) {
+      applyLayoutSelfPatch(node as LayoutSelfFields, patch);
     }
     if (node.type === 'FRAME') {
       const f = node;
@@ -2001,6 +2027,10 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       f.layoutWrap = patch.layoutWrap as FrameNode['layoutWrap'];
       validateOptionalLayoutWrap(f.layoutWrap);
     }
+    if ('counterAxisAlignContent' in patch) {
+      f.counterAxisAlignContent = patch.counterAxisAlignContent as FrameNode['counterAxisAlignContent'];
+      validateOptionalCounterAxisAlignContent(f.counterAxisAlignContent);
+    }
     if ('primaryAxisAlignItems' in patch) {
       f.primaryAxisAlignItems = patch.primaryAxisAlignItems as FrameNode['primaryAxisAlignItems'];
       validateOptionalAxisAlign(f.primaryAxisAlignItems, 'primaryAxisAlignItems');
@@ -2009,7 +2039,14 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       f.counterAxisAlignItems = patch.counterAxisAlignItems as FrameNode['counterAxisAlignItems'];
       validateOptionalAxisAlign(f.counterAxisAlignItems, 'counterAxisAlignItems');
     }
-    for (const k of ['paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom', 'itemSpacing'] as const) {
+    for (const k of [
+      'paddingLeft',
+      'paddingRight',
+      'paddingTop',
+      'paddingBottom',
+      'itemSpacing',
+      'counterAxisSpacing',
+    ] as const) {
       if (k in patch) {
         const v = patch[k];
         if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${k} must be number`);
