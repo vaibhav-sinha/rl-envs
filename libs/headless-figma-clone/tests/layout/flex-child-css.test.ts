@@ -66,6 +66,26 @@ describe('flexChildCss', () => {
     expect(css).not.toContain('width:80px');
   });
 
+  it('emits min/max width for FILL child in horizontal auto-layout (scenario 28)', () => {
+    const child: RectangleNode = {
+      id: 'I4',
+      type: 'RECTANGLE',
+      name: 'Child',
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 40,
+      layoutSizingHorizontal: 'FILL',
+      minWidth: 80,
+      maxWidth: 160,
+    };
+    const css = flexChildLayoutCss(child, true, { absX: 0, absY: 0, width: 200, height: 40 }, parentRow);
+    expect(css).toMatch(/flex:\s*1\s+1/);
+    expect(css).toContain('min-width:80px');
+    expect(css).toContain('max-width:160px');
+    expect(css).not.toContain('min-width:0');
+  });
+
   it('uses vertical layout main axis when parent layoutMode is VERTICAL', () => {
     const parentCol: FrameNode = { ...parentRow, layoutMode: 'VERTICAL' };
     const child: RectangleNode = {

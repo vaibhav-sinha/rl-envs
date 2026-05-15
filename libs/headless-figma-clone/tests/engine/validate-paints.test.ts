@@ -11,6 +11,17 @@ describe('validatePaints', () => {
     expect(p.type).toBe('SOLID');
   });
 
+  it('maps SOLID color.a to paint opacity', () => {
+    const p = assertPaint(
+      { type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.95, a: 0.5 } },
+      'fills[0]',
+      env
+    );
+    expect(p.type).toBe('SOLID');
+    if (p.type !== 'SOLID') return;
+    expect(p.opacity).toBe(0.5);
+  });
+
   it('rejects SOLID with out-of-range RGB', () => {
     expect(() =>
       assertPaint({ type: 'SOLID', color: { r: 2, g: 0, b: 0 } }, 'fills[0]', env)

@@ -1,3 +1,3 @@
-Mixed styledSegments with size, color, and hyperlink.
+Mixed text ranges via setRangeFontSize, setRangeFills, and setRangeHyperlink.
 
 Expected: two-tone text with underlined link span.

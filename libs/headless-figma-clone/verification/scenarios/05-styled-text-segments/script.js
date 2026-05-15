@@ -18,10 +18,9 @@ text.fontSize = 14;
 text.x = 120;
 text.y = 160;
 text.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.2, b: 0.25 } }];
-text.styledSegments = [
-  { start: 0, end: 3, fontSize: 24, fills: [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.1 } }] },
-  { start: 4, end: 7, fills: [{ type: 'SOLID', color: { r: 0.9, g: 0.1, b: 0.1 } }] },
-  { start: 8, end: 12, hyperlink: { type: 'URL', value: 'https://example.com' } },
-];
+text.setRangeFontSize(0, 3, 24);
+text.setRangeFills(0, 3, [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.1 } }]);
+text.setRangeFills(4, 7, [{ type: 'SOLID', color: { r: 0.9, g: 0.1, b: 0.1 } }]);
+text.setRangeHyperlink(8, 12, { type: 'URL', value: 'https://example.com' });
 root.appendChild(text);
 return { rootId: root.id };

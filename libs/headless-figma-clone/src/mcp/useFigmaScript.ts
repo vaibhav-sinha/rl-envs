@@ -26,6 +26,7 @@ import type {
   PageNode,
   Paint,
   StyledSegment,
+  TextRangeStyle,
   VectorNode,
 } from '../model/types.js';
 import { DEFAULT_FRAME_FILLS } from '../model/types.js';
@@ -211,6 +212,11 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
           applyEngineOp(ctx.working, op);
           ctx.deletedIds.add(id);
           return [];
+        };
+      }
+      if (prop === 'resize') {
+        return (w: number, h: number): void => {
+          queueUpdate(ctx, id, { width: w, height: h });
         };
       }
       const live = findEnvelopeNode(ctx.working, id);
@@ -515,9 +521,7 @@ class RuntimeText extends RuntimeSceneNode {
 
   set styledSegments(raw: unknown) {
     this.segments = parseStyledSegmentsInput(raw) ?? [];
-    if (this.attached && this._id !== null) {
-      queueUpdate(this.ctx, this._id, { styledSegments: [...this.segments] });
-    }
+    this.syncStyledSegments();
   }
 
   toNewNodeSpec(): NewNodeSpec {
@@ -550,18 +554,48 @@ class RuntimeText extends RuntimeSceneNode {
     };
   }
 
-  setRangeFontSize(start: number, end: number, fontSize: number): void {
-    this.segments.push({ start, end, style: { fontSize } });
+  private applyRangeStyle(start: number, end: number, patch: Partial<TextRangeStyle>): void {
+    const i = this.segments.findIndex((s) => s.start === start && s.end === end);
+    if (i >= 0) {
+      this.segments[i] = { start, end, style: { ...this.segments[i]!.style, ...patch } };
+    } else {
+      this.segments.push({ start, end, style: { ...patch } });
+    }
+    this.syncStyledSegments();
+  }
+
+  private syncStyledSegments(): void {
     if (this.attached && this._id !== null) {
       queueUpdate(this.ctx, this._id, { styledSegments: [...this.segments] });
     }
   }
 
-  setRangeHyperlink(start: number, end: number, link: { type: 'URL'; url: string }): void {
-    this.segments.push({ start, end, style: { hyperlink: link } });
-    if (this.attached && this._id !== null) {
-      queueUpdate(this.ctx, this._id, { styledSegments: [...this.segments] });
+  setRangeFontSize(start: number, end: number, fontSize: number): void {
+    this.applyRangeStyle(start, end, { fontSize });
+  }
+
+  setRangeFills(start: number, end: number, fills: Paint[]): void {
+    this.applyRangeStyle(start, end, { fills: deepClone(fills) });
+  }
+
+  setRangeHyperlink(
+    start: number,
+    end: number,
+    link: { type: 'URL'; url?: string; value?: string } | null
+  ): void {
+    if (link === null) {
+      const i = this.segments.findIndex((s) => s.start === start && s.end === end);
+      if (i >= 0) {
+        const next = { ...this.segments[i]!.style };
+        delete next.hyperlink;
+        this.segments[i] = { start, end, style: next };
+        this.syncStyledSegments();
+      }
+      return;
     }
+    const url = link.url ?? link.value;
+    if (!url) return;
+    this.applyRangeStyle(start, end, { hyperlink: { type: 'URL', url } });
   }
 }
 
