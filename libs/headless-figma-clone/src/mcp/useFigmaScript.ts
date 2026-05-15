@@ -8,6 +8,7 @@ import {
   type EngineOperation,
   type NewNodeSpec,
 } from '../engine/DocumentEngine.js';
+import { applyEnvelopeOperation } from '../engine/envelopeOps.js';
 import { boundsOfNodes, queueFlattenNodes, queueGroupNodes, queueUngroup } from '../engine/graphOps.js';
 import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
 import { hasMissingFont, listAvailableFonts, loadFontAsync } from '../fonts/fontCatalog.js';
@@ -35,7 +36,11 @@ import type {
 } from '../model/types.js';
 import { DEFAULT_FRAME_FILLS } from '../model/types.js';
 import { createStylesApi } from '../styles/StylesAPI.js';
-import { bindVariableToNodeField, createVariablesApi } from '../variables/VariablesAPI.js';
+import {
+  bindVariableToNodeField,
+  canDeferSetBoundVariable,
+  createVariablesApi,
+} from '../variables/VariablesAPI.js';
 import { ValidationErr } from '../util/errors.js';
 
 function deepClone<T>(v: T): T {
@@ -218,6 +223,54 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
           return [];
         };
       }
+      if (prop === 'defaultVariant') {
+        const live = findEnvelopeNode(ctx.working, id);
+        if (!live || live.type !== 'COMPONENT_SET') return undefined;
+        const set = live as import('../model/types.js').ComponentSetNode;
+        const variantId = set.componentIds[0];
+        if (!variantId) return undefined;
+        return createHandleProxy(ctx, variantId);
+      }
+      if (prop === 'createInstance') {
+        return (): unknown => {
+          const live = findEnvelopeNode(ctx.working, id);
+          if (!live || live.type !== 'COMPONENT') {
+            throw new ValidationErr('VALIDATION_ERROR', 'createInstance is only supported on COMPONENT nodes');
+          }
+          return createComponentInstanceFromMainId(ctx, id);
+        };
+      }
+      if (prop === 'setExplicitVariableModeForCollection') {
+        return (collection: { id: string }, modeId: string): void => {
+          const op: EngineOperation = {
+            op: 'setVariableCollectionActiveMode',
+            collectionId: collection.id,
+            modeId,
+          };
+          ctx.ops.push(op);
+          applyEnvelopeOperation(ctx.working, op);
+        };
+      }
+      if (prop === 'setFillStyleIdAsync') {
+        return async (styleId: string): Promise<void> => {
+          if (!ctx.working.paintStyles?.some((s) => s.id === styleId)) {
+            throw new ValidationErr('VALIDATION_ERROR', 'fillStyleId must reference an existing paint style');
+          }
+          queueUpdate(ctx, id, { fillStyleId: styleId });
+        };
+      }
+      if (prop === 'setTextStyleIdAsync') {
+        return async (styleId: string): Promise<void> => {
+          const live = findEnvelopeNode(ctx.working, id);
+          if (!live || live.type !== 'TEXT') {
+            throw new ValidationErr('VALIDATION_ERROR', 'setTextStyleIdAsync is only supported on TEXT nodes');
+          }
+          if (!ctx.working.textStyles?.some((s) => s.id === styleId)) {
+            throw new ValidationErr('VALIDATION_ERROR', 'textStyleId must reference an existing text style');
+          }
+          queueUpdate(ctx, id, { textStyleId: styleId });
+        };
+      }
       if (prop === 'resize') {
         return (w: number, h: number): void => {
           queueUpdate(ctx, id, { width: w, height: h });
@@ -318,6 +371,7 @@ abstract class RuntimeSceneNode {
   attached = false;
   protected ctx!: ScriptContext;
   private pendingChildren: Array<{ child: RuntimeSceneNode | { id: string }; index?: number }> = [];
+  private pendingBoundVariables: Array<{ field: string; variable: { id: string } | null }> = [];
 
   protected appendChildInternal(child: RuntimeSceneNode | { id: string }, index?: number): void {
     if (!this.attached || this._id === null) {
@@ -385,22 +439,63 @@ abstract class RuntimeSceneNode {
     }
     this.attached = true;
     this.flushPendingChildren();
+    this.flushPendingBoundVariables();
+  }
+
+  protected flushPendingBoundVariables(): void {
+    if (!this.attached || this._id === null) return;
+    const pending = [...this.pendingBoundVariables];
+    this.pendingBoundVariables = [];
+    for (const { field, variable } of pending) {
+      this.applyBoundVariable(field, variable);
+    }
+  }
+
+  protected applyBoundVariable(field: string, variable: { id: string } | null): void {
+    const patch = bindVariableToNodeField(
+      this.ctx.working,
+      this._id!,
+      field as Parameters<typeof bindVariableToNodeField>[2],
+      variable
+    );
+    if ('fills' in patch) {
+      (this as { fills?: Paint[] }).fills = patch.fills as Paint[] | undefined;
+    }
+    if ('strokes' in patch) {
+      (this as { strokes?: Paint[] }).strokes = patch.strokes as Paint[] | undefined;
+    }
+    queueUpdate(this.ctx, this._id!, patch);
   }
 
   setBoundVariable(field: string, variable: { id: string } | null): void {
     if (!this.attached || this._id === null) {
+      if (canDeferSetBoundVariable(this.type, field)) {
+        this.pendingBoundVariables.push({ field, variable });
+        return;
+      }
       throw new Error('setBoundVariable requires the node to be appended to the document');
     }
-    if (this.type !== 'FRAME' && this.type !== 'TEXT') {
-      throw new ValidationErr('VALIDATION_ERROR', `Node type ${this.type} does not support setBoundVariable`);
+    this.applyBoundVariable(field, variable);
+  }
+
+  async setFillStyleIdAsync(styleId: string): Promise<void> {
+    if (!this.ctx.working.paintStyles?.some((s) => s.id === styleId)) {
+      throw new ValidationErr('VALIDATION_ERROR', 'fillStyleId must reference an existing paint style');
     }
-    const patch = bindVariableToNodeField(
-      this.ctx.working,
-      this._id,
-      field as Parameters<typeof bindVariableToNodeField>[2],
-      variable
-    );
-    queueUpdate(this.ctx, this._id, patch);
+    (this as { fillStyleId?: string }).fillStyleId = styleId;
+    if (this.attached && this._id !== null) {
+      queueUpdate(this.ctx, this._id, { fillStyleId: styleId });
+    }
+  }
+
+  setExplicitVariableModeForCollection(collection: { id: string }, modeId: string): void {
+    const op: EngineOperation = {
+      op: 'setVariableCollectionActiveMode',
+      collectionId: collection.id,
+      modeId,
+    };
+    this.ctx.ops.push(op);
+    applyEnvelopeOperation(this.ctx.working, op);
   }
 
   /** Figma-compatible async fills setter (required for pattern paints). */
@@ -564,6 +659,16 @@ class RuntimeText extends RuntimeSceneNode {
   set styledSegments(raw: unknown) {
     this.segments = parseStyledSegmentsInput(raw) ?? [];
     this.syncStyledSegments();
+  }
+
+  async setTextStyleIdAsync(styleId: string): Promise<void> {
+    if (!this.ctx.working.textStyles?.some((s) => s.id === styleId)) {
+      throw new ValidationErr('VALIDATION_ERROR', 'textStyleId must reference an existing text style');
+    }
+    this.textStyleId = styleId;
+    if (this.attached && this._id !== null) {
+      queueUpdate(this.ctx, this._id, { textStyleId: styleId });
+    }
   }
 
   toNewNodeSpec(): NewNodeSpec {
@@ -1291,6 +1396,34 @@ export interface RunUseFigmaScriptErr {
   message: string;
 }
 
+function createComponentInstanceFromMainId(
+  ctx: ScriptContext,
+  mainComponentId: string
+): RuntimeComponentInstance {
+  const main = findEnvelopeNode(ctx.working, mainComponentId);
+  if (
+    !main ||
+    (main.type !== 'COMPONENT' && main.type !== 'COMPONENT_SET' && main.type !== 'COMPONENT_INSTANCE')
+  ) {
+    throw new ValidationErr(
+      'VALIDATION_ERROR',
+      `createComponentInstance: unknown main component ${mainComponentId}`
+    );
+  }
+  const n = new RuntimeComponentInstance().bindContext(ctx);
+  n.mainComponentId = mainComponentId;
+  if (main.type === 'COMPONENT_SET') {
+    const set = main as import('../model/types.js').ComponentSetNode;
+    const key = set.variantPropertyKey ?? 'variant';
+    const firstOption =
+      set.variantOptions?.[0] ??
+      (findEnvelopeNode(ctx.working, set.componentIds[0]) as { name?: string } | null)?.name ??
+      (set.componentIds[0] ?? '');
+    n.componentProperties = { [key]: { type: 'VARIANT', value: String(firstOption) } };
+  }
+  return wrapRuntimeNode(n, ctx);
+}
+
 export async function runUseFigmaScript(
   code: string,
   engine: DocumentEngine
@@ -1556,19 +1689,11 @@ export async function runUseFigmaScript(
       return createHandleProxy(ctx, setId);
     },
     createComponentInstance(mainComponentId: string): RuntimeComponentInstance {
-      const n = new RuntimeComponentInstance().bindContext(ctx);
-      n.mainComponentId = mainComponentId;
-      const main = findEnvelopeNode(ctx.working, mainComponentId);
-      if (main && main.type === 'COMPONENT_SET') {
-        const set = main as import('../model/types.js').ComponentSetNode;
-        const key = set.variantPropertyKey ?? 'variant';
-        const firstOption =
-          set.variantOptions?.[0] ??
-          (findEnvelopeNode(ctx.working, set.componentIds[0]) as any)?.name ??
-          (set.componentIds[0] ?? '');
-        n.componentProperties = { [key]: { type: 'VARIANT', value: String(firstOption) } };
-      }
-      return wrapRuntimeNode(n, ctx);
+      return createComponentInstanceFromMainId(ctx, mainComponentId);
+    },
+    createInstance(componentOrId: string | { id: string }): RuntimeComponentInstance {
+      const mainComponentId = typeof componentOrId === 'string' ? componentOrId : componentOrId.id;
+      return createComponentInstanceFromMainId(ctx, mainComponentId);
     },
     loadAllPagesAsync: async (): Promise<void> => {},
     listAvailableFontsAsync: async (): Promise<FontName[]> => listAvailableFonts(),

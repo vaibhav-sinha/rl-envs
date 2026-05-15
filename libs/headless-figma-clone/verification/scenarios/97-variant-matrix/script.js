@@ -24,7 +24,7 @@ const set = figma.combineAsVariants(variants, figma.currentPage);
 let i = 0;
 for (let row = 0; row < 2; row++) {
   for (let col = 0; col < 2; col++) {
-    const inst = figma.createComponentInstance(set.id);
+    const inst = variants[col].createInstance();
     inst.x = 100 + col * 100;
     inst.y = 100 + row * 48;
     root.appendChild(inst);

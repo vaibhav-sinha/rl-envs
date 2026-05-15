@@ -23,7 +23,7 @@ fB.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.5, b: 0.1 } }];
 figma.currentPage.appendChild(fB);
 const cB = figma.createComponentFromNode(fB);
 const set = figma.combineAsVariants([cA, cB], figma.currentPage);
-const inst = figma.createComponentInstance(set.id);
+const inst = set.defaultVariant.createInstance();
 inst.x = 190;
 inst.y = 160;
 root.appendChild(inst);

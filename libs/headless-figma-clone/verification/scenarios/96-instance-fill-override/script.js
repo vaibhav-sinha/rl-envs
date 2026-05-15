@@ -16,7 +16,7 @@ frame.resize(100, 40);
 frame.fills = [{ type: 'SOLID', color: { r: 0.15, g: 0.45, b: 0.95 } }];
 figma.currentPage.appendChild(frame);
 const comp = figma.createComponentFromNode(frame);
-const inst = figma.createComponentInstance(comp.id);
+const inst = comp.createInstance();
 inst.x = 190;
 inst.y = 160;
 root.appendChild(inst);

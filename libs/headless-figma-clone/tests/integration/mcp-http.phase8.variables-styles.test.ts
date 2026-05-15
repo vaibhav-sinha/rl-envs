@@ -55,7 +55,7 @@ describe('mcp-http phase8 variables and styles', () => {
 
     const code = `
       const col = figma.variables.createVariableCollection('Layout');
-      const modeId = col.modes[0].id;
+      const modeId = col.modes[0].modeId;
       const gap = figma.variables.createVariable('gap', col, 'FLOAT');
       figma.variables.setValueForMode(gap.id, modeId, { type: 'FLOAT', value: 12 });
       const brand = figma.variables.createVariable('brand', col, 'COLOR');

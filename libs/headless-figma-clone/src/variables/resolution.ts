@@ -115,7 +115,7 @@ export interface VariableDefsPayload {
     id: string;
     name: string;
     defaultModeId: string;
-    modes: Array<{ id: string; name: string }>;
+    modes: Array<{ modeId: string; name: string }>;
     variables: Array<{
       id: string;
       name: string;
@@ -133,7 +133,7 @@ export function buildVariableDefsPayload(env: FileEnvelope): VariableDefsPayload
       id: col.id,
       name: col.name,
       defaultModeId: col.defaultModeId,
-      modes: col.modes.map((m) => ({ id: m.id, name: m.name })),
+      modes: col.modes.map((m) => ({ modeId: m.id, name: m.name })),
       variables: col.variables.map((v) => ({
         id: v.id,
         name: v.name,

@@ -10,6 +10,7 @@ import type {
   VariableDefinition,
   VariableResolvedValue,
 } from '../model/types.js';
+import { assertRequiredModeId } from '../variables/validation.js';
 import { ValidationErr } from '../util/errors.js';
 import { findVariableDefinition } from '../variables/resolution.js';
 import { validateEffects } from './validateEffects.js';
@@ -258,6 +259,7 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
     return;
   }
   if (op.op === 'setVariableValueForMode') {
+    assertRequiredModeId(op.modeId);
     const hit = findVariableDefinition(working, op.variableId);
     if (!hit) throw new ValidationErr('VALIDATION_ERROR', `Unknown variable ${op.variableId}`);
     if (hit.variable.aliasOfVariableId) {

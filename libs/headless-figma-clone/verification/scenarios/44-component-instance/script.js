@@ -22,7 +22,7 @@ label.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
 frame.appendChild(label);
 figma.currentPage.appendChild(frame);
 const comp = figma.createComponentFromNode(frame);
-const inst = figma.createComponentInstance(comp.id);
+const inst = comp.createInstance();
 inst.x = 180;
 inst.y = 160;
 root.appendChild(inst);
