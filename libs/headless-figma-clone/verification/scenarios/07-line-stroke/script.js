@@ -1,0 +1,15 @@
+const root = figma.createFrame();
+root.name = 'ScenarioRoot';
+root.resize(480, 360);
+root.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
+figma.currentPage.appendChild(root);
+const line = figma.createLine();
+line.resize(280, 0);
+line.x = 100;
+line.y = 180;
+line.rotation = 15;
+line.strokes = [{ type: 'SOLID', color: { r: 0.1, g: 0.4, b: 0.9 } }];
+line.strokeWeight = 6;
+line.strokeCap = 'ROUND';
+root.appendChild(line);
+return { rootId: root.id };

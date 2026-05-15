@@ -1,0 +1,3 @@
+Two modes; active mode sets fill.
+
+Expected: rectangle uses Dark mode blue.

@@ -1,0 +1,3 @@
+Instance swapComponent to alternate.
+
+Expected: instance shows second variant after swap.

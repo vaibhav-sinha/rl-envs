@@ -1,0 +1,3 @@
+Text along a curved path.
+
+Expected: characters follow arc path.

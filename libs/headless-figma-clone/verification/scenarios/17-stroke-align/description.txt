@@ -1,0 +1,3 @@
+strokeAlign INSIDE.
+
+Expected: stroke drawn inside fill bounds.

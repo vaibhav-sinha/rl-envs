@@ -1,0 +1,3 @@
+Rotated transformGroup with masked child.
+
+Expected: rotated masked gradient block.

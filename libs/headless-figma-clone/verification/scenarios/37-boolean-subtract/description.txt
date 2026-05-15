@@ -1,0 +1,3 @@
+figma.subtract hole in rect.
+
+Expected: rectangle with circular hole.

@@ -1,0 +1,3 @@
+dashPattern on stroked rect.
+
+Expected: dashed border rectangle.

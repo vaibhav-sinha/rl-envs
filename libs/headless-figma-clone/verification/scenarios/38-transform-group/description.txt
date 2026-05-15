@@ -1,0 +1,3 @@
+transformGroup with rotation.
+
+Expected: grouped shapes rotated together.

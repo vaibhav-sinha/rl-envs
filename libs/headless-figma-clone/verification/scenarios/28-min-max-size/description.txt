@@ -1,0 +1,3 @@
+Auto-layout child with min/max width.
+
+Expected: child clamped between min and max.

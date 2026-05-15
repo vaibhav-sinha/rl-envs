@@ -1,0 +1,3 @@
+Tests stroke with no fill.
+
+Expected: hollow rectangle with 4px black border.

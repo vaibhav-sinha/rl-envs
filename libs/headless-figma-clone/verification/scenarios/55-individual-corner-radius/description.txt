@@ -1,0 +1,3 @@
+Per-corner radii if supported.
+
+Expected: asymmetric rounded corners or uniform fallback.

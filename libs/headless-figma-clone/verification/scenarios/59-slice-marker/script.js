@@ -1,0 +1,17 @@
+const root = figma.createFrame();
+root.name = 'ScenarioRoot';
+root.resize(480, 360);
+root.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
+figma.currentPage.appendChild(root);
+const content = figma.createRectangle();
+content.resize(200, 120);
+content.x = 140;
+content.y = 120;
+content.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.55, b: 0.9 } }];
+root.appendChild(content);
+const slice = figma.createSlice();
+slice.x = 130;
+slice.y = 110;
+slice.resize(220, 140);
+root.appendChild(slice);
+return { rootId: root.id };

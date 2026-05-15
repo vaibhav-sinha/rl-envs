@@ -1,0 +1,3 @@
+FILL and HUG siblings in a row.
+
+Expected: green bar expands, orange stays narrow.

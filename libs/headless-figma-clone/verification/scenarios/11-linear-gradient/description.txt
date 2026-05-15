@@ -1,0 +1,3 @@
+GRADIENT_LINEAR fill left-to-right.
+
+Expected: blue-to-orange horizontal gradient rect.

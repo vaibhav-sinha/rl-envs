@@ -130,3 +130,41 @@ Example base URL: `http://127.0.0.1:3847`
 - Debug preview: `http://127.0.0.1:3847/debug/preview`
 
 Stop the server with **Ctrl+C** (SIGINT) or SIGTERM.
+
+## Verification (Figma vs clone screenshots)
+
+Visual parity scenarios live under `verification/`. Each scenario is a subdirectory of `verification/scenarios/` with:
+
+| File | Purpose |
+|------|---------|
+| `script.js` | JavaScript body for `use_figma` `{ code }` (same script sent to real Figma MCP and the clone) |
+| `description.txt` | What is tested and expected output |
+| `figma.png` | Screenshot from Figma (written by your runner) |
+| `clone.png` | Screenshot from the clone (written by your runner) |
+
+`verification/manifest.json` lists all 100 scenarios in order (foundational 01–50, advanced 51–100).
+
+### View results (slideshow)
+
+```bash
+npm run verify:view:dev
+```
+
+Or after build:
+
+```bash
+npm run build
+npm run verify:view
+```
+
+Opens a local viewer at `http://127.0.0.1:4173/` with side-by-side **Figma | Clone** images. Use **Previous** / **Next** or arrow keys. Optional flags: `--port 4173`, `--dir <path-to-verification>`.
+
+```bash
+hfc verify-view --verify-port 4173
+```
+
+Regenerate scenario files from definitions:
+
+```bash
+node verification/scripts/generate-scenarios.mjs
+```

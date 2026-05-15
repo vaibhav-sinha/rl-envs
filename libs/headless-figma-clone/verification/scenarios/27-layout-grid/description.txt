@@ -1,0 +1,3 @@
+Column layout grid on frame.
+
+Expected: faint vertical grid columns visible.

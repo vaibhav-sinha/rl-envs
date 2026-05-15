@@ -1,0 +1,3 @@
+Two DROP_SHADOW effects.
+
+Expected: layered shadow depth.

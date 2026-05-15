@@ -1,0 +1,3 @@
+Uniform cornerRadius.
+
+Expected: rounded rectangle.

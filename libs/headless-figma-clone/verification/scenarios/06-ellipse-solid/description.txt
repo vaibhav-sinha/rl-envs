@@ -1,0 +1,3 @@
+ELLIPSE with green fill.
+
+Expected: green oval centered on artboard.

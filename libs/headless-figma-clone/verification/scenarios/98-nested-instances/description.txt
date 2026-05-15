@@ -1,0 +1,3 @@
+Card instance containing button instance.
+
+Expected: nested component structure rendered.

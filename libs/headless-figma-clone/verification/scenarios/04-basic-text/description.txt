@@ -1,0 +1,3 @@
+Single-style TEXT node.
+
+Expected: "Hello Figma" in Inter 16px, dark gray.

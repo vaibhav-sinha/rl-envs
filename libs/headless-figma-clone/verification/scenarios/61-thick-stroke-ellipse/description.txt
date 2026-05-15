@@ -1,0 +1,3 @@
+Ellipse with thick stroke, no fill.
+
+Expected: ring shape.

@@ -1,0 +1,3 @@
+3-level nested frames with distinct fills.
+
+Expected: nested colored borders visible.

@@ -1,0 +1,945 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 480,
+    "height": 360
+  },
+  "scenarios": [
+    {
+      "id": "01-solid-fill-rectangle",
+      "title": "Solid fill rectangle",
+      "order": 1,
+      "tier": "foundational",
+      "tags": [
+        "fills",
+        "shapes"
+      ]
+    },
+    {
+      "id": "02-solid-stroke-rectangle",
+      "title": "Solid stroke rectangle",
+      "order": 2,
+      "tier": "foundational",
+      "tags": [
+        "strokes"
+      ]
+    },
+    {
+      "id": "03-frame-background-clip",
+      "title": "Frame background and clip",
+      "order": 3,
+      "tier": "foundational",
+      "tags": [
+        "frame",
+        "clip"
+      ]
+    },
+    {
+      "id": "04-basic-text",
+      "title": "Basic text",
+      "order": 4,
+      "tier": "foundational",
+      "tags": [
+        "text"
+      ]
+    },
+    {
+      "id": "05-styled-text-segments",
+      "title": "Styled text segments",
+      "order": 5,
+      "tier": "foundational",
+      "tags": [
+        "text",
+        "styledSegments"
+      ]
+    },
+    {
+      "id": "06-ellipse-solid",
+      "title": "Ellipse solid fill",
+      "order": 6,
+      "tier": "foundational",
+      "tags": [
+        "shapes"
+      ]
+    },
+    {
+      "id": "07-line-stroke",
+      "title": "Line stroke",
+      "order": 7,
+      "tier": "foundational",
+      "tags": [
+        "line"
+      ]
+    },
+    {
+      "id": "08-opacity",
+      "title": "Opacity",
+      "order": 8,
+      "tier": "foundational",
+      "tags": [
+        "opacity"
+      ]
+    },
+    {
+      "id": "09-rotation",
+      "title": "Rotation",
+      "order": 9,
+      "tier": "foundational",
+      "tags": [
+        "rotation"
+      ]
+    },
+    {
+      "id": "10-blend-mode",
+      "title": "Blend mode multiply",
+      "order": 10,
+      "tier": "foundational",
+      "tags": [
+        "blendMode"
+      ]
+    },
+    {
+      "id": "11-linear-gradient",
+      "title": "Linear gradient",
+      "order": 11,
+      "tier": "foundational",
+      "tags": [
+        "gradient"
+      ]
+    },
+    {
+      "id": "12-radial-gradient",
+      "title": "Radial gradient",
+      "order": 12,
+      "tier": "foundational",
+      "tags": [
+        "gradient"
+      ]
+    },
+    {
+      "id": "13-image-fill",
+      "title": "Image fill",
+      "order": 13,
+      "tier": "foundational",
+      "tags": [
+        "image"
+      ]
+    },
+    {
+      "id": "14-polygon",
+      "title": "Polygon",
+      "order": 14,
+      "tier": "foundational",
+      "tags": [
+        "polygon"
+      ]
+    },
+    {
+      "id": "15-star",
+      "title": "Star",
+      "order": 15,
+      "tier": "foundational",
+      "tags": [
+        "star"
+      ]
+    },
+    {
+      "id": "16-dashed-stroke",
+      "title": "Dashed stroke",
+      "order": 16,
+      "tier": "foundational",
+      "tags": [
+        "stroke"
+      ]
+    },
+    {
+      "id": "17-stroke-align",
+      "title": "Stroke align inside",
+      "order": 17,
+      "tier": "foundational",
+      "tags": [
+        "stroke"
+      ]
+    },
+    {
+      "id": "18-corner-radius",
+      "title": "Corner radius",
+      "order": 18,
+      "tier": "foundational",
+      "tags": [
+        "cornerRadius"
+      ]
+    },
+    {
+      "id": "19-multi-fill",
+      "title": "Multi fill stack",
+      "order": 19,
+      "tier": "foundational",
+      "tags": [
+        "fills"
+      ]
+    },
+    {
+      "id": "20-pattern-fill",
+      "title": "Pattern fill",
+      "order": 20,
+      "tier": "foundational",
+      "tags": [
+        "pattern"
+      ]
+    },
+    {
+      "id": "21-autolayout-horizontal",
+      "title": "Auto layout horizontal",
+      "order": 21,
+      "tier": "foundational",
+      "tags": [
+        "autolayout"
+      ]
+    },
+    {
+      "id": "22-autolayout-vertical",
+      "title": "Auto layout vertical",
+      "order": 22,
+      "tier": "foundational",
+      "tags": [
+        "autolayout"
+      ]
+    },
+    {
+      "id": "23-layout-sizing-fill-hug",
+      "title": "Layout sizing FILL vs HUG",
+      "order": 23,
+      "tier": "foundational",
+      "tags": [
+        "autolayout",
+        "layoutSizing"
+      ]
+    },
+    {
+      "id": "24-autolayout-wrap",
+      "title": "Auto layout wrap",
+      "order": 24,
+      "tier": "foundational",
+      "tags": [
+        "autolayout",
+        "wrap"
+      ]
+    },
+    {
+      "id": "25-absolute-positioning",
+      "title": "Absolute positioning",
+      "order": 25,
+      "tier": "foundational",
+      "tags": [
+        "autolayout",
+        "absolute"
+      ]
+    },
+    {
+      "id": "26-constraints",
+      "title": "Constraints stretch",
+      "order": 26,
+      "tier": "foundational",
+      "tags": [
+        "constraints"
+      ]
+    },
+    {
+      "id": "27-layout-grid",
+      "title": "Layout grid",
+      "order": 27,
+      "tier": "foundational",
+      "tags": [
+        "layoutGrids"
+      ]
+    },
+    {
+      "id": "28-min-max-size",
+      "title": "Min max size",
+      "order": 28,
+      "tier": "foundational",
+      "tags": [
+        "autolayout",
+        "minMax"
+      ]
+    },
+    {
+      "id": "29-group",
+      "title": "Group",
+      "order": 29,
+      "tier": "foundational",
+      "tags": [
+        "group"
+      ]
+    },
+    {
+      "id": "30-section",
+      "title": "Section",
+      "order": 30,
+      "tier": "foundational",
+      "tags": [
+        "section"
+      ]
+    },
+    {
+      "id": "31-drop-shadow",
+      "title": "Drop shadow",
+      "order": 31,
+      "tier": "foundational",
+      "tags": [
+        "effects"
+      ]
+    },
+    {
+      "id": "32-backdrop-blur",
+      "title": "Backdrop blur",
+      "order": 32,
+      "tier": "foundational",
+      "tags": [
+        "effects",
+        "blur"
+      ]
+    },
+    {
+      "id": "33-mask",
+      "title": "Mask",
+      "order": 33,
+      "tier": "foundational",
+      "tags": [
+        "mask"
+      ]
+    },
+    {
+      "id": "34-clip-content",
+      "title": "Clip content",
+      "order": 34,
+      "tier": "foundational",
+      "tags": [
+        "clip",
+        "rotation"
+      ]
+    },
+    {
+      "id": "35-vector-path",
+      "title": "Vector path",
+      "order": 35,
+      "tier": "foundational",
+      "tags": [
+        "vector"
+      ]
+    },
+    {
+      "id": "36-boolean-union",
+      "title": "Boolean union",
+      "order": 36,
+      "tier": "foundational",
+      "tags": [
+        "boolean"
+      ]
+    },
+    {
+      "id": "37-boolean-subtract",
+      "title": "Boolean subtract",
+      "order": 37,
+      "tier": "foundational",
+      "tags": [
+        "boolean"
+      ]
+    },
+    {
+      "id": "38-transform-group",
+      "title": "Transform group",
+      "order": 38,
+      "tier": "foundational",
+      "tags": [
+        "transformGroup"
+      ]
+    },
+    {
+      "id": "39-text-on-path",
+      "title": "Text on path",
+      "order": 39,
+      "tier": "foundational",
+      "tags": [
+        "textOnPath"
+      ]
+    },
+    {
+      "id": "40-table",
+      "title": "Table",
+      "order": 40,
+      "tier": "foundational",
+      "tags": [
+        "table"
+      ]
+    },
+    {
+      "id": "41-color-variable",
+      "title": "Color variable",
+      "order": 41,
+      "tier": "foundational",
+      "tags": [
+        "variables"
+      ]
+    },
+    {
+      "id": "42-float-variable-spacing",
+      "title": "Float variable spacing",
+      "order": 42,
+      "tier": "foundational",
+      "tags": [
+        "variables",
+        "autolayout"
+      ]
+    },
+    {
+      "id": "43-local-styles",
+      "title": "Local styles",
+      "order": 43,
+      "tier": "foundational",
+      "tags": [
+        "styles"
+      ]
+    },
+    {
+      "id": "44-component-instance",
+      "title": "Component instance",
+      "order": 44,
+      "tier": "foundational",
+      "tags": [
+        "components"
+      ]
+    },
+    {
+      "id": "45-component-variants",
+      "title": "Component variants",
+      "order": 45,
+      "tier": "foundational",
+      "tags": [
+        "components",
+        "variants"
+      ]
+    },
+    {
+      "id": "46-swap-component",
+      "title": "Swap component",
+      "order": 46,
+      "tier": "foundational",
+      "tags": [
+        "components"
+      ]
+    },
+    {
+      "id": "47-detach-instance",
+      "title": "Detach instance",
+      "order": 47,
+      "tier": "foundational",
+      "tags": [
+        "components"
+      ]
+    },
+    {
+      "id": "48-nav-bar-composite",
+      "title": "Nav bar composite",
+      "order": 48,
+      "tier": "foundational",
+      "tags": [
+        "composite",
+        "autolayout"
+      ]
+    },
+    {
+      "id": "49-card-dashboard",
+      "title": "Card dashboard",
+      "order": 49,
+      "tier": "foundational",
+      "tags": [
+        "composite",
+        "effects"
+      ]
+    },
+    {
+      "id": "50-full-showcase",
+      "title": "Full showcase",
+      "order": 50,
+      "tier": "foundational",
+      "tags": [
+        "composite"
+      ]
+    },
+    {
+      "id": "51-nested-frames",
+      "title": "Nested frames",
+      "order": 51,
+      "tier": "advanced",
+      "tags": [
+        "nesting",
+        "frames"
+      ]
+    },
+    {
+      "id": "52-sibling-paint-order",
+      "title": "Sibling paint order",
+      "order": 52,
+      "tier": "advanced",
+      "tags": [
+        "z-index",
+        "stacking"
+      ]
+    },
+    {
+      "id": "53-partial-overlap-no-blend",
+      "title": "Partial overlap no blend",
+      "order": 53,
+      "tier": "advanced",
+      "tags": [
+        "overlap"
+      ]
+    },
+    {
+      "id": "54-visible-false",
+      "title": "Visible false",
+      "order": 54,
+      "tier": "advanced",
+      "tags": [
+        "visibility"
+      ]
+    },
+    {
+      "id": "55-individual-corner-radius",
+      "title": "Individual corner radius",
+      "order": 55,
+      "tier": "advanced",
+      "tags": [
+        "cornerRadius"
+      ]
+    },
+    {
+      "id": "56-no-fill-vs-transparent",
+      "title": "No fill vs transparent",
+      "order": 56,
+      "tier": "advanced",
+      "tags": [
+        "fills"
+      ]
+    },
+    {
+      "id": "57-zero-opacity-layer",
+      "title": "Zero opacity layer",
+      "order": 57,
+      "tier": "advanced",
+      "tags": [
+        "opacity",
+        "autolayout"
+      ]
+    },
+    {
+      "id": "58-nested-groups",
+      "title": "Nested groups",
+      "order": 58,
+      "tier": "advanced",
+      "tags": [
+        "group"
+      ]
+    },
+    {
+      "id": "59-slice-marker",
+      "title": "Slice marker",
+      "order": 59,
+      "tier": "advanced",
+      "tags": [
+        "slice"
+      ]
+    },
+    {
+      "id": "60-empty-autolayout-min",
+      "title": "Empty auto layout min",
+      "order": 60,
+      "tier": "advanced",
+      "tags": [
+        "autolayout"
+      ]
+    },
+    {
+      "id": "61-thick-stroke-ellipse",
+      "title": "Thick stroke ellipse",
+      "order": 61,
+      "tier": "advanced",
+      "tags": [
+        "stroke",
+        "ellipse"
+      ]
+    },
+    {
+      "id": "62-gradient-stroke",
+      "title": "Gradient stroke",
+      "order": 62,
+      "tier": "advanced",
+      "tags": [
+        "stroke",
+        "gradient"
+      ]
+    },
+    {
+      "id": "63-stacked-fills-opacity",
+      "title": "Stacked fills opacity",
+      "order": 63,
+      "tier": "advanced",
+      "tags": [
+        "fills"
+      ]
+    },
+    {
+      "id": "64-image-under-gradient",
+      "title": "Image under gradient",
+      "order": 64,
+      "tier": "advanced",
+      "tags": [
+        "image",
+        "gradient"
+      ]
+    },
+    {
+      "id": "65-blend-screen-stack",
+      "title": "Blend screen stack",
+      "order": 65,
+      "tier": "advanced",
+      "tags": [
+        "blendMode"
+      ]
+    },
+    {
+      "id": "66-blend-overlay-stack",
+      "title": "Blend overlay stack",
+      "order": 66,
+      "tier": "advanced",
+      "tags": [
+        "blendMode"
+      ]
+    },
+    {
+      "id": "67-polygon-star-row",
+      "title": "Polygon star row",
+      "order": 67,
+      "tier": "advanced",
+      "tags": [
+        "shapes"
+      ]
+    },
+    {
+      "id": "68-multi-line-angles",
+      "title": "Multi line angles",
+      "order": 68,
+      "tier": "advanced",
+      "tags": [
+        "line"
+      ]
+    },
+    {
+      "id": "69-boolean-intersect",
+      "title": "Boolean intersect",
+      "order": 69,
+      "tier": "advanced",
+      "tags": [
+        "boolean"
+      ]
+    },
+    {
+      "id": "70-boolean-exclude",
+      "title": "Boolean exclude",
+      "order": 70,
+      "tier": "advanced",
+      "tags": [
+        "boolean"
+      ]
+    },
+    {
+      "id": "71-nested-autolayout",
+      "title": "Nested auto layout",
+      "order": 71,
+      "tier": "advanced",
+      "tags": [
+        "autolayout"
+      ]
+    },
+    {
+      "id": "72-autolayout-spacer",
+      "title": "Auto layout spacer",
+      "order": 72,
+      "tier": "advanced",
+      "tags": [
+        "autolayout"
+      ]
+    },
+    {
+      "id": "73-layout-grow-siblings",
+      "title": "Layout grow siblings",
+      "order": 73,
+      "tier": "advanced",
+      "tags": [
+        "autolayout",
+        "layoutGrow"
+      ]
+    },
+    {
+      "id": "74-counter-axis-stretch",
+      "title": "Counter axis stretch",
+      "order": 74,
+      "tier": "advanced",
+      "tags": [
+        "autolayout"
+      ]
+    },
+    {
+      "id": "75-space-between-row",
+      "title": "Space between row",
+      "order": 75,
+      "tier": "advanced",
+      "tags": [
+        "autolayout"
+      ]
+    },
+    {
+      "id": "76-asymmetric-padding",
+      "title": "Asymmetric padding",
+      "order": 76,
+      "tier": "advanced",
+      "tags": [
+        "autolayout"
+      ]
+    },
+    {
+      "id": "77-dual-absolute-overlap",
+      "title": "Dual absolute overlap",
+      "order": 77,
+      "tier": "advanced",
+      "tags": [
+        "absolute",
+        "z-index"
+      ]
+    },
+    {
+      "id": "78-constraints-pin-vertical",
+      "title": "Constraints pin vertical",
+      "order": 78,
+      "tier": "advanced",
+      "tags": [
+        "constraints"
+      ]
+    },
+    {
+      "id": "79-constraints-scale-horizontal",
+      "title": "Constraints scale horizontal",
+      "order": 79,
+      "tier": "advanced",
+      "tags": [
+        "constraints"
+      ]
+    },
+    {
+      "id": "80-grid-plus-autolayout",
+      "title": "Grid plus auto layout",
+      "order": 80,
+      "tier": "advanced",
+      "tags": [
+        "layoutGrids",
+        "autolayout"
+      ]
+    },
+    {
+      "id": "81-mask-over-image",
+      "title": "Mask over image",
+      "order": 81,
+      "tier": "advanced",
+      "tags": [
+        "mask",
+        "image"
+      ]
+    },
+    {
+      "id": "82-sequential-masks",
+      "title": "Sequential masks",
+      "order": 82,
+      "tier": "advanced",
+      "tags": [
+        "mask"
+      ]
+    },
+    {
+      "id": "83-mask-and-clip",
+      "title": "Mask and clip",
+      "order": 83,
+      "tier": "advanced",
+      "tags": [
+        "mask",
+        "clip"
+      ]
+    },
+    {
+      "id": "84-rotated-mask",
+      "title": "Rotated mask",
+      "order": 84,
+      "tier": "advanced",
+      "tags": [
+        "mask",
+        "rotation"
+      ]
+    },
+    {
+      "id": "85-shadow-plus-mask",
+      "title": "Shadow plus mask",
+      "order": 85,
+      "tier": "advanced",
+      "tags": [
+        "mask",
+        "effects"
+      ]
+    },
+    {
+      "id": "86-nested-clip-frames",
+      "title": "Nested clip frames",
+      "order": 86,
+      "tier": "advanced",
+      "tags": [
+        "clip"
+      ]
+    },
+    {
+      "id": "87-blur-overlay-stack",
+      "title": "Blur overlay stack",
+      "order": 87,
+      "tier": "advanced",
+      "tags": [
+        "blur",
+        "stacking"
+      ]
+    },
+    {
+      "id": "88-double-drop-shadow",
+      "title": "Double drop shadow",
+      "order": 88,
+      "tier": "advanced",
+      "tags": [
+        "effects"
+      ]
+    },
+    {
+      "id": "89-vector-on-gradient",
+      "title": "Vector on gradient",
+      "order": 89,
+      "tier": "advanced",
+      "tags": [
+        "vector",
+        "gradient"
+      ]
+    },
+    {
+      "id": "90-transform-group-mask",
+      "title": "Transform group mask",
+      "order": 90,
+      "tier": "advanced",
+      "tags": [
+        "transformGroup",
+        "mask"
+      ]
+    },
+    {
+      "id": "91-string-variable-text",
+      "title": "String variable text",
+      "order": 91,
+      "tier": "advanced",
+      "tags": [
+        "variables",
+        "text"
+      ]
+    },
+    {
+      "id": "92-variable-alias-color",
+      "title": "Variable alias color",
+      "order": 92,
+      "tier": "advanced",
+      "tags": [
+        "variables"
+      ]
+    },
+    {
+      "id": "93-variable-mode-switch",
+      "title": "Variable mode switch",
+      "order": 93,
+      "tier": "advanced",
+      "tags": [
+        "variables"
+      ]
+    },
+    {
+      "id": "94-effect-style-card",
+      "title": "Effect style card",
+      "order": 94,
+      "tier": "advanced",
+      "tags": [
+        "styles",
+        "effects"
+      ]
+    },
+    {
+      "id": "95-grid-style-frame",
+      "title": "Grid style frame",
+      "order": 95,
+      "tier": "advanced",
+      "tags": [
+        "styles",
+        "layoutGrids"
+      ]
+    },
+    {
+      "id": "96-instance-fill-override",
+      "title": "Instance fill override",
+      "order": 96,
+      "tier": "advanced",
+      "tags": [
+        "components"
+      ]
+    },
+    {
+      "id": "97-variant-matrix",
+      "title": "Variant matrix",
+      "order": 97,
+      "tier": "advanced",
+      "tags": [
+        "components",
+        "variants"
+      ]
+    },
+    {
+      "id": "98-nested-instances",
+      "title": "Nested instances",
+      "order": 98,
+      "tier": "advanced",
+      "tags": [
+        "components"
+      ]
+    },
+    {
+      "id": "99-pricing-table-composite",
+      "title": "Pricing table composite",
+      "order": 99,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "table",
+        "variables"
+      ]
+    },
+    {
+      "id": "100-mega-ui-screen",
+      "title": "Mega UI screen",
+      "order": 100,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "mega"
+      ]
+    }
+  ]
+}

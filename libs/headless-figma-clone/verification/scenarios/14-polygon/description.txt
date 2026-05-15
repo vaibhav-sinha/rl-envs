@@ -1,0 +1,3 @@
+Hexagon POLYGON.
+
+Expected: six-sided purple shape.

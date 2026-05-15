@@ -1,0 +1,3 @@
+COLOR variable bound to fill.
+
+Expected: rectangle uses token red from variable.

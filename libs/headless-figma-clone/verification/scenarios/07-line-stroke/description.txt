@@ -1,0 +1,3 @@
+LINE with round caps.
+
+Expected: diagonal blue line across the artboard.

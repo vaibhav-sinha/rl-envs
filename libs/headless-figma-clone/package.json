@@ -13,6 +13,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "node dist/cli.js --transport http",
+    "verify:view": "node dist/cli.js verify-view",
+    "verify:view:dev": "node verification/viewer/server.mjs",
     "pretest": "npx playwright install chromium",
     "test": "vitest run",
     "test:layer-a": "node --test tests/document-model.phase1.test.mjs tests/document-model.phase2.test.mjs tests/document-model.phase3.test.mjs tests/document-model.phase4.test.mjs tests/document-model.phase5.test.mjs tests/document-model.phase7.test.mjs tests/document-model.phase8.test.mjs tests/document-model.phase9.test.mjs"

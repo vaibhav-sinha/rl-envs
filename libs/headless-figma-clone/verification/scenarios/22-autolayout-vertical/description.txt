@@ -1,0 +1,3 @@
+Vertical stack with center alignment.
+
+Expected: centered column of blocks.

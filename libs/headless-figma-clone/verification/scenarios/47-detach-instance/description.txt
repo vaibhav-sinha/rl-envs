@@ -1,0 +1,3 @@
+detachInstance breaks link.
+
+Expected: editable frame group where instance was.

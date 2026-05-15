@@ -1,0 +1,3 @@
+Component + instance.
+
+Expected: button component rendered as instance.

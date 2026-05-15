@@ -1,0 +1,3 @@
+isMask circle masks gradient rect.
+
+Expected: gradient visible only inside circle.

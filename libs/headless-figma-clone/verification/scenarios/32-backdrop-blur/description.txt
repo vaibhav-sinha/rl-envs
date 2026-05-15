@@ -1,0 +1,3 @@
+BACKDROP_BLUR panel over colorful bg.
+
+Expected: frosted glass panel blurring stripes behind.

@@ -1,0 +1,3 @@
+Lines at 0, 45, 90 degrees.
+
+Expected: three spokes from center.

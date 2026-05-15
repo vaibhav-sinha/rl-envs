@@ -1,0 +1,3 @@
+figma.union on circle and square.
+
+Expected: merged silhouette.

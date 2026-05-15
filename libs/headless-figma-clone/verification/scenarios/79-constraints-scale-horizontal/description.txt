@@ -1,0 +1,3 @@
+Horizontal scale constraints.
+
+Expected: wide bar scaled to parent width.

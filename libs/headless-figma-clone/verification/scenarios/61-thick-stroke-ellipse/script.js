@@ -1,0 +1,14 @@
+const root = figma.createFrame();
+root.name = 'ScenarioRoot';
+root.resize(480, 360);
+root.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
+figma.currentPage.appendChild(root);
+const el = figma.createEllipse();
+el.resize(180, 140);
+el.x = 150;
+el.y = 110;
+el.fills = [];
+el.strokes = [{ type: 'SOLID', color: { r: 0.15, g: 0.45, b: 0.85 } }];
+el.strokeWeight = 12;
+root.appendChild(el);
+return { rootId: root.id };

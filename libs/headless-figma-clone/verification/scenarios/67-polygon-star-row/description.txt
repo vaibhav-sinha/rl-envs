@@ -1,0 +1,3 @@
+Polygon and star side by side.
+
+Expected: hexagon and star in a row.

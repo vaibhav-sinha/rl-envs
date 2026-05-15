@@ -1,0 +1,3 @@
+Invisible layer still takes space in row.
+
+Expected: gap between visible boxes where invisible sits.

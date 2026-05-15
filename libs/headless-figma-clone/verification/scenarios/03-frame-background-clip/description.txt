@@ -1,0 +1,3 @@
+Tests clipsContent on ScenarioRoot with overflowing child.
+
+Expected: child clipped at artboard edges.

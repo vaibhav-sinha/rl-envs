@@ -1,0 +1,3 @@
+Mixed styledSegments with size, color, and hyperlink.
+
+Expected: two-tone text with underlined link span.

@@ -1,0 +1,3 @@
+COLOR alias chain.
+
+Expected: rect uses resolved alias color (green).

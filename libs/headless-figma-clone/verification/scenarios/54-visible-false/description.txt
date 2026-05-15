@@ -1,0 +1,3 @@
+Middle layer hidden.
+
+Expected: green (bottom) visible through stack where red hidden.
