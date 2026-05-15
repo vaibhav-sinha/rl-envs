@@ -293,7 +293,7 @@ export interface FrameNode extends NodeBase, LayoutSelfFields {
   counterAxisSpacing?: number;
   counterAxisAlignContent?: 'AUTO' | 'SPACE_BETWEEN';
   primaryAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'SPACE_BETWEEN';
-  counterAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'BASELINE';
+  counterAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'BASELINE';
   /** Visible column guides overlay (compile-only decoration). */
   layoutGrids?: LayoutGridColumns[];
   /** Phase 7 — frame axis sizing when auto-layout is active. */

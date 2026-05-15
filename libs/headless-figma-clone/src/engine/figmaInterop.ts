@@ -112,7 +112,7 @@ export function validatePluginLayoutGrids(grids: unknown, label = 'layoutGrids')
 const CONSTRAINT_H = new Set<LayoutConstraintHorizontal>(['MIN', 'CENTER', 'MAX', 'STRETCH', 'SCALE']);
 const CONSTRAINT_V = new Set<LayoutConstraintVertical>(['MIN', 'CENTER', 'MAX', 'STRETCH', 'SCALE']);
 
-/** Map Figma REST / plugin constraint aliases to the internal model. */
+/** Normalize plugin-axis constraint values only (REST aliases like LEFT_RIGHT / TOP_BOTTOM are rejected). */
 export function normalizeConstraintAxis(
   axis: 'horizontal' | 'vertical',
   value: unknown
@@ -120,34 +120,16 @@ export function normalizeConstraintAxis(
   if (typeof value !== 'string') {
     throw new ValidationErr('VALIDATION_ERROR', `constraints.${axis} invalid`);
   }
-  const mapped =
-    axis === 'horizontal'
-      ? (
-          {
-            LEFT: 'MIN',
-            RIGHT: 'MAX',
-            LEFT_RIGHT: 'STRETCH',
-            TOP: 'MIN',
-            BOTTOM: 'MAX',
-            TOP_BOTTOM: 'STRETCH',
-          } as const
-        )[value]
-      : (
-          {
-            TOP: 'MIN',
-            BOTTOM: 'MAX',
-            TOP_BOTTOM: 'STRETCH',
-            LEFT: 'MIN',
-            RIGHT: 'MAX',
-            LEFT_RIGHT: 'STRETCH',
-          } as const
-        )[value];
-  const normalized = mapped ?? value;
   const allowed = axis === 'horizontal' ? CONSTRAINT_H : CONSTRAINT_V;
-  if (!allowed.has(normalized as LayoutConstraintHorizontal & LayoutConstraintVertical)) {
-    throw new ValidationErr('VALIDATION_ERROR', `constraints.${axis} invalid`);
+  if (!allowed.has(value as LayoutConstraintHorizontal & LayoutConstraintVertical)) {
+    throw new ValidationErr(
+      'VALIDATION_ERROR',
+      axis === 'vertical'
+        ? `constraints.vertical invalid — expected MIN | CENTER | MAX | STRETCH | SCALE`
+        : `constraints.horizontal invalid — expected MIN | CENTER | MAX | STRETCH | SCALE`
+    );
   }
-  return normalized as LayoutConstraintHorizontal & LayoutConstraintVertical;
+  return value as LayoutConstraintHorizontal & LayoutConstraintVertical;
 }
 
 export function normalizeLayoutConstraints(v: unknown, label: string): LayoutConstraints | undefined {

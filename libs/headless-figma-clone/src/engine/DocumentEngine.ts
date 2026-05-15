@@ -261,6 +261,44 @@ function findParentInFrames(
   return null;
 }
 
+function isStrictAutoLayoutFrame(n: SceneNode): n is FrameNode {
+  return n.type === 'FRAME' && (n.layoutMode === 'HORIZONTAL' || n.layoutMode === 'VERTICAL');
+}
+
+/** Figma Plugin parity: sizing fields apply only on auto-layout frames, their subtree children, or text. */
+export function validateLayoutSizingNodeContextForParent(
+  doc: DocumentNode,
+  node: SceneNode,
+  logicalParent: AnyTreeNode | null,
+  errorFieldHint?: 'layoutSizingHorizontal' | 'layoutSizingVertical'
+): void {
+  const lf = node as LayoutSelfFields;
+  if (lf.layoutSizingHorizontal === undefined && lf.layoutSizingVertical === undefined) return;
+  if (node.type === 'TEXT') return;
+
+  const selfAl = isStrictAutoLayoutFrame(node);
+
+  let underAl = false;
+  if (
+    logicalParent !== null &&
+    logicalParent !== doc &&
+    logicalParent.type === 'FRAME' &&
+    isStrictAutoLayoutFrame(logicalParent)
+  ) {
+    underAl = true;
+  }
+
+  if (!selfAl && !underAl) {
+    const field =
+      errorFieldHint ??
+      (lf.layoutSizingHorizontal !== undefined ? 'layoutSizingHorizontal' : 'layoutSizingVertical');
+    throw new ValidationErr(
+      'VALIDATION_ERROR',
+      `${field}: node must be an auto-layout frame or a child of an auto-layout frame`
+    );
+  }
+}
+
 function validateRgb(c: { r: unknown; g: unknown; b: unknown }, label: string): void {
   for (const k of ['r', 'g', 'b'] as const) {
     const v = c[k];
@@ -419,8 +457,8 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
   validateOptionalLayoutMode(frame.layoutMode);
   validateOptionalLayoutWrap(frame.layoutWrap);
   validateOptionalCounterAxisAlignContent(frame.counterAxisAlignContent);
-  validateOptionalAxisAlign(frame.primaryAxisAlignItems, 'primaryAxisAlignItems');
-  validateOptionalAxisAlign(frame.counterAxisAlignItems, 'counterAxisAlignItems');
+  validateOptionalPrimaryAxisAlignItems(frame.primaryAxisAlignItems);
+  validateOptionalCounterAxisAlignItems(frame.counterAxisAlignItems);
   validateLayoutNumbers(frame);
   applyLayoutSelfFromSpec(frame, spec as Record<string, unknown>);
   return frame;
@@ -447,11 +485,27 @@ function validateOptionalCounterAxisAlignContent(v: unknown): void {
   }
 }
 
-function validateOptionalAxisAlign(v: unknown, label: string): void {
+/** Plugin API: `'MIN' | 'MAX' | 'CENTER' | 'SPACE_BETWEEN'` only. */
+function validateOptionalPrimaryAxisAlignItems(v: unknown): void {
   if (v === undefined) return;
-  const ok = new Set(['MIN', 'CENTER', 'MAX', 'SPACE_BETWEEN', 'STRETCH', 'BASELINE', 'INHERIT']);
+  const ok = new Set(['MIN', 'CENTER', 'MAX', 'SPACE_BETWEEN']);
   if (typeof v !== 'string' || !ok.has(v)) {
-    throw new ValidationErr('VALIDATION_ERROR', `${label} invalid`);
+    throw new ValidationErr(
+      'VALIDATION_ERROR',
+      'primaryAxisAlignItems invalid — expected MIN | MAX | CENTER | SPACE_BETWEEN'
+    );
+  }
+}
+
+/** Plugin API: `'MIN' | 'MAX' | 'CENTER' | 'BASELINE'` only (no STRETCH; use child layout sizing). */
+function validateOptionalCounterAxisAlignItems(v: unknown): void {
+  if (v === undefined) return;
+  const ok = new Set(['MIN', 'CENTER', 'MAX', 'BASELINE']);
+  if (typeof v !== 'string' || !ok.has(v)) {
+    throw new ValidationErr(
+      'VALIDATION_ERROR',
+      'counterAxisAlignItems invalid — expected MIN | MAX | CENTER | BASELINE'
+    );
   }
 }
 
@@ -1596,6 +1650,9 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphO
   if (parent.type === 'FRAME' && node.type !== 'PAGE') {
     applyAutoLayoutChildDefaults(parent, node);
   }
+  if (node.type !== 'PAGE' && (sceneShapeTypes as readonly string[]).includes(node.type)) {
+    validateLayoutSizingNodeContextForParent(working.document, node as SceneNode, parent);
+  }
   return id;
 }
 
@@ -1635,6 +1692,18 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
     applyPatch(working, node, patch);
     if ((sceneShapeTypes as readonly string[]).includes(node.type)) {
       applyLayoutSelfPatch(node as LayoutSelfFields, patch);
+      if ('layoutSizingHorizontal' in patch || 'layoutSizingVertical' in patch) {
+        const hint =
+          'layoutSizingHorizontal' in patch
+            ? ('layoutSizingHorizontal' as const)
+            : ('layoutSizingVertical' as const);
+        validateLayoutSizingNodeContextForParent(
+          working.document,
+          node as SceneNode,
+          findParent(working.document, node.id),
+          hint
+        );
+      }
     }
     if (node.type === 'FRAME') {
       const f = node;
@@ -2209,11 +2278,11 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     if ('primaryAxisAlignItems' in patch) {
       f.primaryAxisAlignItems = patch.primaryAxisAlignItems as FrameNode['primaryAxisAlignItems'];
-      validateOptionalAxisAlign(f.primaryAxisAlignItems, 'primaryAxisAlignItems');
+      validateOptionalPrimaryAxisAlignItems(f.primaryAxisAlignItems);
     }
     if ('counterAxisAlignItems' in patch) {
       f.counterAxisAlignItems = patch.counterAxisAlignItems as FrameNode['counterAxisAlignItems'];
-      validateOptionalAxisAlign(f.counterAxisAlignItems, 'counterAxisAlignItems');
+      validateOptionalCounterAxisAlignItems(f.counterAxisAlignItems);
     }
     for (const k of [
       'paddingLeft',

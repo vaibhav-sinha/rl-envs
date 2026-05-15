@@ -1,3 +1,4 @@
-Column containing row of chips.
+Outer column stacking two nested auto-layout mini-cards.
+Each card: horizontal chip row + white panel below.
 
-Expected: 2x2-ish chip grid layout.
+Expected: two identical cards vertically stacked inside the tinted column frame.

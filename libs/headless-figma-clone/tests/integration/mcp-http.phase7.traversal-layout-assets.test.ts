@@ -80,13 +80,13 @@ describe('mcp-http Phase 7 traversal layout assets', () => {
       const fill = figma.createRectangle();
       fill.name = 'Fill';
       fill.resize(80, 40);
-      fill.layoutSizingHorizontal = 'FILL';
       const hug = figma.createRectangle();
       hug.name = 'Hug';
       hug.resize(50, 40);
-      hug.layoutSizingHorizontal = 'HUG';
       row.appendChild(fill);
+      fill.layoutSizingHorizontal = 'FILL';
       row.appendChild(hug);
+      hug.layoutSizingHorizontal = 'HUG';
       figma.currentPage.appendChild(row);
       const rects = figma.currentPage.findAll({ types: ['RECTANGLE'] });
       return { imageHash: img.hash, rectCount: rects.length, missingFont: figma.hasMissingFont() };
