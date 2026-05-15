@@ -49,6 +49,32 @@ describe('flexChildCss', () => {
     expect(css).toContain('top:8px');
   });
 
+  it('constraintPositionCss centers with margin offset from top/left:50% (scenarios 78–79)', () => {
+    const horiz: RectangleNode = {
+      id: 'I78',
+      type: 'RECTANGLE',
+      name: 'CenterH',
+      x: 20,
+      y: 0,
+      width: 80,
+      height: 40,
+      constraints: { horizontal: 'CENTER', vertical: 'MIN' },
+    };
+    expect(constraintPositionCss(horiz, 120, 220)).toContain('margin-left:-40px');
+
+    const vert: RectangleNode = {
+      id: 'I79',
+      type: 'RECTANGLE',
+      name: 'CenterV',
+      x: 0,
+      y: 24,
+      width: 100,
+      height: 32,
+      constraints: { horizontal: 'MIN', vertical: 'CENTER' },
+    };
+    expect(constraintPositionCss(vert, 360, 80)).toContain('margin-top:-16px');
+  });
+
   it('constraintPositionCss emits stretch right/bottom for STRETCH constraints', () => {
     const child: RectangleNode = {
       id: 'I4',
