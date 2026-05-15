@@ -73,7 +73,7 @@ describe('mcp-http phase4 layout, mask, boolean, vector, blur', () => {
     expect(blob).toContain('display:flex');
     expect(blob).not.toContain('hfc-layout-grid-overlay');
     expect(blob).toContain('hfc-mask-wrap');
-    expect(blob).toContain('hfc-bool-sub-I10');
+    expect(blob).toContain('hfc-boolean-svg');
     expect(blob).toContain('hfc-vector-svg');
     expect(blob).toMatch(/backdrop-filter:\s*blur\(10px\)/);
 
@@ -144,6 +144,7 @@ describe('mcp-http phase4 layout, mask, boolean, vector, blur', () => {
     expect(dcJson.ok).toBe(true);
     const html = dcJson.data?.html ?? '';
     expect(html).toContain('display:flex');
-    expect(html).toContain('M16,2 L30,26 L2,26 Z');
+    expect(html).toContain('hfc-vector-svg');
+    expect(html).toContain('viewBox="0 0 28 24"');
   });
 });

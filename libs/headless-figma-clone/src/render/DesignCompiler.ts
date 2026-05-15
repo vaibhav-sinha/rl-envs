@@ -867,18 +867,16 @@ function emitMaskCluster(
   const my = maskNode.y;
   const mw = maskNode.width;
   const mh = maskNode.height;
-  const maskAbsL = frameAbsX + mx;
-  const maskAbsT = frameAbsY + my;
   const mid = `hfc-svg-mask-${maskNode.id}`;
   const zi = z.value++;
   htmlParts.push(
-    `<div class="hfc-mask-wrap" data-hfc-mask="${maskNode.id}" style="position:absolute;left:${String(maskAbsL)}px;top:${String(maskAbsT)}px;width:${String(mw)}px;height:${String(mh)}px;overflow:hidden;z-index:${String(zi)}">`
+    `<div class="hfc-mask-wrap" data-hfc-mask="${maskNode.id}" style="position:absolute;left:${String(frameAbsX)}px;top:${String(frameAbsY)}px;width:${String(f.width)}px;height:${String(f.height)}px;overflow:visible;z-index:${String(zi)}">`
   );
   htmlParts.push(
-    `<svg width="0" height="0" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="0" y="0" width="${String(mw)}" height="${String(mh)}"><rect x="0" y="0" width="${String(mw)}" height="${String(mh)}" fill="white"/></mask></defs></svg>`
+    `<svg width="0" height="0" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="${String(mx)}" y="${String(my)}" width="${String(mw)}" height="${String(mh)}"><rect x="${String(mx)}" y="${String(my)}" width="${String(mw)}" height="${String(mh)}" fill="white"/></mask></defs></svg>`
   );
   htmlParts.push(
-    `<div class="hfc-masked-inner" style="position:absolute;left:0;top:0;width:${String(f.width)}px;height:${String(f.height)}px;mask:url(#${mid});-webkit-mask:url(#${mid});transform:translate(${String(-mx)}px,${String(-my)}px)">`
+    `<div class="hfc-masked-inner" style="position:absolute;left:0;top:0;width:${String(f.width)}px;height:${String(f.height)}px;mask:url(#${mid});-webkit-mask:url(#${mid});">`
   );
   for (const c of masked) {
     emitScene(

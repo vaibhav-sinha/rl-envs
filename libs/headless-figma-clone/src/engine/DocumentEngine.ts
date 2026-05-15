@@ -55,6 +55,7 @@ import { validateStyledSegments } from './utf16Segments.js';
 import { findVariableDefinition } from '../variables/resolution.js';
 import type { FrameVariableBindings, TextVariableBindings } from '../model/types.js';
 import { DEFAULT_FRAME_FILLS } from '../model/types.js';
+import { syncBooleanOperationBounds } from './graphOps.js';
 
 export type { EngineErrorCode } from '../util/errors.js';
 
@@ -1612,6 +1613,12 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
       throw new ValidationErr('VALIDATION_ERROR', `Cannot move ${subtree.type} under ${newParent.type}`);
     }
     attachSceneNode(working.document, op.newParentId, op.index, subtree);
+    if (newParent.type === 'BOOLEAN_OPERATION') {
+      const b = newParent;
+      subtree.x -= b.x;
+      subtree.y -= b.y;
+      syncBooleanOperationBounds(b);
+    }
     return undefined;
   }
   return undefined;
