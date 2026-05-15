@@ -168,3 +168,29 @@ Regenerate scenario files from definitions:
 ```bash
 node verification/scripts/generate-scenarios.mjs
 ```
+
+### Capture screenshots (Figma + clone MCP)
+
+Requires both MCP servers running (defaults match a typical Cursor `mcp.json`):
+
+| Server | Default URL |
+|--------|-------------|
+| Figma (local-figma-mcp + Desktop plugin) | `http://127.0.0.1:3855` |
+| Clone (headless-figma-clone) | `http://127.0.0.1:3847` |
+
+Figma: open a design file in Desktop and run the **Local Figma MCP** plugin (connected). Tool `fileKey` args are ignored — the open file is used. Clone: `npm start` in this package.
+
+```bash
+npm run build
+npm run verify:run
+```
+
+Or without building:
+
+```bash
+npm run verify:run:dev
+```
+
+Options: `--figma-url`, `--clone-url`, `--from N`, `--to N`, `--only figma|clone|both`, `--fail-fast`.
+
+Writes `figma.png` and `clone.png` into each `verification/scenarios/<id>/` directory (via `use_figma` then `get_screenshot` image content blocks).

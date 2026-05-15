@@ -56,6 +56,19 @@ function parseArgv(argv: string[]): {
   return { transport, httpHost, httpPort, initialFile };
 }
 
+function spawnVerificationScript(scriptName: string, argv: string[]): void {
+  const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const scriptPath = join(pkgRoot, 'verification', 'scripts', scriptName);
+  const forward = argv.slice(3);
+  const child = spawn(process.execPath, [scriptPath, ...forward], {
+    stdio: 'inherit',
+    cwd: pkgRoot,
+  });
+  child.on('exit', (code) => {
+    process.exit(code ?? 0);
+  });
+}
+
 function runVerifyView(argv: string[]): void {
   const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
   const serverPath = join(pkgRoot, 'verification', 'viewer', 'server.mjs');
@@ -69,9 +82,18 @@ function runVerifyView(argv: string[]): void {
   });
 }
 
+function runVerifyRun(argv: string[]): void {
+  spawnVerificationScript('verify-run.mjs', argv);
+}
+
 async function main(): Promise<void> {
   if (process.argv[2] === 'verify-view') {
     runVerifyView(process.argv);
+    return;
+  }
+
+  if (process.argv[2] === 'verify-run') {
+    runVerifyRun(process.argv);
     return;
   }
 

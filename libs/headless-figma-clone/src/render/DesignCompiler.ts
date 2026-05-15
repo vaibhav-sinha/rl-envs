@@ -301,10 +301,22 @@ function mixBlendCss(m: BlendMode | undefined): string {
   return v ? `mix-blend-mode:${v};` : '';
 }
 
-function transformOpacityCss(n: SceneNode): string {
+/** Rotate a point with Figma's relativeTransform matrix (positive deg = CCW in y-down space). */
+function rotatePointFigma(cx: number, cy: number, px: number, py: number, deg: number): { x: number; y: number } {
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const dx = px - cx;
+  const dy = py - cy;
+  return { x: cx + dx * cos + dy * sin, y: cy - dx * sin + dy * cos };
+}
+
+function transformOpacityCss(n: SceneNode, opts?: { skipRotation?: boolean }): string {
   let s = '';
-  if (n.rotation !== undefined && n.rotation !== 0) {
-    s += `transform:rotate(${String(n.rotation)}deg);transform-origin:top left;`;
+  if (!opts?.skipRotation && n.rotation !== undefined && n.rotation !== 0) {
+    // Pivot at node top-left (Figma Plugin API). Negate angle: Figma +θ is CCW in y-down,
+    // CSS rotate(+θ) is CW — use rotate(-θ) so visual direction matches Figma.
+    s += `transform:rotate(${String(-n.rotation)}deg);transform-origin:top left;`;
   }
   if (n.opacity !== undefined && n.opacity !== 1) {
     s += `opacity:${String(n.opacity)};`;
@@ -1313,32 +1325,81 @@ function emitEllipse(
   htmlParts.push('</div>');
 }
 
+/** SVG layout for LINE: bake rotation into endpoints; pad viewBox for stroke caps. */
+function lineSvgLayout(ln: LineNode): {
+  vbW: number;
+  vbH: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  svgW: number;
+  svgH: number;
+  svgLeft: number;
+  svgTop: number;
+} {
+  const w = ln.width;
+  const h = ln.height;
+  const sw = ln.strokeWeight ?? 1;
+  const pad = sw / 2;
+  let p1 = { x: 0, y: 0 };
+  let p2 = { x: w, y: h };
+  const rot = ln.rotation ?? 0;
+  // Figma rotates around the node top-left (same as rectangles), not the segment midpoint.
+  if (rot !== 0) {
+    p1 = rotatePointFigma(0, 0, p1.x, p1.y, rot);
+    p2 = rotatePointFigma(0, 0, p2.x, p2.y, rot);
+  }
+  const minX = Math.min(p1.x, p2.x);
+  const minY = Math.min(p1.y, p2.y);
+  const maxX = Math.max(p1.x, p2.x);
+  const maxY = Math.max(p1.y, p2.y);
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  const vbW = round3(maxX - minX + 2 * pad);
+  const vbH = round3(maxY - minY + 2 * pad);
+  return {
+    vbW,
+    vbH,
+    x1: round3(p1.x - minX + pad),
+    y1: round3(p1.y - minY + pad),
+    x2: round3(p2.x - minX + pad),
+    y2: round3(p2.y - minY + pad),
+    svgW: vbW,
+    svgH: vbH,
+    svgLeft: round3(minX - pad),
+    svgTop: round3(minY - pad),
+  };
+}
+
 function emitLine(
   ln: LineNode,
   absX: number,
   absY: number,
   zIndex: number,
-  opRot: string,
+  _opRot: string,
   htmlParts: string[],
   cssParts: string[],
   _imgMap: Record<string, string>,
   _warnings: string[],
   insideFlex = false
 ): void {
-  const w = Math.max(1, ln.width);
-  const h = Math.max(1, ln.height);
+  const w = ln.width;
+  const h = ln.height;
+  const { vbW, vbH, x1, y1, x2, y2, svgW, svgH, svgLeft, svgTop } = lineSvgLayout(ln);
   const shadow = dropShadowCss(ln.effects);
   const stroke = ln.strokes[0];
   const col = stroke.type === 'SOLID' ? rgbaFromSolid(stroke) : '#000';
   const dash = ln.dashPattern?.length ? ` stroke-dasharray="${escapeAttr(ln.dashPattern.map((x) => String(x)).join(' '))}"` : '';
   const cap = mapStrokeCapSvg(ln.strokeCap);
+  const sw = ln.strokeWeight ?? 1;
   const pos = insideFlex
-    ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(ln.layoutGrow ?? 0)} 1 auto;min-width:0;`
-    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
+    ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(ln.layoutGrow ?? 0)} 1 auto;min-width:0;overflow:visible;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;overflow:visible;`;
   htmlParts.push(`<div class="hfc-node-${ln.id}" data-hfc-id="${ln.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(`.hfc-node-${ln.id}{${pos}${opRot}${shadow}}`);
+  const visualCss = transformOpacityCss(ln, { skipRotation: true });
+  cssParts.push(`.hfc-node-${ln.id}{${pos}${visualCss}${shadow}}`);
   htmlParts.push(
-    `<svg class="hfc-line-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><line x1="0" y1="0" x2="${String(w)}" y2="${String(h)}" stroke="${escapeAttr(col)}" stroke-width="${String(ln.strokeWeight)}" stroke-linecap="${cap}" fill="none"${dash}/></svg></div>`
+    `<svg class="hfc-line-svg" viewBox="0 0 ${String(vbW)} ${String(vbH)}" width="${String(svgW)}" height="${String(svgH)}" style="position:absolute;left:${String(svgLeft)}px;top:${String(svgTop)}px;overflow:visible" xmlns="http://www.w3.org/2000/svg"><line x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}" stroke="${escapeAttr(col)}" stroke-width="${String(sw)}" stroke-linecap="${cap}" fill="none"${dash}/></svg></div>`
   );
 }
 
