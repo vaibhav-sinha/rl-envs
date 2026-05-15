@@ -83,17 +83,22 @@ describe('mcp-http phase8 variables and styles', () => {
     const run = await client.callTool({ name: 'use_figma', arguments: { code } });
     const runText = getToolText(run);
     expect(runText).toBeTruthy();
-    const runJson = parseToolJson(runText!) as { ok: boolean; message?: string; errorCode?: string };
+    const runJson = parseToolJson(runText!) as {
+      ok: boolean;
+      message?: string;
+      errorCode?: string;
+      data?: unknown;
+    };
     expect(runJson.ok, runJson.message ?? runText!).toBe(true);
-    const result = runJson.data?.result as { paintOrder?: string[] };
-    expect(result.paintOrder).toEqual(['Second', 'First']);
+    const result = runJson.data && typeof runJson.data === 'object' ? (runJson.data as any).result as { paintOrder?: string[] } : undefined;
+    expect(result?.paintOrder).toEqual(['Second', 'First']);
 
     const file = engine.getActiveFile();
     expect(file?.variableCollections?.length).toBe(1);
     expect(file?.paintStyles?.map((s) => s.name)).toEqual(['Second', 'First']);
 
     const vd = await client.callTool({ name: 'get_variable_defs', arguments: {} });
-    const vdPayload = parseToolJson(getToolText(vd)!).data as ReturnType<typeof buildVariableDefsPayload>;
+    const vdPayload = (parseToolJson(getToolText(vd)!) as any).data as unknown as ReturnType<typeof buildVariableDefsPayload>;
     expect(vdPayload.collections.length).toBe(1);
     expect(vdPayload.collections[0]!.variables.length).toBe(2);
 

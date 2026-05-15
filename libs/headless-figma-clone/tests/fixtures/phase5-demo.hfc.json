@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "fileKey": "phase5demo",
   "fileName": "Phase 5 demo",
-  "nextInternalId": 53,
+  "nextInternalId": 207,
   "variableCollections": [
     {
       "id": "VCOL1",
@@ -49,49 +49,6 @@
           }
         }
       ]
-    }
-  ],
-  "components": [
-    {
-      "id": "COMP1",
-      "name": "TokenChip",
-      "root": {
-        "id": "I201",
-        "type": "FRAME",
-        "name": "Chip",
-        "x": 0,
-        "y": 0,
-        "width": 96,
-        "height": 28,
-        "children": [
-          {
-            "id": "I202",
-            "type": "RECTANGLE",
-            "name": "bg",
-            "x": 0,
-            "y": 0,
-            "width": 96,
-            "height": 28,
-            "fills": [
-              {
-                "type": "VARIABLE_COLOR",
-                "variableId": "VV1"
-              }
-            ]
-          },
-          {
-            "id": "I203",
-            "type": "TEXT",
-            "name": "label",
-            "x": 8,
-            "y": 4,
-            "width": 80,
-            "height": 20,
-            "characters": "Chip",
-            "textStyleId": "TS1"
-          }
-        ]
-      }
     }
   ],
   "document": {
@@ -212,7 +169,7 @@
               },
               {
                 "id": "I7",
-                "type": "COMPONENT_INSTANCE",
+                "type": "INSTANCE",
                 "name": "Inst A",
                 "x": 260,
                 "y": 24,
@@ -239,7 +196,7 @@
               },
               {
                 "id": "I8",
-                "type": "COMPONENT_INSTANCE",
+                "type": "INSTANCE",
                 "name": "Inst B",
                 "x": 260,
                 "y": 70,
@@ -251,7 +208,7 @@
           },
           {
             "id": "I40",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -261,7 +218,7 @@
           },
           {
             "id": "I41",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -271,7 +228,7 @@
           },
           {
             "id": "I42",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -281,7 +238,7 @@
           },
           {
             "id": "I43",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -291,7 +248,7 @@
           },
           {
             "id": "I44",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -301,7 +258,7 @@
           },
           {
             "id": "I45",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -311,7 +268,7 @@
           },
           {
             "id": "I46",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -321,7 +278,7 @@
           },
           {
             "id": "I47",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -331,7 +288,7 @@
           },
           {
             "id": "I48",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -341,7 +298,7 @@
           },
           {
             "id": "I49",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -351,7 +308,7 @@
           },
           {
             "id": "I50",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -361,7 +318,7 @@
           },
           {
             "id": "I51",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,
@@ -371,7 +328,84 @@
           },
           {
             "id": "I52",
-            "type": "COMPONENT_INSTANCE",
+            "type": "INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          },
+          {
+            "id": "I201",
+            "type": "FRAME",
+            "name": "Chip",
+            "x": 0,
+            "y": 0,
+            "width": 96,
+            "height": 28,
+            "children": [
+              {
+                "id": "I202",
+                "type": "RECTANGLE",
+                "name": "bg",
+                "x": 0,
+                "y": 0,
+                "width": 96,
+                "height": 28,
+                "fills": [
+                  {
+                    "type": "VARIABLE_COLOR",
+                    "variableId": "VV1"
+                  }
+                ]
+              },
+              {
+                "id": "I203",
+                "type": "TEXT",
+                "name": "label",
+                "x": 8,
+                "y": 4,
+                "width": 80,
+                "height": 20,
+                "characters": "Chip",
+                "textStyleId": "TS1"
+              }
+            ]
+          },
+          {
+            "id": "COMP1",
+            "type": "COMPONENT",
+            "name": "TokenChip",
+            "x": 0,
+            "y": 0,
+            "width": 96,
+            "height": 28,
+            "rootFrameId": "I201"
+          },
+          {
+            "id": "I204",
+            "type": "INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          },
+          {
+            "id": "I205",
+            "type": "INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1"
+          },
+          {
+            "id": "I206",
+            "type": "INSTANCE",
             "name": "Instance",
             "x": 4,
             "y": 4,

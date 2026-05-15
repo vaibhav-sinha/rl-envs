@@ -24,6 +24,10 @@ import type {
   VectorNode,
   TableNode,
   ComponentInstanceNode,
+  ComponentNode,
+  ComponentSetNode,
+  InstanceNode,
+  ComponentPropertyValue,
 } from '../model/types.js';
 import type { Effect, StyledSegment } from '../model/types.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
@@ -71,6 +75,9 @@ export type NewNodeSpec =
   | (Omit<SectionNode, 'id' | 'children'> & { type: 'SECTION'; children?: SceneNode[] })
   | Omit<TableNode, 'id'>
   | Omit<ComponentInstanceNode, 'id'>
+  | Omit<ComponentNode, 'id'>
+  | Omit<ComponentSetNode, 'id'>
+  | Omit<InstanceNode, 'id'>
   | (Omit<PageNode, 'id' | 'children'> & { type: 'PAGE' });
 
 export type SceneGraphOperation =
@@ -905,6 +912,222 @@ function normalizeNewComponentInstance(
   return n;
 }
 
+function normalizeNewComponent(
+  spec: Extract<NewNodeSpec, { type: 'COMPONENT' }>,
+  id: string,
+  env: FileEnvelope
+): ComponentNode {
+  const rootFrameId = spec.rootFrameId;
+  const root = findNode(env.document, rootFrameId);
+  if (!root || root.type !== 'FRAME') {
+    throw new ValidationErr('VALIDATION_ERROR', 'COMPONENT.rootFrameId must reference a FRAME node');
+  }
+
+  const n: ComponentNode = {
+    id,
+    type: 'COMPONENT',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Component',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    rootFrameId,
+    componentPropertyDefinitions: spec.componentPropertyDefinitions,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+    layoutAlign: spec.layoutAlign,
+    layoutGrow: spec.layoutGrow,
+    minWidth: spec.minWidth,
+    maxWidth: spec.maxWidth,
+    minHeight: spec.minHeight,
+    maxHeight: spec.maxHeight,
+    isMask: spec.isMask,
+  };
+
+  validateShapeBox(n as unknown as FrameNode);
+  validateBlendMode(spec.blendMode, 'COMPONENT.blendMode');
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  return n;
+}
+
+function validateComponentPropertyValue(v: unknown, label: string): ComponentPropertyValue {
+  if (!isRecord(v)) throw new ValidationErr('VALIDATION_ERROR', `${label} must be object`);
+  const t = (v as Record<string, unknown>).type;
+  if (t !== 'BOOLEAN' && t !== 'TEXT' && t !== 'VARIANT' && t !== 'INSTANCE_SWAP') {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}.type invalid`);
+  }
+  if (t === 'BOOLEAN') {
+    if (typeof (v as Record<string, unknown>).value !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', `${label}.value must be boolean`);
+    return v as ComponentPropertyValue;
+  }
+  if (t === 'TEXT') {
+    if (typeof (v as Record<string, unknown>).value !== 'string') throw new ValidationErr('VALIDATION_ERROR', `${label}.value must be string`);
+    return v as ComponentPropertyValue;
+  }
+  if (t === 'VARIANT') {
+    if (typeof (v as Record<string, unknown>).value !== 'string') throw new ValidationErr('VALIDATION_ERROR', `${label}.value must be string`);
+    return v as ComponentPropertyValue;
+  }
+  // INSTANCE_SWAP
+  if (typeof (v as Record<string, unknown>).value !== 'string') throw new ValidationErr('VALIDATION_ERROR', `${label}.value must be string`);
+  return v as ComponentPropertyValue;
+}
+
+function normalizeNewComponentSet(
+  spec: Extract<NewNodeSpec, { type: 'COMPONENT_SET' }>,
+  id: string,
+  env: FileEnvelope
+): ComponentSetNode {
+  if (!Array.isArray(spec.componentIds) || spec.componentIds.length < 1) {
+    throw new ValidationErr('VALIDATION_ERROR', 'COMPONENT_SET.componentIds must be a non-empty array');
+  }
+  const componentIds = [...spec.componentIds];
+  for (const cid of componentIds) {
+    const c = findNode(env.document, cid);
+    if (!c || c.type !== 'COMPONENT') {
+      throw new ValidationErr('VALIDATION_ERROR', `COMPONENT_SET.componentIds[?] must reference existing COMPONENT nodes (${cid})`);
+    }
+  }
+
+  const n: ComponentSetNode = {
+    id,
+    type: 'COMPONENT_SET',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Component Set',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    componentIds,
+    variantPropertyKey: spec.variantPropertyKey ?? 'variant',
+    variantOptions: spec.variantOptions,
+    nodeIdMapByComponentId: spec.nodeIdMapByComponentId,
+    baseComponentId: spec.baseComponentId,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+    layoutAlign: spec.layoutAlign,
+    layoutGrow: spec.layoutGrow,
+    minWidth: spec.minWidth,
+    maxWidth: spec.maxWidth,
+    minHeight: spec.minHeight,
+    maxHeight: spec.maxHeight,
+    isMask: spec.isMask,
+  };
+
+  validateShapeBox(n as unknown as FrameNode);
+  validateBlendMode(spec.blendMode, 'COMPONENT_SET.blendMode');
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+
+  return n;
+}
+
+function normalizeNewInstance(
+  spec: Extract<NewNodeSpec, { type: 'INSTANCE' }>,
+  id: string,
+  env: FileEnvelope
+): InstanceNode {
+  const mid = spec.mainComponentId;
+  const target = findNode(env.document, mid);
+  if (!target || (target.type !== 'COMPONENT' && target.type !== 'COMPONENT_SET' && target.type !== 'COMPONENT_INSTANCE')) {
+    // Allow COMPONENT_INSTANCE for backward compat after migration.
+    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId must reference an existing component');
+  }
+
+  let overrides: InstanceNode['overrides'];
+  if (spec.overrides !== undefined) {
+    if (!isRecord(spec.overrides)) throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.overrides must be object');
+    overrides = {};
+    for (const [nodeId, ov] of Object.entries(spec.overrides)) {
+      if (!/^I[0-9]+$/.test(nodeId)) {
+        throw new ValidationErr('VALIDATION_ERROR', `INSTANCE.overrides key invalid: ${nodeId}`);
+      }
+      if (!isRecord(ov)) throw new ValidationErr('VALIDATION_ERROR', `INSTANCE.overrides.${nodeId} must be object`);
+      const entry: import('../model/types.js').ComponentOverrideFields = {};
+      if ('characters' in ov) {
+        if (typeof (ov as Record<string, unknown>).characters !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'override.characters must be string');
+        entry.characters = (ov as Record<string, unknown>).characters as string;
+      }
+      if ('fontSize' in ov) {
+        if (typeof (ov as Record<string, unknown>).fontSize !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontSize must be number');
+        entry.fontSize = (ov as Record<string, unknown>).fontSize as number;
+      }
+      if ('fontWeight' in ov) {
+        if (typeof (ov as Record<string, unknown>).fontWeight !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontWeight must be number');
+        entry.fontWeight = (ov as Record<string, unknown>).fontWeight as number;
+      }
+      if ('fills' in ov && (ov as Record<string, unknown>).fills !== undefined) {
+        entry.fills = validatePaintArray((ov as Record<string, unknown>).fills, `overrides.${nodeId}.fills`, env);
+      }
+      overrides[nodeId] = entry;
+    }
+  }
+
+  let componentProperties: InstanceNode['componentProperties'];
+  if (spec.componentProperties !== undefined) {
+    if (!isRecord(spec.componentProperties)) throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.componentProperties must be object');
+    componentProperties = {};
+    for (const [k, v] of Object.entries(spec.componentProperties)) {
+      componentProperties[k] = validateComponentPropertyValue(v, `componentProperties.${k}`);
+    }
+  }
+
+  const n: InstanceNode = {
+    id,
+    type: 'INSTANCE',
+    name: typeof spec.name === 'string' && spec.name.length > 0 ? spec.name : 'Instance',
+    x: typeof spec.x === 'number' ? spec.x : 0,
+    y: typeof spec.y === 'number' ? spec.y : 0,
+    width: typeof spec.width === 'number' ? spec.width : 100,
+    height: typeof spec.height === 'number' ? spec.height : 100,
+    mainComponentId: mid,
+    overrides,
+    componentProperties,
+    visible: spec.visible,
+    opacity: spec.opacity,
+    rotation: spec.rotation,
+    blendMode: spec.blendMode,
+    layoutAlign: spec.layoutAlign,
+    layoutGrow: spec.layoutGrow,
+    minWidth: spec.minWidth,
+    maxWidth: spec.maxWidth,
+    minHeight: spec.minHeight,
+    maxHeight: spec.maxHeight,
+    isMask: spec.isMask,
+  };
+
+  validateShapeBox(n as unknown as FrameNode);
+  validateBlendMode(spec.blendMode, 'INSTANCE.blendMode');
+  if (n.opacity !== undefined && (typeof n.opacity !== 'number' || n.opacity < 0 || n.opacity > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
+  }
+  if (n.rotation !== undefined && typeof n.rotation !== 'number') {
+    throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+  }
+  if (n.visible !== undefined && typeof n.visible !== 'boolean') {
+    throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+  }
+  return n;
+}
+
 function normalizeNewPage(spec: Extract<NewNodeSpec, { type: 'PAGE' }>, id: string): PageNode {
   return {
     id,
@@ -1170,6 +1393,12 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphO
     node = normalizeNewTable(op.node, id, working);
   } else if (op.node.type === 'COMPONENT_INSTANCE') {
     node = normalizeNewComponentInstance(op.node, id, working);
+  } else if (op.node.type === 'COMPONENT') {
+    node = normalizeNewComponent(op.node, id, working);
+  } else if (op.node.type === 'COMPONENT_SET') {
+    node = normalizeNewComponentSet(op.node, id, working);
+  } else if (op.node.type === 'INSTANCE') {
+    node = normalizeNewInstance(op.node, id, working);
   } else if (op.node.type === 'PAGE') {
     node = normalizeNewPage(op.node, id);
   } else {
@@ -1238,6 +1467,61 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
     return undefined;
   }
   if (op.op === 'deleteNode') {
+    const target = findNode(working.document, op.nodeId);
+    if (!target) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${op.nodeId}`);
+    const targetNode = target;
+
+    // Phase 9 — component master deletion cascade (prevent orphan component masters).
+    // Minimal rule set:
+    // - Deleting a COMPONENT deletes any INSTANCE/COMPONENT_INSTANCE nodes that reference it directly,
+    //   and also deletes instances that reference a COMPONENT_SET containing it.
+    // - Deleting a COMPONENT_SET deletes instances that reference that set directly.
+    // - Deleting a COMPONENT also deletes its root master FRAME.
+    const instanceIdsToDelete = new Set<string>();
+
+    function walk(nodes: SceneNode[]): void {
+      for (const n of nodes) {
+        if (n.type === 'INSTANCE' || n.type === 'COMPONENT_INSTANCE') {
+          const mid = (n as unknown as { mainComponentId: string }).mainComponentId;
+          if (targetNode.type === 'COMPONENT_SET') {
+            if (mid === targetNode.id) instanceIdsToDelete.add(n.id);
+          } else if (targetNode.type === 'COMPONENT') {
+            if (mid === targetNode.id) {
+              instanceIdsToDelete.add(n.id);
+            } else {
+              // If instance targets a set that contains this component, also delete it.
+              const maybeSet = findNode(working.document, mid);
+              if (maybeSet && maybeSet.type === 'COMPONENT_SET') {
+                if ((maybeSet as any).componentIds.includes(targetNode.id)) instanceIdsToDelete.add(n.id);
+              }
+            }
+          }
+        }
+
+        if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
+          walk((n as unknown as { children: SceneNode[] }).children);
+        }
+        if (n.type === 'BOOLEAN_OPERATION') {
+          walk((n as unknown as { children: SceneNode[] }).children);
+        }
+      }
+    }
+
+    if (targetNode.type === 'COMPONENT' || targetNode.type === 'COMPONENT_SET') {
+      for (const p of working.document.children) {
+        walk(p.children);
+      }
+
+      for (const iid of instanceIdsToDelete) {
+        removeNodeById(working.document, iid);
+      }
+
+      if (targetNode.type === 'COMPONENT') {
+        const root = targetNode.rootFrameId;
+        removeNodeById(working.document, root);
+      }
+    }
+
     removeNodeById(working.document, op.nodeId);
     return undefined;
   }
@@ -2347,6 +2631,181 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     if ('blendMode' in patch) {
       validateBlendMode(patch.blendMode, 'COMPONENT_INSTANCE.blendMode');
       ci.blendMode = patch.blendMode as ComponentInstanceNode['blendMode'];
+    }
+    return;
+  }
+  if (node.type === 'COMPONENT') {
+    const cn = node as import('../model/types.js').ComponentNode;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      cn.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (cn as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    if ('rootFrameId' in patch) {
+      const rid = patch.rootFrameId;
+      const live = typeof rid === 'string' ? findNode(env.document, rid) : null;
+      if (!live || live.type !== 'FRAME') {
+        throw new ValidationErr('VALIDATION_ERROR', 'rootFrameId must reference an existing FRAME node');
+      }
+      cn.rootFrameId = rid as string;
+    }
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      cn.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      cn.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      cn.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'COMPONENT.blendMode');
+      cn.blendMode = patch.blendMode as import('../model/types.js').ComponentNode['blendMode'];
+    }
+    if ('componentPropertyDefinitions' in patch) {
+      // Minimal validation: ensure it's either undefined/null or a record whose values have a `type` field.
+      const cpd = patch.componentPropertyDefinitions;
+      if (cpd === undefined || cpd === null) delete cn.componentPropertyDefinitions;
+      else {
+        if (!isRecord(cpd)) throw new ValidationErr('VALIDATION_ERROR', 'componentPropertyDefinitions must be object');
+        for (const [k, v] of Object.entries(cpd)) {
+          if (!isRecord(v) || typeof (v as Record<string, unknown>).type !== 'string') {
+            throw new ValidationErr('VALIDATION_ERROR', `componentPropertyDefinitions.${k} must have type`);
+          }
+        }
+        cn.componentPropertyDefinitions = cpd as import('../model/types.js').ComponentNode['componentPropertyDefinitions'];
+      }
+    }
+    validateShapeBox(cn as unknown as import('../model/types.js').FrameNode);
+    return;
+  }
+  if (node.type === 'COMPONENT_SET') {
+    const cs = node as import('../model/types.js').ComponentSetNode;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      cs.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (cs as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      cs.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      }
+      cs.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      cs.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'COMPONENT_SET.blendMode');
+      cs.blendMode = patch.blendMode as import('../model/types.js').ComponentSetNode['blendMode'];
+    }
+    validateShapeBox(cs as unknown as import('../model/types.js').FrameNode);
+    return;
+  }
+  if (node.type === 'INSTANCE') {
+    const inst = node as import('../model/types.js').InstanceNode;
+    if ('name' in patch) {
+      if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
+      inst.name = patch.name;
+    }
+    for (const g of ['x', 'y', 'width', 'height'] as const) {
+      if (g in patch) {
+        const v = patch[g];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
+        (inst as unknown as Record<string, number>)[g] = v;
+      }
+    }
+    if ('mainComponentId' in patch) {
+      const mid = patch.mainComponentId;
+      const live = typeof mid === 'string' ? findNode(env.document, mid) : null;
+      if (!live || (live.type !== 'COMPONENT' && live.type !== 'COMPONENT_SET')) {
+        throw new ValidationErr('VALIDATION_ERROR', 'mainComponentId must reference an existing COMPONENT or COMPONENT_SET');
+      }
+      inst.mainComponentId = mid as string;
+    }
+    if ('overrides' in patch) {
+      const ovr = patch.overrides;
+      if (ovr === undefined || ovr === null) {
+        delete inst.overrides;
+      } else {
+        if (!isRecord(ovr)) throw new ValidationErr('VALIDATION_ERROR', 'overrides must be object');
+        const next: Record<string, import('../model/types.js').ComponentOverrideFields> = { ...(inst.overrides ?? {}) };
+        for (const [nodeId, ov] of Object.entries(ovr)) {
+          if (!/^I[0-9]+$/.test(nodeId)) throw new ValidationErr('VALIDATION_ERROR', `overrides key invalid: ${nodeId}`);
+          if (!isRecord(ov)) throw new ValidationErr('VALIDATION_ERROR', `overrides.${nodeId} must be object`);
+          const entry: import('../model/types.js').ComponentOverrideFields = { ...next[nodeId] };
+          const r = ov as Record<string, unknown>;
+          if ('characters' in r) {
+            if (typeof r.characters !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'override.characters must be string');
+            entry.characters = r.characters;
+          }
+          if ('fontSize' in r) {
+            if (typeof r.fontSize !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontSize must be number');
+            entry.fontSize = r.fontSize;
+          }
+          if ('fontWeight' in r) {
+            if (typeof r.fontWeight !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontWeight must be number');
+            entry.fontWeight = r.fontWeight;
+          }
+          if ('fills' in r && r.fills !== undefined) {
+            entry.fills = validatePaintArray(r.fills as unknown, `overrides.${nodeId}.fills`, env);
+          }
+          next[nodeId] = entry;
+        }
+        inst.overrides = next;
+      }
+    }
+    if ('componentProperties' in patch) {
+      const cp = patch.componentProperties;
+      if (cp === undefined || cp === null) {
+        delete inst.componentProperties;
+      } else {
+        if (!isRecord(cp)) throw new ValidationErr('VALIDATION_ERROR', 'componentProperties must be object');
+        const next: Record<string, import('../model/types.js').ComponentPropertyValue> = {};
+        for (const [k, v] of Object.entries(cp)) {
+          next[k] = validateComponentPropertyValue(v, `componentProperties.${k}`);
+        }
+        inst.componentProperties = next;
+      }
+    }
+    validateShapeBox(inst as unknown as import('../model/types.js').FrameNode);
+    if ('visible' in patch) {
+      if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
+      inst.visible = patch.visible;
+    }
+    if ('opacity' in patch) {
+      if (typeof patch.opacity !== 'number' || patch.opacity < 0 || patch.opacity > 1) throw new ValidationErr('VALIDATION_ERROR', 'opacity must be number 0..1');
+      inst.opacity = patch.opacity;
+    }
+    if ('rotation' in patch) {
+      if (typeof patch.rotation !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'rotation must be number');
+      inst.rotation = patch.rotation;
+    }
+    if ('blendMode' in patch) {
+      validateBlendMode(patch.blendMode, 'INSTANCE.blendMode');
+      inst.blendMode = patch.blendMode as import('../model/types.js').InstanceNode['blendMode'];
     }
     return;
   }

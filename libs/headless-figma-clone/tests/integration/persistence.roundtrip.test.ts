@@ -225,7 +225,9 @@ describe('persistence round-trip', () => {
       await engine2.loadFromDisk({ absolutePath: dest });
       const loaded = engine2.getActiveFile();
       expect(loaded).toEqual(after);
-      expect(loaded?.document.children[0]?.children[0]?.children?.[0]?.type).toBe('TABLE');
+      const maybeFrame = loaded?.document.children[0]?.children[0] as any;
+      const tableNode = maybeFrame?.children?.[0] as any;
+      expect(tableNode?.type).toBe('TABLE');
     } finally {
       rmSync(base, { recursive: true, force: true });
     }

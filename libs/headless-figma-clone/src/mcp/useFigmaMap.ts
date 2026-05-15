@@ -15,7 +15,10 @@ const CREATE_NODE_TYPES = new Set([
   'SLICE',
   'SECTION',
   'TABLE',
+  'COMPONENT',
+  'COMPONENT_SET',
   'COMPONENT_INSTANCE',
+  'INSTANCE',
 ]);
 
 function isRecord(v: unknown): v is Record<string, unknown> {

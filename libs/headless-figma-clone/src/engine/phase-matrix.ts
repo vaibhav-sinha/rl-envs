@@ -18,6 +18,7 @@ const sceneShapeTypes = [
   'SECTION',
   'TABLE',
   'COMPONENT_INSTANCE',
+  'INSTANCE',
 ] as const;
 
 const containerChildTypes = ['FRAME', 'TRANSFORM_GROUP', 'GROUP', 'SECTION'] as const;
@@ -60,6 +61,9 @@ export const ENGINE_MATRIX = {
       ...sceneShapeTypes.map((child) => ({ parent: 'TRANSFORM_GROUP' as const, child })),
       ...sceneShapeTypes.map((child) => ({ parent: 'GROUP' as const, child })),
       ...sceneShapeTypes.map((child) => ({ parent: 'SECTION' as const, child })),
+      // Phase 9 — component wrappers live on PAGE (component page convention).
+      { parent: 'PAGE' as const, child: 'COMPONENT' as const },
+      { parent: 'PAGE' as const, child: 'COMPONENT_SET' as const },
       ...booleanOperandTypes.map((child) => ({ parent: 'BOOLEAN_OPERATION' as const, child })),
     ],
     allowedRootTypesUnderDocument: ['PAGE' as const],
@@ -200,6 +204,16 @@ export const ENGINE_MATRIX = {
       'cells',
     ]),
     COMPONENT_INSTANCE: new Set([...shapePatchKeys, 'mainComponentId', 'overrides']),
+    COMPONENT: new Set([...shapePatchKeys, 'rootFrameId', 'componentPropertyDefinitions']),
+    COMPONENT_SET: new Set([
+      ...shapePatchKeys,
+      'componentIds',
+      'variantPropertyKey',
+      'variantOptions',
+      'nodeIdMapByComponentId',
+      'baseComponentId',
+    ]),
+    INSTANCE: new Set([...shapePatchKeys, 'mainComponentId', 'componentProperties', 'overrides']),
     PAGE: new Set(['name', 'x', 'y', 'width', 'height', 'isPageDivider']),
     DOCUMENT: new Set(['name']),
   },

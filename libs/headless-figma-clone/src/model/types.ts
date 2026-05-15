@@ -578,6 +578,87 @@ export interface ComponentDefinition {
   root: FrameNode;
 }
 
+/**
+ * Phase 9 — component graph nodes.
+ *
+ * Notes:
+ * - We store the actual master artwork as a normal `FRAME` node (`rootFrameId`),
+ *   and keep the `COMPONENT` / `COMPONENT_SET` wrappers as first-class scene nodes.
+ * - Instance overrides are keyed by "stable exposed node ids" from the base variant
+ *   (and may be remapped at compile-time using the component set's nodeId map).
+ */
+export type ComponentPropertyDefinition =
+  | { type: 'BOOLEAN'; defaultValue: boolean }
+  | { type: 'TEXT'; defaultValue: string }
+  | { type: 'VARIANT'; variantOptions: string[]; defaultValue: string }
+  | { type: 'INSTANCE_SWAP'; preferredValues?: string[] };
+
+export type ComponentPropertyValue =
+  | { type: 'BOOLEAN'; value: boolean }
+  | { type: 'TEXT'; value: string }
+  | { type: 'VARIANT'; value: string }
+  | { type: 'INSTANCE_SWAP'; value: string };
+
+export interface ComponentNode extends NodeBase, LayoutSelfFields {
+  type: 'COMPONENT';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  /** Frame node id containing the master artwork. */
+  rootFrameId: string;
+  componentPropertyDefinitions?: Record<string, ComponentPropertyDefinition>;
+}
+
+export interface ComponentSetNode extends NodeBase, LayoutSelfFields {
+  type: 'COMPONENT_SET';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  /** Ordered variant component ids. */
+  componentIds: string[];
+  /** Component set "variant property" key. We implement a minimal subset. */
+  variantPropertyKey?: string;
+  /** Values are parallel to `componentIds` (used for instance.variantProperties/componentProperties). */
+  variantOptions?: string[];
+  /**
+   * For override preservation across variants:
+   * - stable ids are from the base component variant (componentIds[0])
+   * - maps stableId -> variantNodeId inside the corresponding component's root frame.
+   */
+  nodeIdMapByComponentId?: Record<string, Record<string, string>>;
+  baseComponentId?: string;
+}
+
+export interface InstanceNode extends NodeBase, LayoutSelfFields {
+  type: 'INSTANCE';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  blendMode?: BlendMode;
+  mainComponentId: string;
+  /**
+   * Phase 9 — variant selection (minimal subset).
+   * Example shape: { variant: { type: 'VARIANT', value: 'Small' } }
+   */
+  componentProperties?: Record<string, ComponentPropertyValue>;
+  /**
+   * Keys are stable exposed node ids from the base variant of the component set.
+   * Compile-time remapping may occur for the selected variant.
+   */
+  overrides?: Record<string, ComponentOverrideFields>;
+}
+
 export type SceneNode =
   | FrameNode
   | TextNode
@@ -593,7 +674,10 @@ export type SceneNode =
   | SliceNode
   | SectionNode
   | TableNode
-  | ComponentInstanceNode;
+  | ComponentInstanceNode
+  | ComponentNode
+  | ComponentSetNode
+  | InstanceNode;
 
 export type AnyTreeNode = DocumentNode | PageNode | SceneNode;
 
@@ -614,5 +698,6 @@ export interface FileEnvelope {
   effectStyles?: EffectStyleDefinition[];
   /** Phase 8 — local layout grid styles. */
   gridStyles?: GridStyleDefinition[];
+  /** Phase 5 legacy component masters (migrated to graph nodes in Phase 9). */
   components?: ComponentDefinition[];
 }

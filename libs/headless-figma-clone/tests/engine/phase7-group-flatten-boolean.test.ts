@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileEnvelope } from '../../src/model/types.js';
-import { applyCreateNodeOp, applyEngineOp } from '../../src/engine/DocumentEngine.js';
+import { applyCreateNodeOp } from '../../src/engine/DocumentEngine.js';
 import { queueFlattenNodes, queueGroupNodes, queueUngroup } from '../../src/engine/graphOps.js';
 import type { EngineOperation } from '../../src/engine/DocumentEngine.js';
 
