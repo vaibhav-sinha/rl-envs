@@ -213,9 +213,11 @@ async function main() {
           const c = await captureClone(cloneClient, scenarioDir, code, description);
           parts.push(`clone→${c.out}`);
         }
-        if ((opts.only === 'both' || opts.only === 'figma') && figmaClient) {
+        if ((opts.only === 'both' || opts.only === 'figma') && figmaClient && !entry.figjamOnly) {
           const f = await captureFigma(figmaClient, scenarioDir, code, description, viewportMaxDim);
           parts.push(`figma→${f.out}`);
+        } else if (entry.figjamOnly && (opts.only === 'both' || opts.only === 'figma')) {
+          parts.push('figma→skipped(figjamOnly)');
         }
         console.log(`ok  ${parts.join(' ')}`);
         results.ok.push(entry.id);

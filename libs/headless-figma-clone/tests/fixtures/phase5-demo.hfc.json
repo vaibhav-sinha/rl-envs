@@ -110,7 +110,8 @@
                 "height": 40,
                 "characters": "Curved label",
                 "textOnPath": {
-                  "pathNodeId": "I4"
+                  "pathId": "I4",
+                  "startOffset": 0
                 },
                 "textStyleId": "TS1"
               },

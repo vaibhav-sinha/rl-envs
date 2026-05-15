@@ -17,10 +17,9 @@ path.vectorPaths = [{ windingRule: 'NONZERO', data: 'M 80 200 Q 240 80 400 200' 
 path.x = 40;
 path.y = 80;
 root.appendChild(path);
-const text = figma.createText();
+const text = figma.createTextPath(path, 0, 0);
 text.characters = 'Curved label';
 text.fontSize = 14;
-text.textOnPath = { pathId: path.id, startOffset: 0 };
 text.fills = [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.2 } }];
-root.appendChild(text);
+if (text !== path) root.appendChild(text);
 return { rootId: root.id };

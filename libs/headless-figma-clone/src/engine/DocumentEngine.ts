@@ -29,6 +29,7 @@ import type {
   InstanceNode,
   ComponentPropertyValue,
   LayoutSelfFields,
+  TransformModifier,
 } from '../model/types.js';
 import type { StyledSegment } from '../model/types.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
@@ -127,6 +128,76 @@ function deepClone<T>(v: T): T {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function parseTextOnPath(raw: unknown, label: string): TextNode['textOnPath'] {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isRecord(raw)) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label} must be an object`);
+  }
+  const pathId =
+    typeof raw.pathId === 'string'
+      ? raw.pathId
+      : typeof raw.pathNodeId === 'string'
+        ? raw.pathNodeId
+        : null;
+  if (!pathId || !/^I[0-9]+$/.test(pathId)) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}.pathId must be a node id`);
+  }
+  if (raw.startOffset === undefined) return { pathId };
+  if (typeof raw.startOffset !== 'number' || !Number.isFinite(raw.startOffset)) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}.startOffset must be a finite number`);
+  }
+  return { pathId, startOffset: raw.startOffset };
+}
+
+export function validateTransformModifiers(modifiers: unknown, label: string): TransformModifier[] {
+  if (modifiers === undefined || modifiers === null) {
+    throw new ValidationErr('VALIDATION_ERROR', `in ${label}: Property "modifiers" failed validation: Required value missing`);
+  }
+  if (!Array.isArray(modifiers)) {
+    throw new ValidationErr('VALIDATION_ERROR', `in ${label}: Property "modifiers" failed validation: Expected array`);
+  }
+  const out: TransformModifier[] = [];
+  for (let i = 0; i < modifiers.length; i++) {
+    const m = modifiers[i];
+    if (!isRecord(m) || m.type !== 'REPEAT') {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].type must be REPEAT`);
+    }
+    if (typeof m.count !== 'number' || !Number.isInteger(m.count) || m.count < 1) {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].count must be integer >= 1`);
+    }
+    if (m.unitType !== 'RELATIVE' && m.unitType !== 'PIXELS') {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].unitType must be RELATIVE or PIXELS`);
+    }
+    if (typeof m.offset !== 'number' || !Number.isFinite(m.offset)) {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].offset must be a finite number`);
+    }
+    if (m.repeatType === 'LINEAR') {
+      if (m.axis !== 'HORIZONTAL' && m.axis !== 'VERTICAL') {
+        throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].axis must be HORIZONTAL or VERTICAL`);
+      }
+      out.push({
+        type: 'REPEAT',
+        repeatType: 'LINEAR',
+        axis: m.axis,
+        count: m.count,
+        unitType: m.unitType,
+        offset: m.offset,
+      });
+    } else if (m.repeatType === 'RADIAL') {
+      out.push({
+        type: 'REPEAT',
+        repeatType: 'RADIAL',
+        count: m.count,
+        unitType: m.unitType,
+        offset: m.offset,
+      });
+    } else {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].repeatType must be LINEAR or RADIAL`);
+    }
+  }
+  return out;
 }
 
 export type AnyTreeNode = DocumentNode | PageNode | SceneNode;
@@ -411,13 +482,7 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
       throw new ValidationErr('VALIDATION_ERROR', 'TEXT.textStyleId must reference an existing text style');
     }
   }
-  let textOnPath: TextNode['textOnPath'];
-  if (spec.textOnPath !== undefined) {
-    if (!isRecord(spec.textOnPath) || typeof spec.textOnPath.pathNodeId !== 'string' || !/^I[0-9]+$/.test(spec.textOnPath.pathNodeId)) {
-      throw new ValidationErr('VALIDATION_ERROR', 'TEXT.textOnPath.pathNodeId must be a node id');
-    }
-    textOnPath = { pathNodeId: spec.textOnPath.pathNodeId };
-  }
+  const textOnPath = parseTextOnPath(spec.textOnPath, 'TEXT.textOnPath');
   const text: TextNode = {
     id,
     type: 'TEXT',
@@ -1182,6 +1247,10 @@ function normalizeNewTransformGroup(
   id: string,
   _env: FileEnvelope
 ): TransformGroupNode {
+  const transformModifiers =
+    spec.transformModifiers !== undefined
+      ? validateTransformModifiers(spec.transformModifiers, 'TRANSFORM_GROUP.transformModifiers')
+      : undefined;
   const n: TransformGroupNode = {
     id,
     type: 'TRANSFORM_GROUP',
@@ -1195,6 +1264,7 @@ function normalizeNewTransformGroup(
     opacity: spec.opacity,
     rotation: spec.rotation,
     blendMode: spec.blendMode,
+    transformModifiers,
   };
   validateShapeBox(n);
   validateBlendMode(spec.blendMode, 'TRANSFORM_GROUP.blendMode');
@@ -2096,10 +2166,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       if (top === undefined || top === null) {
         delete t.textOnPath;
       } else {
-        if (!isRecord(top) || typeof top.pathNodeId !== 'string' || !/^I[0-9]+$/.test(top.pathNodeId)) {
-          throw new ValidationErr('VALIDATION_ERROR', 'textOnPath.pathNodeId must be a node id');
-        }
-        t.textOnPath = { pathNodeId: top.pathNodeId };
+        t.textOnPath = parseTextOnPath(top, 'textOnPath');
       }
     }
     if ('boundVariables' in patch) {
@@ -2475,6 +2542,16 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     if ('blendMode' in patch) {
       validateBlendMode(patch.blendMode, 'TRANSFORM_GROUP.blendMode');
       tg.blendMode = patch.blendMode as TransformGroupNode['blendMode'];
+    }
+    if ('transformModifiers' in patch) {
+      if (patch.transformModifiers === undefined || patch.transformModifiers === null) {
+        delete tg.transformModifiers;
+      } else {
+        tg.transformModifiers = validateTransformModifiers(
+          patch.transformModifiers,
+          'TRANSFORM_GROUP.transformModifiers'
+        );
+      }
     }
     return;
   }

@@ -193,7 +193,7 @@ export const ENGINE_MATRIX = {
       'fills',
       'effects',
     ]),
-    TRANSFORM_GROUP: new Set([...shapePatchKeys]),
+    TRANSFORM_GROUP: new Set([...shapePatchKeys, 'transformModifiers']),
     GROUP: new Set([...shapePatchKeys]),
     SLICE: new Set([...shapePatchKeys]),
     SECTION: new Set([...shapePatchKeys, 'fills']),

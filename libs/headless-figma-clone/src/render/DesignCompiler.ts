@@ -678,6 +678,31 @@ function operandPathD(op: SceneNode): string {
   return 'M0,0';
 }
 
+function subtractMaskRect(r: RectangleNode, fill: 'white' | 'black'): string {
+  return `<rect x="${String(r.x)}" y="${String(r.y)}" width="${String(r.width)}" height="${String(r.height)}" fill="${fill}"/>`;
+}
+
+function subtractMaskEllipse(e: EllipseNode, fill: 'white' | 'black'): string {
+  const cx = e.x + e.width / 2;
+  const cy = e.y + e.height / 2;
+  return `<ellipse cx="${String(cx)}" cy="${String(cy)}" rx="${String(e.width / 2)}" ry="${String(e.height / 2)}" fill="${fill}"/>`;
+}
+
+function emitSubtractMaskSvg(
+  b: BooleanOperationNode,
+  w: number,
+  h: number,
+  fillAttr: string,
+  outerMask: string,
+  innerMask: string,
+  htmlParts: string[]
+): void {
+  const mid = `hfc-bool-sub-${b.id}`;
+  htmlParts.push(
+    `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="0" y="0" width="${String(w)}" height="${String(h)}">${outerMask}${innerMask}</mask></defs><rect x="0" y="0" width="${String(w)}" height="${String(h)}" ${fillAttr} mask="url(#${mid})"/></svg>`
+  );
+}
+
 function emitBooleanOperation(
   b: BooleanOperationNode,
   absX: number,
@@ -692,7 +717,10 @@ function emitBooleanOperation(
 ): void {
   const w = b.width;
   const h = b.height;
-  const fill = b.fills?.[0];
+  const firstOperand = b.children[0];
+  const operandFill =
+    firstOperand && 'fills' in firstOperand ? firstOperand.fills?.[0] : undefined;
+  const fill = b.fills?.[0] ?? operandFill;
   const fillAttr =
     fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)
       ? `fill="${escapeAttr(rgbaFromSolid(fill))}"`
@@ -706,19 +734,33 @@ function emitBooleanOperation(
 
   const a0 = b.children[0];
   const a1 = b.children[1];
-  if (
-    b.booleanOperation === 'SUBTRACT' &&
-    a0?.type === 'RECTANGLE' &&
-    a1?.type === 'RECTANGLE' &&
-    b.children.length === 2
-  ) {
-    const outer = a0;
-    const inner = a1;
-    const mid = `hfc-bool-sub-${b.id}`;
-    htmlParts.push(
-      `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="0" y="0" width="${String(w)}" height="${String(h)}"><rect x="${String(outer.x)}" y="${String(outer.y)}" width="${String(outer.width)}" height="${String(outer.height)}" fill="white"/><rect x="${String(inner.x)}" y="${String(inner.y)}" width="${String(inner.width)}" height="${String(inner.height)}" fill="black"/></mask></defs><rect x="0" y="0" width="${String(w)}" height="${String(h)}" ${fillAttr} mask="url(#${mid})"/></svg></div>`
-    );
-    return;
+  if (b.booleanOperation === 'SUBTRACT' && b.children.length === 2) {
+    if (a0?.type === 'RECTANGLE' && a1?.type === 'RECTANGLE') {
+      emitSubtractMaskSvg(
+        b,
+        w,
+        h,
+        fillAttr,
+        subtractMaskRect(a0, 'white'),
+        subtractMaskRect(a1, 'black'),
+        htmlParts
+      );
+      htmlParts.push('</div>');
+      return;
+    }
+    if (a0?.type === 'RECTANGLE' && a1?.type === 'ELLIPSE') {
+      emitSubtractMaskSvg(
+        b,
+        w,
+        h,
+        fillAttr,
+        subtractMaskRect(a0, 'white'),
+        subtractMaskEllipse(a1, 'black'),
+        htmlParts
+      );
+      htmlParts.push('</div>');
+      return;
+    }
   }
 
   const chunks = b.children
@@ -985,7 +1027,7 @@ function emitScene(
   if (n.type === 'TEXT') {
     const t = n;
     if (t.textOnPath && parentChildren) {
-      const pathNode = parentChildren.find((p) => p.id === t.textOnPath!.pathNodeId);
+      const pathNode = parentChildren.find((p) => p.id === t.textOnPath!.pathId);
       const vp = pathNode?.type === 'VECTOR' ? pathNode.vectorPaths?.[0] : undefined;
       if (vp?.data) {
         const shadow = dropShadowCss(t.effects);

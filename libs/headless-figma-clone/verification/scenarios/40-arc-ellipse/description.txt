@@ -1,0 +1,3 @@
+ELLIPSE with arcData for a partial ring.
+
+Expected: donut-style arc segment (not a full oval).

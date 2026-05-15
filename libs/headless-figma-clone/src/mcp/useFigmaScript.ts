@@ -4,10 +4,11 @@ import {
   applyEngineOp,
   findEnvelopeNode,
   registerAssetBytesInEnvelope,
+  validateTransformModifiers,
   type EngineOperation,
   type NewNodeSpec,
 } from '../engine/DocumentEngine.js';
-import { queueFlattenNodes, queueGroupNodes, queueUngroup } from '../engine/graphOps.js';
+import { boundsOfNodes, queueFlattenNodes, queueGroupNodes, queueUngroup } from '../engine/graphOps.js';
 import { hasMissingFont, listAvailableFonts, loadFontAsync } from '../fonts/fontCatalog.js';
 import { createNodeSpecFromSvg } from '../images/svgImport.js';
 import { fetchBytes, loadNetworkPolicyFromEnv } from '../images/networkPolicy.js';
@@ -25,8 +26,10 @@ import type {
   LayoutSizing,
   PageNode,
   Paint,
+  SceneNode,
   StyledSegment,
   TextRangeStyle,
+  TransformModifier,
   VectorNode,
 } from '../model/types.js';
 import { DEFAULT_FRAME_FILLS } from '../model/types.js';
@@ -91,7 +94,7 @@ function appendChildToScriptParent(
 }
 
 function createHandleProxy(ctx: ScriptContext, id: string): unknown {
-  return new Proxy(Object.freeze({ id }), {
+  return new Proxy({ id }, {
     get(_t, prop) {
       if (prop === 'id') return id;
       if (prop === 'remove') {
@@ -219,6 +222,16 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
           queueUpdate(ctx, id, { width: w, height: h });
         };
       }
+      if (prop === 'children') {
+        const live = findEnvelopeNode(ctx.working, id);
+        if (!live || ctx.deletedIds.has(id)) return [];
+        if (live.type === 'PAGE' || 'children' in live) {
+          return (live as { children: Array<{ id: string }> }).children
+            .filter((c) => !ctx.deletedIds.has(c.id))
+            .map((c) => createHandleProxy(ctx, c.id));
+        }
+        return [];
+      }
       const live = findEnvelopeNode(ctx.working, id);
       if (!live || ctx.deletedIds.has(id)) return undefined;
       const v = (live as unknown as Record<string, unknown>)[prop as string];
@@ -240,20 +253,39 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
   });
 }
 
+function normalizeTextOnPathInput(value: unknown): RuntimeText['textOnPath'] {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'textOnPath must be an object');
+  }
+  const v = value as Record<string, unknown>;
+  const pathId = typeof v.pathId === 'string' ? v.pathId : typeof v.pathNodeId === 'string' ? v.pathNodeId : null;
+  if (!pathId) throw new ValidationErr('VALIDATION_ERROR', 'textOnPath.pathId must be a node id');
+  if (v.startOffset === undefined) return { pathId };
+  if (typeof v.startOffset !== 'number' || !Number.isFinite(v.startOffset)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'textOnPath.startOffset must be a finite number');
+  }
+  return { pathId, startOffset: v.startOffset };
+}
+
 function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext): N {
   return new Proxy(node, {
     set(target, prop, value, receiver) {
       const p = prop as string;
       const skipAutoPatch = target.type === 'TEXT' && p === 'styledSegments';
+      let normalized = value;
+      if (target.type === 'TEXT' && p === 'textOnPath') {
+        normalized = value === undefined || value === null ? undefined : normalizeTextOnPathInput(value);
+      }
       if (
         !skipAutoPatch &&
         target.attached &&
         target.getAttachedIdOrNull() !== null &&
         isPatchKeyForType(target.type, p)
       ) {
-        queueUpdate(ctx, target.getAttachedIdOrNull()!, { [p]: value });
+        queueUpdate(ctx, target.getAttachedIdOrNull()!, { [p]: normalized });
       }
-      return Reflect.set(target, prop, value, receiver);
+      return Reflect.set(target, prop, normalized, receiver);
     },
   }) as N;
 }
@@ -433,6 +465,15 @@ class RuntimeFrame extends RuntimeSceneNode {
     this.appendChild(child, index);
   }
 
+  get children(): unknown[] {
+    if (!this.attached || this._id === null) return [];
+    const live = findEnvelopeNode(this.ctx.working, this._id);
+    if (!live || live.type !== 'FRAME') return [];
+    return live.children
+      .filter((c) => !this.ctx.deletedIds.has(c.id))
+      .map((c) => createHandleProxy(this.ctx, c.id));
+  }
+
   resize(w: number, h: number): void {
     this.width = w;
     this.height = h;
@@ -512,7 +553,7 @@ class RuntimeText extends RuntimeSceneNode {
   fontWeight = 400;
   fills?: FrameNode['fills'];
   textStyleId?: string;
-  textOnPath?: { pathNodeId: string };
+  textOnPath?: { pathId: string; startOffset?: number };
   private segments: StyledSegment[] = [];
 
   get styledSegments(): StyledSegment[] {
@@ -906,6 +947,7 @@ class RuntimeBooleanOperation extends RuntimeSceneNode {
 class RuntimeTransformGroup extends RuntimeSceneNode {
   readonly type = 'TRANSFORM_GROUP' as const;
   name = 'Group';
+  transformModifiers: TransformModifier[] = [];
 
   appendChild(child: RuntimeSceneNode | { id: string }, index?: number): void {
     this.appendChildInternal(child, index);
@@ -913,6 +955,15 @@ class RuntimeTransformGroup extends RuntimeSceneNode {
 
   insertChild(index: number, child: RuntimeSceneNode | { id: string }): void {
     this.appendChild(child, index);
+  }
+
+  get children(): unknown[] {
+    if (!this.attached || this._id === null) return [];
+    const live = findEnvelopeNode(this.ctx.working, this._id);
+    if (!live || live.type !== 'TRANSFORM_GROUP') return [];
+    return live.children
+      .filter((c) => !this.ctx.deletedIds.has(c.id))
+      .map((c) => createHandleProxy(this.ctx, c.id));
   }
 
   toNewNodeSpec(): NewNodeSpec {
@@ -927,6 +978,7 @@ class RuntimeTransformGroup extends RuntimeSceneNode {
       opacity: this.opacity,
       rotation: this.rotation,
       blendMode: this.blendMode,
+      transformModifiers: this.transformModifiers.length > 0 ? [...this.transformModifiers] : undefined,
       layoutAlign: this.layoutAlign,
       layoutGrow: this.layoutGrow,
       minWidth: this.minWidth,
@@ -1137,6 +1189,14 @@ class RuntimePage {
   insertChild(index: number, child: RuntimeSceneNode | { id: string }): void {
     this.appendChild(child, index);
   }
+
+  get children(): unknown[] {
+    const p = findEnvelopeNode(this.ctx.working, this.pageId);
+    if (!p || p.type !== 'PAGE') return [];
+    return p.children
+      .filter((c) => !this.ctx.deletedIds.has(c.id))
+      .map((c) => createHandleProxy(this.ctx, c.id));
+  }
 }
 
 const BOOLEAN_OPERAND_TYPES = new Set(['RECTANGLE', 'ELLIPSE', 'POLYGON', 'STAR', 'VECTOR']);
@@ -1161,6 +1221,7 @@ function figmaBooleanCombine(
     throw new Error('At least two nodes are required for a boolean operation');
   }
   const parentId = 'pageId' in parent ? parent.pageId : parent.id;
+  const operands: SceneNode[] = [];
   for (const n of nodes) {
     const id = readOperandId(n);
     const live = findEnvelopeNode(ctx.working, id);
@@ -1170,7 +1231,12 @@ function figmaBooleanCombine(
     if (!BOOLEAN_OPERAND_TYPES.has(live.type)) {
       throw new ValidationErr('VALIDATION_ERROR', `Boolean operand must be RECTANGLE, ELLIPSE, POLYGON, STAR, or VECTOR (got ${live.type})`);
     }
+    operands.push(live as SceneNode);
   }
+  const box = boundsOfNodes(operands);
+  const minuend = operands[0];
+  const minuendFills =
+    minuend && 'fills' in minuend ? (minuend as { fills?: Paint[] }).fills : undefined;
   const createOp: EngineOperation = {
     op: 'createNode',
     parentId,
@@ -1179,19 +1245,26 @@ function figmaBooleanCombine(
       type: 'BOOLEAN_OPERATION',
       name: 'Boolean',
       booleanOperation,
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 100,
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      fills: minuendFills,
     },
   };
   ctx.ops.push(createOp);
   const boolId = applyEngineOp(ctx.working, createOp)!;
-  for (let i = 0; i < nodes.length; i++) {
-    const nid = readOperandId(nodes[i]!);
+  for (let i = 0; i < operands.length; i++) {
+    const op = operands[i]!;
+    const nid = op.id;
+    const relX = op.x - box.x;
+    const relY = op.y - box.y;
     const mv: EngineOperation = { op: 'moveNode', nodeId: nid, newParentId: boolId, index: i };
     ctx.ops.push(mv);
     applyEngineOp(ctx.working, mv);
+    const up: EngineOperation = { op: 'updateNode', nodeId: nid, patch: { x: relX, y: relY } };
+    ctx.ops.push(up);
+    applyEngineOp(ctx.working, up);
   }
   return createHandleProxy(ctx, boolId);
 }
@@ -1543,14 +1616,27 @@ export async function runUseFigmaScript(
     transformGroup: (
       nodes: ReadonlyArray<RuntimeSceneNode | { id: string }>,
       parent: RuntimePage | RuntimeFrame | RuntimeTransformGroup | { id: string },
-      index?: number
+      index: number,
+      modifiers: ReadonlyArray<Record<string, unknown>>
     ): unknown => {
+      const transformModifiers = validateTransformModifiers(modifiers, 'transformGroup');
       const parentId = 'pageId' in parent ? parent.pageId : parent.id;
+      if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) {
+        throw new ValidationErr('VALIDATION_ERROR', 'transformGroup index must be a non-negative integer');
+      }
       const createOp = {
         op: 'createNode' as const,
         parentId,
         index,
-        node: { type: 'TRANSFORM_GROUP' as const, name: 'Transform Group', x: 0, y: 0, width: 100, height: 100 },
+        node: {
+          type: 'TRANSFORM_GROUP' as const,
+          name: 'Transform Group',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          transformModifiers: transformModifiers.length > 0 ? transformModifiers : undefined,
+        },
       };
       ctx.ops.push(createOp);
       const tgId = applyCreateNodeOp(ctx.working, createOp);
@@ -1593,22 +1679,31 @@ export async function runUseFigmaScript(
       ctx.ops.push(op);
       return createHandleProxy(ctx, applyCreateNodeOp(ctx.working, op));
     },
-    createTextPath: (): unknown => {
-      const op = {
-        op: 'createNode' as const,
-        parentId: currentPageId,
-        node: {
-          type: 'TEXT' as const,
-          name: 'Text Path',
-          characters: '',
-          x: 0,
-          y: 0,
-          width: 200,
-          height: 40,
-        },
-      };
-      ctx.ops.push(op);
-      return createHandleProxy(ctx, applyCreateNodeOp(ctx.working, op));
+    createTextPath: (
+      node: RuntimeVector | RuntimeSceneNode | { id: string },
+      startSegment: number,
+      startPosition: number
+    ): RuntimeText => {
+      if (typeof startSegment !== 'number' || !Number.isFinite(startSegment)) {
+        throw new ValidationErr('VALIDATION_ERROR', 'createTextPath: startSegment must be a finite number');
+      }
+      if (typeof startPosition !== 'number' || !Number.isFinite(startPosition) || startPosition < 0 || startPosition > 1) {
+        throw new ValidationErr('VALIDATION_ERROR', 'createTextPath: startPosition must be a number from 0 to 1');
+      }
+      void startSegment;
+      const pathId = readOperandId(node);
+      const live = findEnvelopeNode(ctx.working, pathId);
+      if (!live || live.type !== 'VECTOR') {
+        throw new ValidationErr('VALIDATION_ERROR', 'createTextPath: node must be a VECTOR');
+      }
+      const t = new RuntimeText().bindContext(ctx);
+      t.name = 'Text Path';
+      t.x = live.x;
+      t.y = live.y;
+      t.width = live.width;
+      t.height = live.height;
+      t.textOnPath = { pathId, startOffset: startPosition };
+      return wrapRuntimeNode(t, ctx);
     },
     createPageDivider: (): RuntimePage => {
       const idx = ctx.working.document.children.filter((c) => c.type === 'PAGE').length;

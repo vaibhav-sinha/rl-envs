@@ -875,7 +875,7 @@ b.x = 40;
 b.y = 40;
 b.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.7, b: 0.3 } }];
 root.appendChild(b);
-const tg = figma.transformGroup([a, b], root);
+const tg = figma.transformGroup([a, b], root, 0, []);
 tg.x = 180;
 tg.y = 120;
 tg.rotation = 20;
@@ -895,28 +895,29 @@ path.vectorPaths = [{ windingRule: 'NONZERO', data: 'M 80 200 Q 240 80 400 200' 
 path.x = 40;
 path.y = 80;
 root.appendChild(path);
-const text = figma.createText();
+const text = figma.createTextPath(path, 0, 0);
 text.characters = 'Curved label';
 text.fontSize = 14;
-text.textOnPath = { pathId: path.id, startOffset: 0 };
 text.fills = [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.2 } }];
-root.appendChild(text);
+if (text !== path) root.appendChild(text);
 `,
   },
   {
-    id: '40-table',
-    title: 'Table',
+    id: '40-arc-ellipse',
+    title: 'Arc ellipse',
     order: 40,
     tier: 'foundational',
-    tags: ['table'],
-    needsFont: true,
-    description: '3x3 TABLE with text.\n\nExpected: grid of cells with labels.',
+    tags: ['arc', 'ellipse'],
+    description:
+      'ELLIPSE with arcData for a partial ring.\n\nExpected: donut-style arc segment (not a full oval).',
     body: `
-const table = figma.createTable(3, 3);
-table.x = 90;
-table.y = 60;
-table.resize(300, 200);
-root.appendChild(table);
+const arc = figma.createEllipse();
+arc.resize(200, 200);
+arc.x = 140;
+arc.y = 80;
+arc.arcData = { startingAngle: 0, endingAngle: Math.PI * 1.25, innerRadius: 0.55 };
+arc.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.55, b: 0.95 } }];
+root.appendChild(arc);
 `,
   },
   {
@@ -2190,7 +2191,7 @@ const a = figma.createRectangle();
 a.resize(40, 40);
 a.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.2, b: 0.2 } }];
 root.appendChild(a);
-const tg = figma.transformGroup([content, mask, a], root);
+const tg = figma.transformGroup([content, mask, a], root, 0, []);
 tg.x = 150;
 tg.y = 110;
 tg.rotation = 15;
@@ -2388,6 +2389,7 @@ root.appendChild(cardInst);
     title: 'Pricing table composite',
     order: 99,
     tier: 'advanced',
+    figjamOnly: true,
     tags: ['composite', 'table', 'variables'],
     needsFont: true,
     description: 'Table + header + variable prices.\n\nExpected: pricing grid with striped rows and bound price text.',
@@ -2531,6 +2533,7 @@ const manifest = {
     order: s.order,
     tier: s.tier,
     tags: s.tags,
+    ...(s.figjamOnly ? { figjamOnly: true } : {}),
   })),
 };
 

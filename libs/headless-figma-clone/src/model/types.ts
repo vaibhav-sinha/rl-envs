@@ -329,10 +329,10 @@ export interface TextNode extends NodeBase, LayoutSelfFields {
   /** References {@link FileEnvelope.textStyles} id (merged at compile time). */
   textStyleId?: string;
   /**
-   * Renders characters along a sibling VECTOR path (`pathNodeId` must match a VECTOR in the same FRAME).
-   * @see design-doc Phase 5 — text path binding.
+   * Renders characters along a sibling VECTOR path (`pathId` must match a VECTOR in the same parent).
+   * @see Figma Plugin API — `TextNode.textOnPath`.
    */
-  textOnPath?: { pathNodeId: string };
+  textOnPath?: { pathId: string; startOffset?: number };
   /** Phase 8 — `fontSize` → FLOAT variable; `characters` → STRING variable. */
   boundVariables?: TextVariableBindings;
 }
@@ -488,6 +488,24 @@ export interface BooleanOperationNode extends NodeBase, LayoutSelfFields {
   effects?: Effect[];
 }
 
+/** @see Figma Plugin API — {@link https://developers.figma.com/docs/plugins/api/TransformModifier} */
+export type TransformModifier =
+  | {
+      type: 'REPEAT';
+      repeatType: 'LINEAR';
+      axis: 'HORIZONTAL' | 'VERTICAL';
+      count: number;
+      unitType: 'RELATIVE' | 'PIXELS';
+      offset: number;
+    }
+  | {
+      type: 'REPEAT';
+      repeatType: 'RADIAL';
+      count: number;
+      unitType: 'RELATIVE' | 'PIXELS';
+      offset: number;
+    };
+
 export interface TransformGroupNode extends NodeBase, LayoutSelfFields {
   type: 'TRANSFORM_GROUP';
   x: number;
@@ -497,6 +515,8 @@ export interface TransformGroupNode extends NodeBase, LayoutSelfFields {
   rotation?: number;
   opacity?: number;
   blendMode?: BlendMode;
+  /** Transform modifiers applied to children (Figma `transformModifiers`). */
+  transformModifiers?: TransformModifier[];
   children: SceneNode[];
 }
 

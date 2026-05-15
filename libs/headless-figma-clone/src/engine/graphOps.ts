@@ -5,7 +5,7 @@ import { ValidationErr } from '../util/errors.js';
 
 type ParentRef = { id: string };
 
-function boundsOfNodes(nodes: SceneNode[]): { x: number; y: number; width: number; height: number } {
+export function boundsOfNodes(nodes: SceneNode[]): { x: number; y: number; width: number; height: number } {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;

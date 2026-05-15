@@ -1,3 +1,0 @@
-3x3 TABLE with text.
-
-Expected: grid of cells with labels.
