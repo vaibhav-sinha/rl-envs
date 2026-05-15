@@ -1,5 +1,10 @@
 import type { FrameNode, LayoutSelfFields, SceneNode } from '../model/types.js';
 
+/** Auto-layout frames use an out-of-flow absolutely positioned flex shell; `width/height:auto` cross-axis would collapse. */
+function isAutoLayoutFrameNode(n: SceneNode): n is FrameNode {
+  return n.type === 'FRAME' && (n.layoutMode === 'HORIZONTAL' || n.layoutMode === 'VERTICAL');
+}
+
 export interface BoxPos {
   absX: number;
   absY: number;
@@ -13,7 +18,8 @@ function sizingToFlexGrow(sizing: 'FIXED' | 'HUG' | 'FILL' | undefined, layoutGr
 }
 
 function sizingToFlexShrink(sizing: 'FIXED' | 'HUG' | 'FILL' | undefined): number {
-  return sizing === 'HUG' ? 0 : 1;
+  if (sizing === 'FIXED' || sizing === 'HUG') return 0;
+  return 1;
 }
 
 function sizingToFlexBasis(
@@ -110,7 +116,11 @@ export function flexChildLayoutCss(
   const crossSize = isRow ? box.height : box.width;
   const grow = sizingToFlexGrow(mainSizing, n.layoutGrow);
   const shrink = sizingToFlexShrink(mainSizing);
-  const basisMain = sizingToFlexBasis(mainSizing, mainSize, n);
+  /** Model `width`/`height` already include intrinsic hug; flex-basis:auto would collapse AL frames whose only children are AP flex shells. */
+  let basisMain = sizingToFlexBasis(mainSizing, mainSize, n);
+  if (isAutoLayoutFrameNode(node) && mainSizing === 'HUG') {
+    basisMain = `${String(mainSize)}px`;
+  }
   const alignSelf =
     crossSizing === 'FILL' || n.layoutAlign === 'STRETCH'
       ? 'align-self:stretch;'
@@ -120,7 +130,7 @@ export function flexChildLayoutCss(
           ? 'align-self:flex-end;'
           : '';
   const crossDim =
-    crossSizing === 'HUG'
+    crossSizing === 'HUG' && !isAutoLayoutFrameNode(node)
       ? isRow
         ? 'height:auto;'
         : 'width:auto;'

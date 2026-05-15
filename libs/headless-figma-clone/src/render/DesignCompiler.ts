@@ -1,3 +1,4 @@
+import { applyAutoLayoutIntrinsicSizingDeep } from './autoLayoutIntrinsicSizing.js';
 import { booleanOperandPathD, computeBooleanPathData, rectCornerRadii, resolveBooleanDisplayFill } from './booleanPaths.js';
 import { ellipseArcPathD, ellipsePathD, isPlainFullEllipse } from './shapePaths.js';
 import { linearGradientCss, radialGradientCss, svgLinearGradientEndpoints, svgRadialGradientAttrs } from './gradientCss.js';
@@ -456,10 +457,6 @@ function transformOpacityCss(n: SceneNode, opts?: { skipRotation?: boolean }): s
   return s;
 }
 
-function overflowClipCss(clips: boolean | undefined): string {
-  return clips ? 'overflow:hidden;' : '';
-}
-
 function fillBackgroundStyles(
   fill: Paint | undefined,
   imgMap: Record<string, string>,
@@ -636,6 +633,13 @@ function starPathD(points: number, innerR: number, w: number, h: number): string
 
 function frameUsesFlexCss(f: FrameNode): boolean {
   return f.layoutMode === 'HORIZONTAL' || f.layoutMode === 'VERTICAL';
+}
+
+/** Figma parity: auto-layout frames clip overflowing children unless `clipsContent === false`. */
+function frameEffectiveClipsContent(f: FrameNode): boolean {
+  if (f.clipsContent === false) return false;
+  if (f.clipsContent === true) return true;
+  return frameUsesFlexCss(f);
 }
 
 function frameCornerRadiusCss(f: FrameNode): string {
@@ -1139,7 +1143,7 @@ function emitScene(
     const shadow = dropShadowCss(f.effects);
     const radiusCss = frameCornerRadiusCss(f);
     const radiusClip = radiusCss ? 'overflow:hidden;' : '';
-    const clip = overflowClipCss(f.clipsContent) || radiusClip;
+    const clip = (frameEffectiveClipsContent(f) ? 'overflow:hidden;' : '') || radiusClip;
     const layered = frameNeedsLayeredBackground(f);
     const flex = frameUsesFlexCss(f);
     const frameAbsX = pageX;
@@ -1978,6 +1982,10 @@ function normalizeRootBounds(root: SceneNode, raw: Bounds): Bounds {
 function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions, envelope: FileEnvelope): CompiledDesign {
   if (roots.length === 0) {
     throw new Error('compileRootScenes: empty roots');
+  }
+  /** Figma hugs auto-layout frame dimensions before render; mutate compile-time clone only. */
+  for (const root of roots) {
+    applyAutoLayoutIntrinsicSizingDeep(root);
   }
   const warnings: string[] = [];
   let b: Bounds | undefined;
