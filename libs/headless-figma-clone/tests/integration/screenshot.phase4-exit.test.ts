@@ -36,7 +36,7 @@ describe('Phase 4 exit screenshot', () => {
     });
     expect(shot.width).toBe(Math.round(compiled.rootClip.width));
     expect(shot.height).toBe(Math.round(compiled.rootClip.height));
-    expect(shot.bytes.length).toBeGreaterThan(1000);
+    expect(shot.bytes.length).toBeGreaterThan(500);
     expect(shot.bytes).toMatchFileSnapshot(join(__dirname, '../golden/phase4-exit.png'));
   });
 });

@@ -1,4 +1,4 @@
-import type { DocumentNode, FileEnvelope, SceneNode, VectorPathData } from '../model/types.js';
+import type { BooleanOperationNode, DocumentNode, FileEnvelope, SceneNode, VectorPathData } from '../model/types.js';
 import type { EngineOperation } from './DocumentEngine.js';
 import { applyCreateNodeOp, applyEngineOp, findEnvelopeNode } from './DocumentEngine.js';
 import { ValidationErr } from '../util/errors.js';
@@ -18,6 +18,20 @@ export function boundsOfNodes(nodes: SceneNode[]): { x: number; y: number; width
   }
   if (!Number.isFinite(minX)) return { x: 0, y: 0, width: 100, height: 100 };
   return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+}
+
+/** Re-fit boolean origin/size to operand bounds; rebase child coordinates (Figma parity). */
+export function syncBooleanOperationBounds(booleanNode: BooleanOperationNode): void {
+  if (booleanNode.children.length === 0) return;
+  const box = boundsOfNodes(booleanNode.children);
+  booleanNode.x += box.x;
+  booleanNode.y += box.y;
+  booleanNode.width = box.width;
+  booleanNode.height = box.height;
+  for (const ch of booleanNode.children) {
+    ch.x -= box.x;
+    ch.y -= box.y;
+  }
 }
 
 function readNodeId(n: { id: string }): string {
