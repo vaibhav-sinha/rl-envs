@@ -13,7 +13,7 @@ exports[`variable defs snapshot (phase 5 demo) > matches normalized snapshot 1`]
       "defaultModeId": "VM1",
       "modes": [
         {
-          "id": "VM1",
+          "modeId": "VM1",
           "name": "Default"
         }
       ],

@@ -5,7 +5,6 @@
   "main": "build/code.js",
   "ui": "build/ui.html",
   "editorType": ["figma", "figjam"],
-  "documentAccess": "dynamic-page",
   "permissions": ["teamlibrary"],
   "networkAccess": {
     "allowedDomains": ["none"],

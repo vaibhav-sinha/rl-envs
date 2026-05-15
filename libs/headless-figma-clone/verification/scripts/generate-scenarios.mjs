@@ -929,15 +929,15 @@ root.appendChild(arc);
     description: 'COLOR variable bound to fill.\n\nExpected: rectangle uses token red from variable.',
     body: `
 const col = figma.variables.createVariableCollection('Brand');
-const modeId = col.modes[0].id;
+const modeId = col.modes[0].modeId;
 const brand = figma.variables.createVariable('primary', col, 'COLOR');
-figma.variables.setValueForMode(brand.id, modeId, { type: 'COLOR', color: { r: 0.9, g: 0.15, b: 0.2 } });
+brand.setValueForMode(modeId, { r: 0.9, g: 0.15, b: 0.2 });
 const rect = figma.createRectangle();
 rect.resize(200, 100);
 rect.x = 140;
 rect.y = 130;
 root.appendChild(rect);
-rect.setBoundVariable('fills', brand);
+rect.fills = [figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', brand)];
 `,
   },
   {
@@ -949,14 +949,13 @@ rect.setBoundVariable('fills', brand);
     description: 'FLOAT variable on itemSpacing.\n\nExpected: wide gap between row items.',
     body: `
 const col = figma.variables.createVariableCollection('Layout');
-const modeId = col.modes[0].id;
+const modeId = col.modes[0].modeId;
 const gap = figma.variables.createVariable('gap', col, 'FLOAT');
-figma.variables.setValueForMode(gap.id, modeId, { type: 'FLOAT', value: 32 });
+gap.setValueForMode(modeId, 32);
 const row = figma.createAutoLayout();
 row.resize(320, 48);
 row.x = 80;
 row.y = 156;
-row.setBoundVariable('itemSpacing', gap);
 for (let i = 0; i < 2; i++) {
   const box = figma.createRectangle();
   box.resize(80, 36);
@@ -964,6 +963,7 @@ for (let i = 0; i < 2; i++) {
   row.appendChild(box);
 }
 root.appendChild(row);
+row.setBoundVariable('itemSpacing', gap);
 `,
   },
   {
@@ -985,14 +985,14 @@ const rect = figma.createRectangle();
 rect.resize(280, 80);
 rect.x = 100;
 rect.y = 140;
-rect.fillStyleId = paintStyle.id;
 root.appendChild(rect);
+await rect.setFillStyleIdAsync(paintStyle.id);
 const text = figma.createText();
 text.characters = 'Styled';
 text.x = 200;
 text.y = 160;
-text.textStyleId = textStyle.id;
 root.appendChild(text);
+await text.setTextStyleIdAsync(textStyle.id);
 `,
   },
   {
@@ -1014,7 +1014,7 @@ label.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
 frame.appendChild(label);
 figma.currentPage.appendChild(frame);
 const comp = figma.createComponentFromNode(frame);
-const inst = figma.createComponentInstance(comp.id);
+const inst = comp.createInstance();
 inst.x = 180;
 inst.y = 160;
 root.appendChild(inst);
@@ -1040,7 +1040,7 @@ fB.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.3, b: 0.2 } }];
 figma.currentPage.appendChild(fB);
 const cB = figma.createComponentFromNode(fB);
 const set = figma.combineAsVariants([cA, cB], figma.currentPage);
-const inst = figma.createComponentInstance(set.id);
+const inst = set.defaultVariant.createInstance();
 inst.x = 190;
 inst.y = 160;
 root.appendChild(inst);
@@ -1066,7 +1066,7 @@ fB.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.5, b: 0.1 } }];
 figma.currentPage.appendChild(fB);
 const cB = figma.createComponentFromNode(fB);
 const set = figma.combineAsVariants([cA, cB], figma.currentPage);
-const inst = figma.createComponentInstance(set.id);
+const inst = set.defaultVariant.createInstance();
 inst.x = 190;
 inst.y = 160;
 root.appendChild(inst);
@@ -1087,7 +1087,7 @@ frame.resize(100, 40);
 frame.fills = [{ type: 'SOLID', color: { r: 0.4, g: 0.3, b: 0.85 } }];
 figma.currentPage.appendChild(frame);
 const comp = figma.createComponentFromNode(frame);
-const inst = figma.createComponentInstance(comp.id);
+const inst = comp.createInstance();
 inst.x = 190;
 inst.y = 160;
 root.appendChild(inst);
@@ -2207,9 +2207,9 @@ tg.rotation = 15;
     description: 'STRING variable bound to characters.\n\nExpected: text reads token value "Hello".',
     body: `
 const col = figma.variables.createVariableCollection('Copy');
-const modeId = col.modes[0].id;
+const modeId = col.modes[0].modeId;
 const label = figma.variables.createVariable('greeting', col, 'STRING');
-figma.variables.setValueForMode(label.id, modeId, { type: 'STRING', value: 'Hello' });
+label.setValueForMode(modeId, 'Hello');
 const text = figma.createText();
 text.x = 180;
 text.y = 160;
@@ -2227,17 +2227,17 @@ root.appendChild(text);
     description: 'COLOR alias chain.\n\nExpected: rect uses resolved alias color (green).',
     body: `
 const col = figma.variables.createVariableCollection('Brand');
-const modeId = col.modes[0].id;
+const modeId = col.modes[0].modeId;
 const base = figma.variables.createVariable('base', col, 'COLOR');
-figma.variables.setValueForMode(base.id, modeId, { type: 'COLOR', color: { r: 0.2, g: 0.75, b: 0.35 } });
+base.setValueForMode(modeId, { r: 0.2, g: 0.75, b: 0.35 });
 const alias = figma.variables.createVariable('accent', col, 'COLOR');
-figma.variables.setValueForMode(alias.id, modeId, { type: 'VARIABLE_ALIAS', id: base.id });
+alias.setValueForMode(modeId, figma.variables.createVariableAlias(base));
 const rect = figma.createRectangle();
 rect.resize(200, 100);
 rect.x = 140;
 rect.y = 130;
 root.appendChild(rect);
-rect.setBoundVariable('fills', alias);
+rect.fills = [figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', alias)];
 `,
   },
   {
@@ -2249,18 +2249,18 @@ rect.setBoundVariable('fills', alias);
     description: 'Two modes; active mode sets fill.\n\nExpected: rectangle uses Dark mode blue.',
     body: `
 const col = figma.variables.createVariableCollection('Theme');
-const lightId = col.modes[0].id;
+const lightId = col.modes[0].modeId;
 const darkId = col.addMode('Dark');
 const theme = figma.variables.createVariable('bg', col, 'COLOR');
-figma.variables.setValueForMode(theme.id, lightId, { type: 'COLOR', color: { r: 0.95, g: 0.96, b: 0.98 } });
-figma.variables.setValueForMode(theme.id, darkId, { type: 'COLOR', color: { r: 0.1, g: 0.15, b: 0.35 } });
-figma.variables.setVariableCollectionActiveMode(col, darkId);
+theme.setValueForMode(lightId, { r: 0.95, g: 0.96, b: 0.98 });
+theme.setValueForMode(darkId, { r: 0.1, g: 0.15, b: 0.35 });
+root.setExplicitVariableModeForCollection(col, darkId);
 const rect = figma.createRectangle();
 rect.resize(280, 180);
 rect.x = 100;
 rect.y = 90;
 root.appendChild(rect);
-rect.setBoundVariable('fills', theme);
+rect.fills = [figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', theme)];
 `,
   },
   {
@@ -2316,7 +2316,7 @@ frame.resize(100, 40);
 frame.fills = [{ type: 'SOLID', color: { r: 0.15, g: 0.45, b: 0.95 } }];
 figma.currentPage.appendChild(frame);
 const comp = figma.createComponentFromNode(frame);
-const inst = figma.createComponentInstance(comp.id);
+const inst = comp.createInstance();
 inst.x = 190;
 inst.y = 160;
 root.appendChild(inst);
@@ -2346,7 +2346,7 @@ const set = figma.combineAsVariants(variants, figma.currentPage);
 let i = 0;
 for (let row = 0; row < 2; row++) {
   for (let col = 0; col < 2; col++) {
-    const inst = figma.createComponentInstance(set.id);
+    const inst = variants[col].createInstance();
     inst.x = 100 + col * 100;
     inst.y = 100 + row * 48;
     root.appendChild(inst);
@@ -2372,13 +2372,13 @@ const btnComp = figma.createComponentFromNode(btnFrame);
 const cardFrame = figma.createFrame();
 cardFrame.resize(200, 100);
 cardFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
-const btnInst = figma.createComponentInstance(btnComp.id);
+const btnInst = btnComp.createInstance();
 btnInst.x = 64;
 btnInst.y = 36;
 cardFrame.appendChild(btnInst);
 figma.currentPage.appendChild(cardFrame);
 const cardComp = figma.createComponentFromNode(cardFrame);
-const cardInst = figma.createComponentInstance(cardComp.id);
+const cardInst = cardComp.createInstance();
 cardInst.x = 140;
 cardInst.y = 130;
 root.appendChild(cardInst);
@@ -2395,9 +2395,9 @@ root.appendChild(cardInst);
     description: 'Table + header + variable prices.\n\nExpected: pricing grid with striped rows and bound price text.',
     body: `
 const col = figma.variables.createVariableCollection('Pricing');
-const modeId = col.modes[0].id;
+const modeId = col.modes[0].modeId;
 const price = figma.variables.createVariable('price', col, 'STRING');
-figma.variables.setValueForMode(price.id, modeId, { type: 'STRING', value: '$19' });
+price.setValueForMode(modeId, '$19');
 const title = figma.createText();
 title.characters = 'Plans';
 title.fontSize = 20;
@@ -2422,9 +2422,9 @@ root.appendChild(table);
       'Full screen: header, hero, mask, badge, variables, instances, blur modal, overlapping cards.\n\nExpected: rich UI with clear z-order — modal and badge on top.',
     body: `
 const brand = figma.variables.createVariableCollection('UI');
-const modeId = brand.modes[0].id;
+const modeId = brand.modes[0].modeId;
 const primary = figma.variables.createVariable('primary', brand, 'COLOR');
-figma.variables.setValueForMode(primary.id, modeId, { type: 'COLOR', color: { r: 0.15, g: 0.45, b: 0.95 } });
+primary.setValueForMode(modeId, { r: 0.15, g: 0.45, b: 0.95 });
 const header = figma.createAutoLayout();
 header.resize(440, 48);
 header.x = 20;

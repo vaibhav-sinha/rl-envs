@@ -12,14 +12,13 @@ root.resize(480, 360);
 root.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
 figma.currentPage.appendChild(root);
 const col = figma.variables.createVariableCollection('Layout');
-const modeId = col.modes[0].id;
+const modeId = col.modes[0].modeId;
 const gap = figma.variables.createVariable('gap', col, 'FLOAT');
-figma.variables.setValueForMode(gap.id, modeId, { type: 'FLOAT', value: 32 });
+gap.setValueForMode(modeId, 32);
 const row = createAutoLayout();
 row.resize(320, 48);
 row.x = 80;
 row.y = 156;
-row.setBoundVariable('itemSpacing', gap);
 for (let i = 0; i < 2; i++) {
   const box = figma.createRectangle();
   box.resize(80, 36);
@@ -27,4 +26,5 @@ for (let i = 0; i < 2; i++) {
   row.appendChild(box);
 }
 root.appendChild(row);
+row.setBoundVariable('itemSpacing', gap);
 return { rootId: root.id };

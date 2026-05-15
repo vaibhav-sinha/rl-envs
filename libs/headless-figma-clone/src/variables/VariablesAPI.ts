@@ -5,6 +5,7 @@ import { findEnvelopeNode } from '../engine/DocumentEngine.js';
 import type { FileEnvelope, Paint, VariableCollection, VariableDefinition, VariableResolvedValue } from '../model/types.js';
 import { ValidationErr } from '../util/errors.js';
 import { findVariableDefinition } from './resolution.js';
+import { assertRequiredModeId } from './validation.js';
 
 export interface VariableAlias {
   type: 'VARIABLE_ALIAS';
@@ -15,7 +16,7 @@ export interface ScriptVariableCollection {
   id: string;
   name: string;
   defaultModeId: string;
-  modes: Array<{ id: string; name: string }>;
+  modes: Array<{ modeId: string; name: string }>;
   variables: ScriptVariable[];
 }
 
@@ -35,7 +36,9 @@ export type VariableBindableNodeField =
   | 'paddingBottom'
   | 'itemSpacing'
   | 'fontSize'
-  | 'characters';
+  | 'characters'
+  | 'fills'
+  | 'strokes';
 
 const FLOAT_BIND_FIELDS = new Set<VariableBindableNodeField>([
   'paddingLeft',
@@ -48,12 +51,44 @@ const FLOAT_BIND_FIELDS = new Set<VariableBindableNodeField>([
 
 const STRING_BIND_FIELDS = new Set<VariableBindableNodeField>(['characters']);
 
-function wrapCollection(col: VariableCollection): ScriptVariableCollection {
-  return {
+const PAINT_BIND_FIELDS = new Set<VariableBindableNodeField>(['fills', 'strokes']);
+
+/** Node types that support `setBoundVariable('fills' | 'strokes', colorVariable)`. */
+const GEOMETRY_PAINT_NODE_TYPES = new Set([
+  'RECTANGLE',
+  'ELLIPSE',
+  'FRAME',
+  'VECTOR',
+  'LINE',
+  'POLYGON',
+  'STAR',
+  'TEXT',
+  'BOOLEAN_OPERATION',
+]);
+
+/** Whether `setBoundVariable` may be queued before the node is appended (Figma parity). */
+export function canDeferSetBoundVariable(nodeType: string, field: string): boolean {
+  if (PAINT_BIND_FIELDS.has(field as VariableBindableNodeField)) {
+    return GEOMETRY_PAINT_NODE_TYPES.has(nodeType);
+  }
+  if (nodeType === 'FRAME') {
+    return FLOAT_BIND_FIELDS.has(field as VariableBindableNodeField);
+  }
+  if (nodeType === 'TEXT') {
+    return field === 'fontSize' || field === 'characters';
+  }
+  return false;
+}
+
+function wrapCollection(
+  ctx: { working: FileEnvelope; ops: EngineOperation[] },
+  col: VariableCollection
+): ScriptVariableCollection & { addMode: (name: string) => string } {
+  const base: ScriptVariableCollection = {
     id: col.id,
     name: col.name,
     defaultModeId: col.defaultModeId,
-    modes: col.modes.map((m) => ({ id: m.id, name: m.name })),
+    modes: col.modes.map((m) => ({ modeId: m.id, name: m.name })),
     variables: col.variables.map((v) => ({
       id: v.id,
       name: v.name,
@@ -63,16 +98,82 @@ function wrapCollection(col: VariableCollection): ScriptVariableCollection {
       aliasOfVariableId: v.aliasOfVariableId,
     })),
   };
+  return {
+    ...base,
+    addMode(name: string): string {
+      const modeId = ulid();
+      queueEnv(ctx, { op: 'createVariableMode', collectionId: col.id, modeId, name });
+      const live = ctx.working.variableCollections?.find((c) => c.id === col.id);
+      if (live) {
+        base.modes = live.modes.map((m) => ({ modeId: m.id, name: m.name }));
+      }
+      return modeId;
+    },
+  };
 }
 
-function wrapVariable(col: VariableCollection, v: VariableDefinition): ScriptVariable {
-  return {
+function isVariableAliasValue(value: unknown): value is VariableAlias {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    (value as { type: string }).type === 'VARIABLE_ALIAS' &&
+    'id' in value &&
+    typeof (value as { id: unknown }).id === 'string'
+  );
+}
+
+function normalizeVariableValueForMode(
+  resolvedType: VariableDefinition['resolvedType'],
+  value: unknown
+): VariableResolvedValue {
+  if (resolvedType === 'COLOR') {
+    if (typeof value === 'object' && value !== null && 'type' in value && (value as VariableResolvedValue).type === 'COLOR') {
+      return value as VariableResolvedValue;
+    }
+    if (typeof value === 'object' && value !== null && 'r' in value && 'g' in value && 'b' in value) {
+      return { type: 'COLOR', color: value as { r: number; g: number; b: number } };
+    }
+  }
+  if (resolvedType === 'FLOAT') {
+    if (typeof value === 'number') return { type: 'FLOAT', value };
+    if (typeof value === 'object' && value !== null && 'type' in value && (value as VariableResolvedValue).type === 'FLOAT') {
+      return value as VariableResolvedValue;
+    }
+  }
+  if (resolvedType === 'STRING') {
+    if (typeof value === 'string') return { type: 'STRING', value };
+    if (typeof value === 'object' && value !== null && 'type' in value && (value as VariableResolvedValue).type === 'STRING') {
+      return value as VariableResolvedValue;
+    }
+  }
+  throw new ValidationErr('VALIDATION_ERROR', `Invalid value for ${resolvedType} variable`);
+}
+
+function wrapVariable(
+  ctx: { working: FileEnvelope; ops: EngineOperation[] },
+  col: VariableCollection,
+  v: VariableDefinition
+): ScriptVariable & { setValueForMode(modeId: string, value: unknown): void } {
+  const base: ScriptVariable = {
     id: v.id,
     name: v.name,
     resolvedType: v.resolvedType,
     variableCollectionId: col.id,
     valuesByMode: v.valuesByMode,
     aliasOfVariableId: v.aliasOfVariableId,
+  };
+  return {
+    ...base,
+    setValueForMode(modeId: string, value: unknown): void {
+      assertRequiredModeId(modeId);
+      if (isVariableAliasValue(value)) {
+        queueEnv(ctx, { op: 'setVariableAliasTarget', variableId: v.id, aliasOfVariableId: value.id });
+        return;
+      }
+      const envelopeValue = normalizeVariableValueForMode(v.resolvedType, value);
+      queueEnv(ctx, { op: 'setVariableValueForMode', variableId: v.id, modeId, value: envelopeValue });
+    },
   };
 }
 
@@ -90,29 +191,29 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
 
   return {
     getLocalVariableCollectionsAsync: async (): Promise<ScriptVariableCollection[]> =>
-      (working.variableCollections ?? []).map(wrapCollection),
+      (working.variableCollections ?? []).map((c) => wrapCollection(ctx, c)),
 
     getLocalVariableCollections: (): ScriptVariableCollection[] =>
-      (working.variableCollections ?? []).map(wrapCollection),
+      (working.variableCollections ?? []).map((c) => wrapCollection(ctx, c)),
 
     getVariableCollectionByIdAsync: async (id: string): Promise<ScriptVariableCollection | null> => {
       const col = working.variableCollections?.find((c) => c.id === id);
-      return col ? wrapCollection(col) : null;
+      return col ? wrapCollection(ctx, col) : null;
     },
 
     getVariableCollectionById: (id: string): ScriptVariableCollection | null => {
       const col = working.variableCollections?.find((c) => c.id === id);
-      return col ? wrapCollection(col) : null;
+      return col ? wrapCollection(ctx, col) : null;
     },
 
     getVariableByIdAsync: async (id: string): Promise<ScriptVariable | null> => {
       const hit = findVariableDefinition(working, id);
-      return hit ? wrapVariable(hit.collection, hit.variable) : null;
+      return hit ? wrapVariable(ctx, hit.collection, hit.variable) : null;
     },
 
     getVariableById: (id: string): ScriptVariable | null => {
       const hit = findVariableDefinition(working, id);
-      return hit ? wrapVariable(hit.collection, hit.variable) : null;
+      return hit ? wrapVariable(ctx, hit.collection, hit.variable) : null;
     },
 
     getLocalVariablesAsync: async (
@@ -122,7 +223,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       for (const col of working.variableCollections ?? []) {
         for (const v of col.variables) {
           if (type && v.resolvedType !== type) continue;
-          out.push(wrapVariable(col, v));
+          out.push(wrapVariable(ctx, col, v));
         }
       }
       return out;
@@ -133,7 +234,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       for (const col of working.variableCollections ?? []) {
         for (const v of col.variables) {
           if (type && v.resolvedType !== type) continue;
-          out.push(wrapVariable(col, v));
+          out.push(wrapVariable(ctx, col, v));
         }
       }
       return out;
@@ -143,7 +244,8 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       const collectionId = ulid();
       const defaultModeId = ulid();
       queueEnv(ctx, { op: 'createVariableCollection', collectionId, name, defaultModeId });
-      return wrapCollection(working.variableCollections!.find((c) => c.id === collectionId)!);
+      const col = working.variableCollections!.find((c) => c.id === collectionId)!;
+      return wrapCollection(ctx, col);
     },
 
     createVariable: (
@@ -155,17 +257,17 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       const variableId = ulid();
       queueEnv(ctx, { op: 'createVariable', collectionId, variableId, name, resolvedType });
       const hit = findVariableDefinition(working, variableId)!;
-      return wrapVariable(hit.collection, hit.variable);
+      return wrapVariable(ctx, hit.collection, hit.variable);
     },
 
     createVariableMode: (
       collection: ScriptVariableCollection | { id: string },
       name: string
-    ): { id: string; name: string } => {
+    ): { modeId: string; name: string } => {
       const collectionId = collectionIdOf(collection);
       const modeId = ulid();
       queueEnv(ctx, { op: 'createVariableMode', collectionId, modeId, name });
-      return { id: modeId, name };
+      return { modeId, name };
     },
 
     renameVariable: (variableId: string, name: string): void => {
@@ -181,6 +283,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
     },
 
     setValueForMode: (variableId: string, modeId: string, value: VariableResolvedValue): void => {
+      assertRequiredModeId(modeId);
       queueEnv(ctx, { op: 'setVariableValueForMode', variableId, modeId, value });
     },
 
@@ -248,6 +351,26 @@ export function bindVariableToNodeField(
 ): Record<string, unknown> {
   const live = findEnvelopeNode(working, nodeId);
   if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
+
+  if (PAINT_BIND_FIELDS.has(field)) {
+    if (!GEOMETRY_PAINT_NODE_TYPES.has(live.type)) {
+      throw new ValidationErr(
+        'VALIDATION_ERROR',
+        `Node type ${live.type} does not support setBoundVariable for ${field}`
+      );
+    }
+    if (variable === null) {
+      return { [field]: undefined };
+    }
+    const hit = findVariableDefinition(working, variable.id);
+    if (!hit) throw new ValidationErr('VALIDATION_ERROR', `Unknown variable ${variable.id}`);
+    if (hit.variable.resolvedType !== 'COLOR') {
+      throw new ValidationErr('VALIDATION_ERROR', `Field ${field} requires COLOR variable`);
+    }
+    return {
+      [field]: [{ type: 'VARIABLE_COLOR', variableId: variable.id, visible: true } satisfies Paint],
+    };
+  }
 
   if (variable === null) {
     if (live.type !== 'FRAME' && live.type !== 'TEXT') {

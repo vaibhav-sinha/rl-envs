@@ -69,6 +69,51 @@ describe('bindVariableToNodeField', () => {
     expect(() => bindVariableToNodeField(env, 'I3', 'paddingTop', { id: 'VS1' })).toThrow(/requires FLOAT/);
   });
 
+  it('binds COLOR to rectangle fills', () => {
+    const env = emptyEnvelope();
+    applyEnvelopeOperation(env, {
+      op: 'createVariableCollection',
+      collectionId: 'VC1',
+      name: 'Brand',
+      defaultModeId: 'VM1',
+    });
+    applyEnvelopeOperation(env, {
+      op: 'createVariable',
+      collectionId: 'VC1',
+      variableId: 'VCOL1',
+      name: 'primary',
+      resolvedType: 'COLOR',
+    });
+    env.document.children[0]!.children.push({
+      id: 'I3',
+      type: 'RECTANGLE',
+      name: 'R',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      visible: true,
+    });
+    const patch = bindVariableToNodeField(env, 'I3', 'fills', { id: 'VCOL1' });
+    expect(patch.fills).toEqual([{ type: 'VARIABLE_COLOR', variableId: 'VCOL1', visible: true }]);
+  });
+
+  it('rejects FLOAT variable on rectangle fills', () => {
+    const env = emptyEnvelope();
+    seedFloatVar(env);
+    env.document.children[0]!.children.push({
+      id: 'I3',
+      type: 'RECTANGLE',
+      name: 'R',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      visible: true,
+    });
+    expect(() => bindVariableToNodeField(env, 'I3', 'fills', { id: 'VV1' })).toThrow(/requires COLOR/);
+  });
+
   it('rejects bind on unsupported node types', () => {
     const env = emptyEnvelope();
     seedFloatVar(env);
