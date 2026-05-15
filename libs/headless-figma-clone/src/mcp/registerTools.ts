@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { resolve } from 'node:path';
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
+import { compileSubtreeForScreenshot } from '../render/compileForScreenshot.js';
 import { designCompiler } from '../render/DesignCompiler.js';
 import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
@@ -304,7 +305,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           isError: true,
         };
       }
-      const compiled = designCompiler.compileSubtree({
+      const compiled = await compileSubtreeForScreenshot({
         envelope: file,
         rootNodeId: args.nodeId,
         options: {
@@ -313,6 +314,8 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           inlineCss: true,
           imageDataUrlByHash: imageDataUrlMapForActiveFile(),
         },
+        screenshot: playwrightScreenshotService,
+        screenshotTimeoutMs: deps.screenshotTimeoutMs,
       });
       const dpr = args.deviceScaleFactor ?? args.scale * deps.screenshotDefaultDeviceScaleFactor;
       const bg = args.background ?? deps.screenshotDefaultBackground;

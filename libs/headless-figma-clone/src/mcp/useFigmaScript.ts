@@ -363,6 +363,14 @@ abstract class RuntimeSceneNode {
     queueUpdate(this.ctx, this._id, patch);
   }
 
+  /** Figma-compatible async fills setter (required for pattern paints). */
+  async setFillsAsync(paints: Paint[]): Promise<void> {
+    (this as { fills?: Paint[] }).fills = paints;
+    if (this.attached && this._id !== null) {
+      queueUpdate(this.ctx, this._id, { fills: paints });
+    }
+  }
+
   abstract toNewNodeSpec(): NewNodeSpec;
 
   protected layoutSelfSpec(): Record<string, unknown> {
