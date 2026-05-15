@@ -4,6 +4,7 @@ POLYGON
   <head>
     <meta charset="utf-8" />
     <style id="hfc-compiled-css">
+html,body{margin:0;padding:0;}#hfc-root,#hfc-root *{box-sizing:border-box;}#hfc-root img,#hfc-root svg{display:block;}#hfc-root p,#hfc-root h1,#hfc-root h2,#hfc-root h3,#hfc-root h4,#hfc-root h5,#hfc-root h6,#hfc-root ul,#hfc-root ol,#hfc-root li,#hfc-root figure,#hfc-root blockquote{margin:0;padding:0;}#hfc-root ul,#hfc-root ol{list-style:none;}#hfc-root a,#hfc-root a:link,#hfc-root a:visited,#hfc-root a:hover,#hfc-root a:active{color:inherit;text-decoration:none;}
 #hfc-root{position:relative;width:42px;height:42px;isolation:isolate;}
 .hfc-node-I6{position:absolute;left:0px;top:0px;width:42px;height:42px;}
     </style>
@@ -21,6 +22,7 @@ BLEND_RECT
   <head>
     <meta charset="utf-8" />
     <style id="hfc-compiled-css">
+html,body{margin:0;padding:0;}#hfc-root,#hfc-root *{box-sizing:border-box;}#hfc-root img,#hfc-root svg{display:block;}#hfc-root p,#hfc-root h1,#hfc-root h2,#hfc-root h3,#hfc-root h4,#hfc-root h5,#hfc-root h6,#hfc-root ul,#hfc-root ol,#hfc-root li,#hfc-root figure,#hfc-root blockquote{margin:0;padding:0;}#hfc-root ul,#hfc-root ol{list-style:none;}#hfc-root a,#hfc-root a:link,#hfc-root a:visited,#hfc-root a:hover,#hfc-root a:active{color:inherit;text-decoration:none;}
 #hfc-root{position:relative;width:72px;height:44px;isolation:isolate;}
 .hfc-node-I4{position:absolute;left:0px;top:0px;width:72px;height:44px;box-sizing:border-box;background-image:linear-gradient(90deg,rgba(255,51,51,1) 0%,rgba(51,51,255,1) 100%);background-color:transparent;border:none;mix-blend-mode:multiply;}
     </style>

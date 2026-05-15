@@ -7,7 +7,7 @@ Local MCP server that exposes five Figma MCP tools and proxies execution to a **
 | Tool | Description |
 |------|-------------|
 | `get_metadata` | Sparse XML outline of selection or page structure |
-| `get_screenshot` | PNG screenshot of a node (URL + optional base64) |
+| `get_screenshot` | PNG screenshot of a node (inline MCP `image` content, like headless-figma-clone) |
 | `get_variable_defs` | Variables and styles used in a selection |
 | `search_design_system` | Search local file + enabled library variables/styles/components |
 | `use_figma` | Run Plugin API JavaScript (`code` + `description`) |
@@ -70,7 +70,7 @@ MCP client → HTTP /mcp → local-figma-mcp (Node)
 - [ ] `curl http://127.0.0.1:3855/health` shows `pluginConnected: true` with plugin running.
 - [ ] `use_figma`: create a frame with a short script; verify on canvas.
 - [ ] `get_metadata`: returns XML for current selection or page list when `nodeId` omitted.
-- [ ] `get_screenshot`: returns URL + curl; download PNG via curl.
+- [ ] `get_screenshot`: returns inline PNG image content with width/height metadata.
 - [ ] `get_variable_defs`: returns JSON map for a frame using variables.
 - [ ] `search_design_system`: query `button` returns local components/styles.
 

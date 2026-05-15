@@ -4,7 +4,6 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { LocalFigmaMcpConfig } from '../config.js';
 import type { PluginBridge } from '../bridge/PluginBridge.js';
-import type { ScreenshotAssetStore } from '../bridge/ScreenshotAssetStore.js';
 import { createLocalFigmaMcpServer } from '../mcp/registerTools.js';
 import { attachPluginWebSocket } from './attachWebSocket.js';
 
@@ -38,33 +37,13 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 export async function createHttpServer(params: {
   config: LocalFigmaMcpConfig;
   bridge: PluginBridge;
-  screenshotStore: ScreenshotAssetStore;
 }): Promise<{ server: Server; port: number; close: () => Promise<void> }> {
-  const { config, bridge, screenshotStore } = params;
+  const { config, bridge } = params;
   const transports: Record<string, SessionEntry> = {};
-  let listenPort = config.httpPort;
-
-  const getBaseUrl = (): string => `http://${config.httpHost}:${listenPort}`;
 
   const httpServer = createServer(async (req, res) => {
     try {
       const url = req.url?.split('?')[0] ?? '';
-
-      if (req.method === 'GET' && url.startsWith('/assets/')) {
-        const token = decodeURIComponent(url.slice('/assets/'.length).split('/')[0] ?? '');
-        const asset = screenshotStore.get(token);
-        if (!asset) {
-          sendJson(res, 404, { error: { code: 'NOT_FOUND', message: 'Screenshot expired or unknown' } });
-          return;
-        }
-        res.writeHead(200, {
-          'content-type': asset.mimeType,
-          'content-length': String(asset.bytes.length),
-          'cache-control': 'no-store',
-        });
-        res.end(asset.bytes);
-        return;
-      }
 
       if (req.method === 'GET' && url === '/health') {
         const session = bridge.getSession();
@@ -94,11 +73,7 @@ export async function createHttpServer(params: {
           }
 
           if (!sessionId && isInit) {
-            const mcpServer = createLocalFigmaMcpServer({
-              bridge,
-              screenshotStore,
-              getBaseUrl,
-            });
+            const mcpServer = createLocalFigmaMcpServer({ bridge });
             const transport = new StreamableHTTPServerTransport({
               sessionIdGenerator: () => randomUUID(),
               enableJsonResponse: true,
@@ -169,7 +144,7 @@ export async function createHttpServer(params: {
   });
 
   const addr = httpServer.address();
-  listenPort = typeof addr === 'object' && addr && 'port' in addr ? addr.port : config.httpPort;
+  const port = typeof addr === 'object' && addr && 'port' in addr ? addr.port : config.httpPort;
 
-  return { server: httpServer, port: listenPort, close };
+  return { server: httpServer, port, close };
 }

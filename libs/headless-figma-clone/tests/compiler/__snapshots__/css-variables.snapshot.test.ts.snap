@@ -1,7 +1,8 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`css-variables snapshot contract > defines :root variables and uses var() for VARIABLE_COLOR fills 1`] = `
-"#hfc-root{position:relative;width:80px;height:40px;isolation:isolate;}
+"html,body{margin:0;padding:0;}#hfc-root,#hfc-root *{box-sizing:border-box;}#hfc-root img,#hfc-root svg{display:block;}#hfc-root p,#hfc-root h1,#hfc-root h2,#hfc-root h3,#hfc-root h4,#hfc-root h5,#hfc-root h6,#hfc-root ul,#hfc-root ol,#hfc-root li,#hfc-root figure,#hfc-root blockquote{margin:0;padding:0;}#hfc-root ul,#hfc-root ol{list-style:none;}#hfc-root a,#hfc-root a:link,#hfc-root a:visited,#hfc-root a:hover,#hfc-root a:active{color:inherit;text-decoration:none;}
+#hfc-root{position:relative;width:80px;height:40px;isolation:isolate;}
 :root{--hfc-var-V1:rgba(230,51,51,1);}
 .hfc-node-I4{position:absolute;left:0px;top:0px;width:80px;height:40px;box-sizing:border-box;background-color:var(--hfc-var-V1);border:none;}"
 `;
