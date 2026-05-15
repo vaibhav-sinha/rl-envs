@@ -706,6 +706,7 @@ card.effects = [{
   offset: { x: 0, y: 8 },
   radius: 16,
   spread: 0,
+  blendMode: 'NORMAL',
   visible: true,
 }];
 root.appendChild(card);
@@ -717,7 +718,7 @@ root.appendChild(card);
     order: 32,
     tier: 'foundational',
     tags: ['effects', 'blur'],
-    description: 'BACKDROP_BLUR panel over colorful bg.\n\nExpected: frosted glass panel blurring stripes behind.',
+    description: 'BACKGROUND_BLUR panel over colorful bg.\n\nExpected: frosted glass panel blurring stripes behind.',
     body: `
 for (let i = 0; i < 5; i++) {
   const stripe = figma.createRectangle();
@@ -731,7 +732,7 @@ panel.resize(280, 140);
 panel.x = 100;
 panel.y = 110;
 panel.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 0.35 } }];
-panel.effects = [{ type: 'BACKDROP_BLUR', radius: 12, visible: true }];
+panel.effects = [{ type: 'BACKGROUND_BLUR', radius: 12, visible: true }];
 root.appendChild(panel);
 `,
   },
@@ -1147,13 +1148,13 @@ card.fills = [{
   ],
   gradientTransform: [[1, 0, 0], [0, 1, 0]],
 }];
-card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.2 }, offset: { x: 0, y: 6 }, radius: 20, visible: true }];
+card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.2 }, offset: { x: 0, y: 6 }, radius: 20, blendMode: 'NORMAL', visible: true }];
 const panel = figma.createFrame();
 panel.resize(200, 80);
 panel.x = 60;
 panel.y = 60;
 panel.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 0.3 } }];
-panel.effects = [{ type: 'BACKDROP_BLUR', radius: 10, visible: true }];
+panel.effects = [{ type: 'BACKGROUND_BLUR', radius: 10, visible: true }];
 card.appendChild(panel);
 root.appendChild(card);
 `,
@@ -2045,7 +2046,7 @@ back.x = 130;
 back.y = 130;
 back.cornerRadius = 12;
 back.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
-back.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.3 }, offset: { x: 0, y: 10 }, radius: 20, visible: true }];
+back.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.3 }, offset: { x: 0, y: 10 }, radius: 20, blendMode: 'NORMAL', visible: true }];
 root.appendChild(back);
 const front = figma.createRectangle();
 front.resize(200, 120);
@@ -2112,7 +2113,7 @@ blur.resize(300, 140);
 blur.x = 90;
 blur.y = 110;
 blur.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 0.25 } }];
-blur.effects = [{ type: 'BACKDROP_BLUR', radius: 16, visible: true }];
+blur.effects = [{ type: 'BACKGROUND_BLUR', radius: 16, visible: true }];
 root.appendChild(blur);
 const veil = figma.createRectangle();
 veil.resize(300, 140);
@@ -2137,8 +2138,8 @@ card.y = 120;
 card.cornerRadius = 12;
 card.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
 card.effects = [
-  { type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.15 }, offset: { x: 0, y: 4 }, radius: 8, visible: true },
-  { type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.25 }, offset: { x: 0, y: 16 }, radius: 32, visible: true },
+  { type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.15 }, offset: { x: 0, y: 4 }, radius: 8, blendMode: 'NORMAL', visible: true },
+  { type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.25 }, offset: { x: 0, y: 16 }, radius: 32, blendMode: 'NORMAL', visible: true },
 ];
 root.appendChild(card);
 `,
@@ -2271,7 +2272,7 @@ rect.setBoundVariable('fills', theme);
     body: `
 const fx = figma.createEffectStyle();
 fx.name = 'CardShadow';
-fx.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.3 }, offset: { x: 0, y: 12 }, radius: 24, visible: true }];
+fx.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.3 }, offset: { x: 0, y: 12 }, radius: 24, blendMode: 'NORMAL', visible: true }];
 const card = figma.createRectangle();
 card.resize(220, 120);
 card.x = 130;
@@ -2470,7 +2471,7 @@ for (let i = 0; i < 2; i++) {
   card.y = 200 + i * 12;
   card.cornerRadius = 10;
   card.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
-  card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.15 }, offset: { x: 0, y: 4 }, radius: 12, visible: true }];
+  card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.15 }, offset: { x: 0, y: 4 }, radius: 12, blendMode: 'NORMAL', visible: true }];
   root.appendChild(card);
 }
 const modal = figma.createFrame();
@@ -2479,7 +2480,7 @@ modal.x = 100;
 modal.y = 210;
 modal.cornerRadius = 12;
 modal.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 0.35 } }];
-modal.effects = [{ type: 'BACKDROP_BLUR', radius: 12, visible: true }];
+modal.effects = [{ type: 'BACKGROUND_BLUR', radius: 12, visible: true }];
 root.appendChild(modal);
 `,
   },

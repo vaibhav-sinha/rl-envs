@@ -12,49 +12,8 @@ import type {
 } from '../model/types.js';
 import { ValidationErr } from '../util/errors.js';
 import { findVariableDefinition } from '../variables/resolution.js';
+import { validateEffects } from './validateEffects.js';
 import { validatePaintArray } from './validatePaints.js';
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function validateRgb(c: { r: unknown; g: unknown; b: unknown }, label: string): void {
-  for (const k of ['r', 'g', 'b'] as const) {
-    const v = c[k];
-    if (typeof v !== 'number' || v < 0 || v > 1) {
-      throw new ValidationErr('VALIDATION_ERROR', `${label}.${k} must be number 0..1`);
-    }
-  }
-}
-
-function validateEffectsArray(arr: Effect[], label: string): Effect[] {
-  const out: Effect[] = [];
-  for (let i = 0; i < arr.length; i++) {
-    const e = arr[i];
-    if (!isRecord(e)) throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: invalid`);
-    if (e.type === 'DROP_SHADOW') {
-      if (!isRecord(e.offset) || typeof e.offset.x !== 'number' || typeof e.offset.y !== 'number') {
-        throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: DROP_SHADOW.offset {x,y} required`);
-      }
-      if (e.color !== undefined) {
-        if (!isRecord(e.color)) throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].color invalid`);
-        validateRgb(e.color as { r: unknown; g: unknown; b: unknown }, `${label}[${String(i)}].color`);
-      }
-      out.push(e as unknown as Effect);
-      continue;
-    }
-    if (e.type === 'BACKDROP_BLUR') {
-      const r = e.radius;
-      if (typeof r !== 'number' || !Number.isFinite(r) || r < 0) {
-        throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: BACKDROP_BLUR.radius must be finite number >= 0`);
-      }
-      out.push(e as unknown as Effect);
-      continue;
-    }
-    throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: unsupported effect type`);
-  }
-  return out;
-}
 
 /** Ops that mutate {@link FileEnvelope} design tokens / local styles (not scene graph). */
 export type EnvelopeOperation =
@@ -369,7 +328,7 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
   if (op.op === 'createEffectStyle') {
     if (!working.effectStyles) working.effectStyles = [];
     if (working.effectStyles.some((s) => s.id === op.id)) throw new ValidationErr('VALIDATION_ERROR', `Duplicate effect style ${op.id}`);
-    const eff = validateEffectsArray(op.effects, 'effectStyle.effects');
+    const eff = validateEffects(op.effects, 'effectStyle.effects') ?? [];
     working.effectStyles.push({ id: op.id, name: op.name, effects: eff });
     return;
   }
@@ -421,7 +380,9 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
     const s = working.effectStyles?.find((x) => x.id === op.id);
     if (!s) throw new ValidationErr('VALIDATION_ERROR', `Unknown effect style ${op.id}`);
     if (op.patch.name !== undefined) s.name = op.patch.name;
-    if (op.patch.effects !== undefined) s.effects = validateEffectsArray(op.patch.effects, 'effectStyle.effects');
+    if (op.patch.effects !== undefined) {
+      s.effects = validateEffects(op.patch.effects, 'effectStyle.effects') ?? [];
+    }
     return;
   }
   if (op.op === 'updateGridStyle') {

@@ -371,7 +371,7 @@ function backdropBlurCss(effects: Effect[] | undefined): string {
   if (!effects?.length) return '';
   let r = 0;
   for (const e of effects) {
-    if (e.type !== 'BACKDROP_BLUR') continue;
+    if (e.type !== 'BACKGROUND_BLUR') continue;
     if (e.visible === false) continue;
     if (typeof e.radius === 'number' && e.radius > r) r = e.radius;
   }
@@ -779,8 +779,17 @@ function emitVector(
     }
     defs += `</radialGradient>`;
   }
+  const sw = v.strokeWeight ?? 0;
+  const sp = v.strokes?.[0];
+  const strokePart =
+    sp && sp.type === 'SOLID' && sw > 0
+      ? ` ${svgStrokeAttrs({ strokes: v.strokes, strokeWeight: sw, strokeCap: v.strokeCap, strokeJoin: v.strokeJoin })}${dashArrayAttr(v)}`
+      : '';
   const pathHtml = v.vectorPaths
-    .map((p) => `<path d="${escapeAttr(p.data)}" fill-rule="${p.windingRule.toLowerCase()}" ${fillAttr}/>`)
+    .map(
+      (p) =>
+        `<path d="${escapeAttr(p.data)}" fill-rule="${p.windingRule.toLowerCase()}" ${fillAttr}${strokePart}/>`
+    )
     .join('');
   htmlParts.push(
     `<svg class="hfc-vector-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}${pathHtml}</svg></div>`

@@ -156,7 +156,15 @@ export function createStylesApi(ctx: { working: FileEnvelope; ops: EngineOperati
         op: 'createEffectStyle',
         id,
         name: 'Effect Style',
-        effects: [{ type: 'DROP_SHADOW', offset: { x: 0, y: 4 }, radius: 8, color: { r: 0, g: 0, b: 0, a: 0.25 } }],
+        effects: [
+          {
+            type: 'DROP_SHADOW',
+            offset: { x: 0, y: 4 },
+            radius: 8,
+            color: { r: 0, g: 0, b: 0, a: 0.25 },
+            blendMode: 'NORMAL',
+          },
+        ],
       });
       return findEffectStyle(working, id)!;
     },

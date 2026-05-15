@@ -17,7 +17,7 @@ back.x = 130;
 back.y = 130;
 back.cornerRadius = 12;
 back.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
-back.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.3 }, offset: { x: 0, y: 10 }, radius: 20, visible: true }];
+back.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.3 }, offset: { x: 0, y: 10 }, radius: 20, blendMode: 'NORMAL', visible: true }];
 root.appendChild(back);
 const front = figma.createRectangle();
 front.resize(200, 120);

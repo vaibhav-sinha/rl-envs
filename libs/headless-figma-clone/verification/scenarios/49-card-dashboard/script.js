@@ -24,13 +24,13 @@ card.fills = [{
   ],
   gradientTransform: [[1, 0, 0], [0, 1, 0]],
 }];
-card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.2 }, offset: { x: 0, y: 6 }, radius: 20, visible: true }];
+card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.2 }, offset: { x: 0, y: 6 }, radius: 20, blendMode: 'NORMAL', visible: true }];
 const panel = figma.createFrame();
 panel.resize(200, 80);
 panel.x = 60;
 panel.y = 60;
 panel.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 0.3 } }];
-panel.effects = [{ type: 'BACKDROP_BLUR', radius: 10, visible: true }];
+panel.effects = [{ type: 'BACKGROUND_BLUR', radius: 10, visible: true }];
 card.appendChild(panel);
 root.appendChild(card);
 return { rootId: root.id };

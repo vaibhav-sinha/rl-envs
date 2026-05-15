@@ -155,19 +155,21 @@ export interface DropShadowEffect {
   type: 'DROP_SHADOW';
   visible?: boolean;
   offset: { x: number; y: number };
-  radius?: number;
+  radius: number;
   spread?: number;
-  color?: RGBA;
+  color: RGBA;
+  blendMode: BlendMode;
+  showShadowBehindNode?: boolean;
 }
 
-export interface BackdropBlurEffect {
-  type: 'BACKDROP_BLUR';
+export interface BackgroundBlurEffect {
+  type: 'BACKGROUND_BLUR';
   visible?: boolean;
   /** Blur radius in CSS px. */
   radius: number;
 }
 
-export type Effect = DropShadowEffect | BackdropBlurEffect;
+export type Effect = DropShadowEffect | BackgroundBlurEffect;
 
 export interface NodeBase {
   id: string;

@@ -23,6 +23,6 @@ panel.resize(280, 140);
 panel.x = 100;
 panel.y = 110;
 panel.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 0.35 } }];
-panel.effects = [{ type: 'BACKDROP_BLUR', radius: 12, visible: true }];
+panel.effects = [{ type: 'BACKGROUND_BLUR', radius: 12, visible: true }];
 root.appendChild(panel);
 return { rootId: root.id };

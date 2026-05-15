@@ -174,7 +174,7 @@
                 "width": 200,
                 "height": 52,
                 "fills": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 }, "opacity": 0.35 }],
-                "effects": [{ "type": "BACKDROP_BLUR", "radius": 10 }],
+                "effects": [{ "type": "BACKGROUND_BLUR", "radius": 10 }],
                 "children": []
               }
             ]

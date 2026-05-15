@@ -21,4 +21,14 @@ describe('compiler effects shadow', () => {
     });
     expect(c.html).toContain('box-shadow:');
   });
+
+  it('emits backdrop-filter for BACKGROUND_BLUR', () => {
+    const env = loadFx('phase4-nav-grid-mask.json');
+    const c = designCompiler.compileSubtree({
+      envelope: env,
+      rootNodeId: 'I3',
+      options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
+    });
+    expect(c.html).toContain('backdrop-filter:blur(10px)');
+  });
 });

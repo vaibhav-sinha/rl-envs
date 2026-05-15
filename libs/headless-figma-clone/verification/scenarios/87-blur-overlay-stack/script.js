@@ -23,7 +23,7 @@ blur.resize(300, 140);
 blur.x = 90;
 blur.y = 110;
 blur.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 0.25 } }];
-blur.effects = [{ type: 'BACKDROP_BLUR', radius: 16, visible: true }];
+blur.effects = [{ type: 'BACKGROUND_BLUR', radius: 16, visible: true }];
 root.appendChild(blur);
 const veil = figma.createRectangle();
 veil.resize(300, 140);

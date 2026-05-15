@@ -64,7 +64,7 @@ for (let i = 0; i < 2; i++) {
   card.y = 200 + i * 12;
   card.cornerRadius = 10;
   card.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
-  card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.15 }, offset: { x: 0, y: 4 }, radius: 12, visible: true }];
+  card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.15 }, offset: { x: 0, y: 4 }, radius: 12, blendMode: 'NORMAL', visible: true }];
   root.appendChild(card);
 }
 const modal = figma.createFrame();
@@ -73,6 +73,6 @@ modal.x = 100;
 modal.y = 210;
 modal.cornerRadius = 12;
 modal.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 0.35 } }];
-modal.effects = [{ type: 'BACKDROP_BLUR', radius: 12, visible: true }];
+modal.effects = [{ type: 'BACKGROUND_BLUR', radius: 12, visible: true }];
 root.appendChild(modal);
 return { rootId: root.id };

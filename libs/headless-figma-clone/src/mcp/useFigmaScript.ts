@@ -819,8 +819,8 @@ class RuntimeVector extends RuntimeSceneNode {
   name = 'Vector';
   vectorPaths: VectorNode['vectorPaths'] = [{ windingRule: 'NONZERO', data: 'M0,0 H40 V40 H0 Z' }];
   fills?: Paint[];
-  strokes?: Paint[];
-  strokeWeight?: number;
+  strokes: Paint[] = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }];
+  strokeWeight = 1;
   strokeAlign?: FrameNode['strokeAlign'];
   strokeCap?: FrameNode['strokeCap'];
   strokeJoin?: FrameNode['strokeJoin'];

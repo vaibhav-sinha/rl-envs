@@ -30,7 +30,7 @@ import type {
   ComponentPropertyValue,
   LayoutSelfFields,
 } from '../model/types.js';
-import type { Effect, StyledSegment } from '../model/types.js';
+import type { StyledSegment } from '../model/types.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
 import { atomicWriteFileBinary } from '../persistence/atomicWriteFile.js';
 import { relativeAssetFile, sidecarDirForHfcJson } from '../persistence/assetPaths.js';
@@ -46,6 +46,7 @@ import {
   validateFontName,
   validateLayoutSizing,
 } from './phase7Fields.js';
+import { validateEffects } from './validateEffects.js';
 import { validatePaintArray } from './validatePaints.js';
 import { parseStyledSegmentsInput } from './styledSegmentsNormalize.js';
 import { validateStyledSegments } from './utf16Segments.js';
@@ -193,37 +194,6 @@ function validateRgb(c: { r: unknown; g: unknown; b: unknown }, label: string): 
       throw new ValidationErr('VALIDATION_ERROR', `${label}.${k} must be number 0..1`);
     }
   }
-}
-
-function validateEffects(arr: unknown, label: string): Effect[] | undefined {
-  if (arr === undefined) return undefined;
-  if (!Array.isArray(arr)) throw new ValidationErr('VALIDATION_ERROR', `${label}: must be array`);
-  const out: Effect[] = [];
-  for (let i = 0; i < arr.length; i++) {
-    const e = arr[i];
-    if (!isRecord(e)) throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: invalid`);
-    if (e.type === 'DROP_SHADOW') {
-      if (!isRecord(e.offset) || typeof e.offset.x !== 'number' || typeof e.offset.y !== 'number') {
-        throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: DROP_SHADOW.offset {x,y} required`);
-      }
-      if (e.color !== undefined) {
-        if (!isRecord(e.color)) throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}].color invalid`);
-        validateRgb(e.color as { r: unknown; g: unknown; b: unknown }, `${label}[${String(i)}].color`);
-      }
-      out.push(e as unknown as Effect);
-      continue;
-    }
-    if (e.type === 'BACKDROP_BLUR') {
-      const r = e.radius;
-      if (typeof r !== 'number' || !Number.isFinite(r) || r < 0) {
-        throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: BACKDROP_BLUR.radius must be finite number >= 0`);
-      }
-      out.push(e as unknown as Effect);
-      continue;
-    }
-    throw new ValidationErr('VALIDATION_ERROR', `${label}[${String(i)}]: unsupported effect type`);
-  }
-  return out;
 }
 
 function parseStyledSegments(raw: unknown): StyledSegment[] | undefined {
