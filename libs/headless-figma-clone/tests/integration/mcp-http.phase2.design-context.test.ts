@@ -117,7 +117,8 @@ describe('mcp-http design context', () => {
     expect(d.css + d.html).toContain('box-shadow');
     expect(d.css + d.html).toContain('overflow:hidden');
     expect(d.html + d.css).toContain('example.com/ops');
-    expect(d.css + d.html).toMatch(/rotate\(-6deg\)|rotate\(-6/);
+    // Figma rotation -6° → CSS rotate(6deg) (negated for y-down / CW parity).
+    expect(d.css + d.html).toMatch(/rotate\(6deg\)|rotate\(6/);
 
     const useCode = await client.callTool({
       name: 'use_figma',
