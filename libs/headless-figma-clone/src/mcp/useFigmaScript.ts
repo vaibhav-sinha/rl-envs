@@ -212,15 +212,17 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
         };
       }
       if (prop === 'detachInstance') {
-        return (): unknown[] => {
+        return (): unknown => {
           if (ctx.deletedIds.has(id)) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
           const live = findEnvelopeNode(ctx.working, id);
-          if (!live || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) return [];
-          const op: EngineOperation = { op: 'deleteNode', nodeId: id };
+          if (!live || live.type !== 'INSTANCE') {
+            throw new Error('detachInstance requires an attached INSTANCE node');
+          }
+          const op: EngineOperation = { op: 'detachInstance', nodeId: id };
           ctx.ops.push(op);
-          applyEngineOp(ctx.working, op);
+          const frameId = applyEngineOp(ctx.working, op)!;
           ctx.deletedIds.add(id);
-          return [];
+          return createHandleProxy(ctx, frameId);
         };
       }
       if (prop === 'defaultVariant') {
@@ -536,6 +538,11 @@ class RuntimeFrame extends RuntimeSceneNode {
   strokeJoin?: FrameNode['strokeJoin'];
   miterLimit?: number;
   dashPattern?: number[];
+  cornerRadius?: number;
+  topLeftRadius?: number;
+  topRightRadius?: number;
+  bottomRightRadius?: number;
+  bottomLeftRadius?: number;
   backgrounds?: Paint[];
   clipsContent?: boolean;
   layoutMode?: FrameNode['layoutMode'];
@@ -604,6 +611,11 @@ class RuntimeFrame extends RuntimeSceneNode {
       strokeJoin: this.strokeJoin,
       miterLimit: this.miterLimit,
       dashPattern: this.dashPattern,
+      cornerRadius: this.cornerRadius,
+      topLeftRadius: this.topLeftRadius,
+      topRightRadius: this.topRightRadius,
+      bottomRightRadius: this.bottomRightRadius,
+      bottomLeftRadius: this.bottomLeftRadius,
       effects: this.effects,
       clipsContent: this.clipsContent,
       layoutMode: this.layoutMode,
@@ -689,13 +701,7 @@ class RuntimeText extends RuntimeSceneNode {
       opacity: this.opacity,
       rotation: this.rotation,
       blendMode: this.blendMode,
-      layoutAlign: this.layoutAlign,
-      layoutGrow: this.layoutGrow,
-      minWidth: this.minWidth,
-      maxWidth: this.maxWidth,
-      minHeight: this.minHeight,
-      maxHeight: this.maxHeight,
-      isMask: this.isMask,
+      ...this.layoutSelfSpec(),
       textStyleId: this.textStyleId,
       textOnPath: this.textOnPath,
     };
@@ -1218,17 +1224,18 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
     }
   }
 
-  detachInstance(): unknown[] {
+  detachInstance(): unknown {
     const nid = this.getAttachedIdOrNull();
     if (!nid) {
-      // In Figma this would be illegal; we keep it simple.
       throw new Error('detachInstance requires an attached INSTANCE node');
     }
-    const op: EngineOperation = { op: 'deleteNode', nodeId: nid };
+    const op: EngineOperation = { op: 'detachInstance', nodeId: nid };
     this.ctx.ops.push(op);
-    applyEngineOp(this.ctx.working, op);
+    const frameId = applyEngineOp(this.ctx.working, op)!;
     this.ctx.deletedIds.add(nid);
-    return [];
+    this._id = frameId;
+    this.attached = true;
+    return createHandleProxy(this.ctx, frameId);
   }
 
   toNewNodeSpec(): NewNodeSpec {

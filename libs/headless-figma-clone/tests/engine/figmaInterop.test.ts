@@ -3,7 +3,9 @@ import {
   normalizeLayoutConstraints,
   normalizeLayoutGridEntry,
   normalizeLayoutGrids,
+  validatePluginLayoutGrids,
 } from '../../src/engine/figmaInterop.js';
+import { ValidationErr } from '../../src/util/errors.js';
 
 describe('figmaInterop', () => {
   it('maps LEFT_RIGHT constraints to STRETCH', () => {
@@ -12,9 +14,19 @@ describe('figmaInterop', () => {
     ).toEqual({ horizontal: 'STRETCH', vertical: 'MIN' });
   });
 
-  it('converts plugin layoutGrids to internal column count', () => {
+  it('converts valid plugin layoutGrids to internal column count', () => {
     const grids = normalizeLayoutGrids(
-      [{ pattern: 'COLUMNS', sectionSize: 80, gutterSize: 16, color: { r: 0, g: 0.3, b: 0.8, a: 0.15 } }],
+      [
+        {
+          pattern: 'COLUMNS',
+          alignment: 'MIN',
+          sectionSize: 80,
+          gutterSize: 16,
+          count: 4,
+          offset: 16,
+          color: { r: 0, g: 0.3, b: 0.8, a: 0.15 },
+        },
+      ],
       400
     );
     expect(grids).toEqual([
@@ -38,5 +50,14 @@ describe('figmaInterop', () => {
         'layoutGrids[0]'
       )
     ).toEqual({ type: 'COLUMNS', count: 4, gutter: 16, color: undefined });
+  });
+
+  it('rejects shorthand layoutGrids without alignment/count/offset', () => {
+    expect(() =>
+      validatePluginLayoutGrids(
+        [{ pattern: 'COLUMNS', sectionSize: 80, gutterSize: 16, color: { r: 0, g: 0.3, b: 0.8, a: 0.15 } }],
+        'layoutGrids'
+      )
+    ).toThrow(ValidationErr);
   });
 });
