@@ -10,6 +10,7 @@ import {
 } from './iconDetector.js';
 import { keysForNodeType } from './nodePropertyKeys.js';
 import { bytesToBase64, serializeValue } from './serializeValue.js';
+import { enrichTextNodeExport } from './textNodeExport.js';
 
 const IMAGE_HASHES = new Set<string>();
 
@@ -50,6 +51,10 @@ function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Reco
   }
   if ('absoluteRenderBounds' in node && node.absoluteRenderBounds) {
     props.absoluteRenderBounds = serializeValue(node.absoluteRenderBounds, visited);
+  }
+
+  if (node.type === 'TEXT') {
+    enrichTextNodeExport(node as TextNode, props, visited);
   }
 
   // Stable string ids — `mainComponent` object graphs can truncate to `{ __ref: 'cycle' }`.

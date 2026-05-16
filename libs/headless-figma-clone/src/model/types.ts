@@ -531,6 +531,9 @@ export interface TextNode extends NodeBase, LayoutSelfFields {
   textAlignVertical?: 'TOP' | 'CENTER' | 'BOTTOM';
   lineHeight?: LineHeight;
   letterSpacing?: LetterSpacing;
+  /** Node-level when uniform; per-range overrides use {@link TextNode.styledSegments}. */
+  textCase?: TextCase;
+  textDecoration?: TextDecoration;
   leadingTrim?: LeadingTrim;
   paragraphIndent?: number;
   paragraphSpacing?: number;
