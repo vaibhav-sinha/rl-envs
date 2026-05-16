@@ -111,6 +111,27 @@ export const HFC_UA_RESET_CSS = [
   '#hfc-root a,#hfc-root a:link,#hfc-root a:visited,#hfc-root a:hover,#hfc-root a:active{color:inherit;text-decoration:none;}',
 ].join('');
 
+/** Active component-instance ids while emitting cloned master subtrees (avoids master-id CSS collisions). */
+const instanceCssScopeStack: string[] = [];
+
+function currentInstanceCssScope(): string | undefined {
+  return instanceCssScopeStack.at(-1);
+}
+
+/** Descendant selector; scoped under a component instance to avoid master-id CSS collisions. */
+function hfcNodeCssSel(nodeId: string, instanceScopeId = currentInstanceCssScope()): string {
+  return instanceScopeId ? `.hfc-node-${instanceScopeId} .hfc-node-${nodeId}` : `.hfc-node-${nodeId}`;
+}
+
+function withInstanceCssScope<T>(instanceId: string, fn: () => T): T {
+  instanceCssScopeStack.push(instanceId);
+  try {
+    return fn();
+  } finally {
+    instanceCssScopeStack.pop();
+  }
+}
+
 export interface DesignCompiler {
   compileSubtree(params: {
     envelope: FileEnvelope;
@@ -1085,7 +1106,7 @@ function emitBooleanOperation(
     ? `position:relative;left:0;top:0;flex:${String(b.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
   htmlParts.push(`<div class="hfc-node-${b.id}" data-hfc-id="${b.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(`.hfc-node-${b.id}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
+  cssParts.push(`${hfcNodeCssSel(b.id)}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
 
   const boolPaths = computeBooleanPathData(b);
   if (!boolPaths.failed && boolPaths.pathData.length > 0) {
@@ -1144,7 +1165,7 @@ function emitVector(
     ? `position:relative;left:0;top:0;flex:${String(v.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
   htmlParts.push(`<div class="hfc-node-${v.id}" data-hfc-id="${v.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(`.hfc-node-${v.id}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
+  cssParts.push(`${hfcNodeCssSel(v.id)}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
   let defs = '';
   if (fill?.type === 'GRADIENT_LINEAR') {
     const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
@@ -1237,7 +1258,7 @@ function tryEmitExportedSvgIcon(
 
   htmlParts.push(`<div class="hfc-node-${n.id} hfc-svg-icon" data-hfc-id="${n.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(
-    `.hfc-node-${n.id}{${pos}width:${String(n.width)}px;height:${String(n.height)}px;box-sizing:border-box;${opRot}}`
+    `${hfcNodeCssSel(n.id)}{${pos}width:${String(n.width)}px;height:${String(n.height)}px;box-sizing:border-box;${opRot}}`
   );
   htmlParts.push(
     `<img src="${escapeAttr(url)}" alt="" width="${String(n.width)}" height="${String(n.height)}" style="display:block;width:100%;height:100%;" />`
@@ -1271,7 +1292,7 @@ function emitGroup(
     : `position:absolute;left:${String(localPos.x)}px;top:${String(localPos.y)}px;width:${String(g.width)}px;height:${String(g.height)}px;`;
   const groupClass = insideFlex ? `hfc-node-${g.id} hfc-group-flex` : `hfc-node-${g.id} hfc-group`;
   htmlParts.push(`<div class="${groupClass}" data-hfc-id="${g.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(`.hfc-node-${g.id}{${outerCss}box-sizing:border-box;${opRot}}`);
+  cssParts.push(`${hfcNodeCssSel(g.id)}{${outerCss}box-sizing:border-box;${opRot}}`);
   emitGroupChildren(
     g,
     originX,
@@ -1412,7 +1433,7 @@ function emitTransformGroup(
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
   htmlParts.push(`<div class="hfc-node-${tg.id}" data-hfc-id="${tg.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(
-    `.hfc-node-${tg.id}{${pos}width:${String(tg.width)}px;height:${String(tg.height)}px;box-sizing:border-box;${opRot}}`
+    `${hfcNodeCssSel(tg.id)}{${pos}width:${String(tg.width)}px;height:${String(tg.height)}px;box-sizing:border-box;${opRot}}`
   );
   emitChildrenWithMasks(tg, undefined, absX, absY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env);
   htmlParts.push('</div>');
@@ -1642,7 +1663,7 @@ function emitScene(
         const col = paintColorCss(base.fills?.[0], env, '#000', warnings, `textpath:${t.id}`);
         const tpText = effectiveTextCharacters(t, env);
         htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
-        cssParts.push(`.hfc-node-${t.id}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
+        cssParts.push(`${hfcNodeCssSel(t.id)}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
         htmlParts.push(
           `<svg class="hfc-textpath-svg" viewBox="${vpBox.viewBox}" width="100%" height="100%" overflow="visible" xmlns="http://www.w3.org/2000/svg"><defs><path id="${pid}" d="${escapeAttr(vp.data)}"/></defs><text font-family="${ff}" font-size="${fsAttr}" font-weight="${String(fw)}" fill="${escapeAttr(col)}"><textPath href="#${pid}" startOffset="${String(startOff)}">${escapeHtmlText(tpText)}</textPath></text></svg></div>`
         );
@@ -1673,9 +1694,9 @@ function emitScene(
         : '';
     htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${t.id}{${pos}box-sizing:border-box;color:${textColor};${flexOuterAlign}${textFlowCss(t, env)}${flexTextMetrics}${fontFamilyCssFromName(t.fontName, t.boundVariables?.fontFamily, env)}${textStrokeCss}${opRot}${shadow}}`
+      `${hfcNodeCssSel(t.id)}{${pos}box-sizing:border-box;color:${textColor};${flexOuterAlign}${textFlowCss(t, env)}${flexTextMetrics}${fontFamilyCssFromName(t.fontName, t.boundVariables?.fontFamily, env)}${textStrokeCss}${opRot}${shadow}}`
     );
-    cssParts.push(`.hfc-node-${t.id} .hfc-text-inner{${innerRule}}`);
+    cssParts.push(`${hfcNodeCssSel(t.id)} .hfc-text-inner{${innerRule}}`);
     htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings, singleLine)}</div></div>`);
     return;
   }
@@ -1726,7 +1747,7 @@ function emitScene(
     if (!layered) {
       htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
       cssParts.push(
-        `.hfc-node-${f.id}{${frameOuterCss}box-sizing:border-box;${fillCss}border:${border};${radiusCss}${clip}${opRot}${shadow}}`
+        `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;${fillCss}border:${border};${radiusCss}${clip}${opRot}${shadow}}`
       );
       if (strokeResult.svgOverlay) htmlParts.push(strokeResult.svgOverlay);
       if (flex) {
@@ -1750,10 +1771,10 @@ function emitScene(
 
     htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${f.id}{${frameOuterCss}box-sizing:border-box;border:${border};background-color:transparent;${radiusCss}${clip}${opRot}${shadow}}`
+      `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;border:${border};background-color:transparent;${radiusCss}${clip}${opRot}${shadow}}`
     );
     cssParts.push(
-      `.hfc-node-${f.id} > .hfc-bg-layer{${bgCss}}.hfc-node-${f.id} > .hfc-fill-layer{${fillCss}}`
+      `${hfcNodeCssSel(f.id)} > .hfc-bg-layer{${bgCss}}${hfcNodeCssSel(f.id)} > .hfc-fill-layer{${fillCss}}`
     );
     htmlParts.push(
       `<div class="hfc-bg-layer" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:0"></div>`
@@ -1849,7 +1870,7 @@ function emitTable(
     ? `position:relative;left:0;top:0;width:${String(tb.width)}px;height:${String(tb.height)}px;flex:${String(tb.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(tb.width)}px;height:${String(tb.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${tb.id}" data-hfc-id="${tb.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(`.hfc-node-${tb.id}{${pos}box-sizing:border-box;${opRot}}`);
+  cssParts.push(`${hfcNodeCssSel(tb.id)}{${pos}box-sizing:border-box;${opRot}}`);
   const rows: string[] = [];
   let idx = 0;
   for (let r = 0; r < tb.rowCount; r++) {
@@ -2115,24 +2136,26 @@ function emitComponentInstance(
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
-  emitScene(
-    root,
-    originX + inst.x,
-    originY + inst.y,
-    shiftX,
-    shiftY,
-    htmlParts,
-    cssParts,
-    z,
-    imgMap,
-    patternTiles,
-    warnings,
-    false,
-    env,
-    root.children,
-    undefined,
-    true
-  );
+  withInstanceCssScope(inst.id, () => {
+    emitScene(
+      root,
+      originX + inst.x,
+      originY + inst.y,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      false,
+      env,
+      root.children,
+      undefined,
+      true
+    );
+  });
   htmlParts.push('</div>');
 }
 
@@ -2265,24 +2288,26 @@ function emitInstanceDetachedSubtree(
     `<div class="hfc-node-${inst.id} hfc-component-instance hfc-instance-detached" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
   );
   cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
-  emitScene(
-    root,
-    originX + inst.x,
-    originY + inst.y,
-    shiftX,
-    shiftY,
-    htmlParts,
-    cssParts,
-    z,
-    imgMap,
-    patternTiles,
-    warnings,
-    false,
-    env,
-    root.children,
-    undefined,
-    true
-  );
+  withInstanceCssScope(inst.id, () => {
+    emitScene(
+      root,
+      originX + inst.x,
+      originY + inst.y,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      false,
+      env,
+      root.children,
+      undefined,
+      true
+    );
+  });
   htmlParts.push('</div>');
   return true;
 }
@@ -2341,24 +2366,26 @@ function emitInstance(
         `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
       );
       cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
-      emitScene(
-        root,
-        originX + inst.x,
-        originY + inst.y,
-        shiftX,
-        shiftY,
-        htmlParts,
-        cssParts,
-        z,
-        imgMap,
-        patternTiles,
-        warnings,
-        false,
-        env,
-        root.children,
-        undefined,
-        true
-      );
+      withInstanceCssScope(inst.id, () => {
+        emitScene(
+          root,
+          originX + inst.x,
+          originY + inst.y,
+          shiftX,
+          shiftY,
+          htmlParts,
+          cssParts,
+          z,
+          imgMap,
+          patternTiles,
+          warnings,
+          false,
+          env,
+          root.children,
+          undefined,
+          true
+        );
+      });
       htmlParts.push('</div>');
       return;
     }
@@ -2444,24 +2471,26 @@ function emitInstance(
     `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
   );
   cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
-  emitScene(
-    root,
-    originX + inst.x,
-    originY + inst.y,
-    shiftX,
-    shiftY,
-    htmlParts,
-    cssParts,
-    z,
-    imgMap,
-    patternTiles,
-    warnings,
-    false,
-    env,
-    root.children,
-    undefined,
-    true
-  );
+  withInstanceCssScope(inst.id, () => {
+    emitScene(
+      root,
+      originX + inst.x,
+      originY + inst.y,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      false,
+      env,
+      root.children,
+      undefined,
+      true
+    );
+  });
   htmlParts.push('</div>');
 }
 
@@ -2509,11 +2538,11 @@ function emitRectangle(
   htmlParts.push(`<div class="hfc-node-${r.id}" data-hfc-id="${r.id}" style="z-index:${String(zIndex)}">`);
   if (!gradientStroke && r.dashPattern?.length && stroke?.type === 'SOLID' && sw > 0) {
     cssParts.push(
-      `.hfc-node-${r.id}{${pos}box-sizing:border-box;${fillCss}border:${String(sw)}px dashed ${rgbaFromSolid(stroke)};${radius}${opRot}${shadow}}`
+      `${hfcNodeCssSel(r.id)}{${pos}box-sizing:border-box;${fillCss}border:${String(sw)}px dashed ${rgbaFromSolid(stroke)};${radius}${opRot}${shadow}}`
     );
   } else {
     cssParts.push(
-      `.hfc-node-${r.id}{${pos}box-sizing:border-box;${fillCss}border:${border};${radius}${opRot}${shadow}}`
+      `${hfcNodeCssSel(r.id)}{${pos}box-sizing:border-box;${fillCss}border:${border};${radius}${opRot}${shadow}}`
     );
   }
   if (gradientStroke) {
@@ -2577,13 +2606,13 @@ function emitEllipse(
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(e.width)}px;height:${String(e.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${e.id}" data-hfc-id="${e.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(
-    `.hfc-node-${e.id}{${pos}box-sizing:border-box;border-radius:50%;${fillCss}${opRot}${shadow}}`
+    `${hfcNodeCssSel(e.id)}{${pos}box-sizing:border-box;border-radius:50%;${fillCss}${opRot}${shadow}}`
   );
   const stroke = e.strokes?.[0];
   const sw = e.strokeWeight ?? 0;
   if (stroke?.type === 'SOLID' && sw > 0) {
     cssParts.push(
-      `.hfc-node-${e.id}{box-shadow:inset 0 0 0 ${String(sw)}px ${rgbaFromSolid(stroke)};}`
+      `${hfcNodeCssSel(e.id)}{box-shadow:inset 0 0 0 ${String(sw)}px ${rgbaFromSolid(stroke)};}`
     );
   }
   htmlParts.push('</div>');
@@ -2621,7 +2650,7 @@ function emitEllipseArcSvg(
     ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${e.id}" data-hfc-id="${e.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(`.hfc-node-${e.id}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
+  cssParts.push(`${hfcNodeCssSel(e.id)}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
   let defs = '';
   if (fill?.type === 'GRADIENT_LINEAR') {
     const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
@@ -2731,7 +2760,7 @@ function emitLine(
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;overflow:visible;`;
   htmlParts.push(`<div class="hfc-node-${ln.id}" data-hfc-id="${ln.id}" style="z-index:${String(zIndex)}">`);
   const visualCss = transformOpacityCss(ln, { skipRotation: true });
-  cssParts.push(`.hfc-node-${ln.id}{${pos}${visualCss}${shadow}}`);
+  cssParts.push(`${hfcNodeCssSel(ln.id)}{${pos}${visualCss}${shadow}}`);
   htmlParts.push(
     `<svg class="hfc-line-svg" viewBox="0 0 ${String(vbW)} ${String(vbH)}" width="${String(svgW)}" height="${String(svgH)}" style="position:absolute;left:${String(svgLeft)}px;top:${String(svgTop)}px;overflow:visible" xmlns="http://www.w3.org/2000/svg"><line x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}" stroke="${escapeAttr(col)}" stroke-width="${String(sw)}" stroke-linecap="${cap}" fill="none"${dash}/></svg></div>`
   );
@@ -2767,7 +2796,7 @@ function emitPolygon(
     ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(p.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${p.id}" data-hfc-id="${p.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(`.hfc-node-${p.id}{${pos}${opRot}${shadow}}`);
+  cssParts.push(`${hfcNodeCssSel(p.id)}{${pos}${opRot}${shadow}}`);
   let defs = '';
   if (fill?.type === 'GRADIENT_LINEAR') {
     const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
@@ -2834,7 +2863,7 @@ function emitStar(
     ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(s.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${s.id}" data-hfc-id="${s.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(`.hfc-node-${s.id}{${pos}${opRot}${shadow}}`);
+  cssParts.push(`${hfcNodeCssSel(s.id)}{${pos}${opRot}${shadow}}`);
   let defs = '';
   if (fill?.type === 'GRADIENT_LINEAR') {
     const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
@@ -2890,6 +2919,7 @@ function compileRootScenes(
     syncHugTextLayoutMetricsDeep(root, envelope);
   }
   const warnings: string[] = [];
+  instanceCssScopeStack.length = 0;
   let b: Bounds | undefined;
   for (const root of roots) {
     const raw = measureScene(root, 0, 0);
