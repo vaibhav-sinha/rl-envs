@@ -2106,6 +2106,90 @@ function remapOverridesForVariant(
   return out;
 }
 
+/** Figma plugin exports often include a detached subtree while `mainComponent` fails to remap. */
+function instanceDetachedChildren(inst: InstanceNode): SceneNode[] | undefined {
+  const ch = inst.children;
+  return ch?.length ? ch : undefined;
+}
+
+function emitInstanceDetachedSubtree(
+  inst: InstanceNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number
+): boolean {
+  const children = instanceDetachedChildren(inst);
+  if (!children) return false;
+
+  const root: FrameNode = {
+    id: `${inst.id}__detached`,
+    type: 'FRAME',
+    name: inst.name,
+    x: 0,
+    y: 0,
+    width: inst.width,
+    height: inst.height,
+    children,
+    visible: true,
+    rotation: 0,
+    opacity: 1,
+    blendMode: 'PASS_THROUGH',
+    layoutPositioning: 'AUTO',
+    layoutSizingHorizontal: 'FIXED',
+    layoutSizingVertical: 'FIXED',
+    layoutAlign: 'INHERIT',
+    layoutGrow: 0,
+    constraints: { horizontal: 'MIN', vertical: 'MIN' },
+  };
+  applyComponentOverrides(root, inst.overrides as ComponentInstanceNode['overrides']);
+  prepareClonedComponentSubtreeForEmit(root, env);
+
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
+        inst.layoutGrow ?? 0
+      )} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(
+        inst.height
+      )}px;`;
+  htmlParts.push(
+    `<div class="hfc-node-${inst.id} hfc-component-instance hfc-instance-detached" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
+  );
+  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
+  emitScene(
+    root,
+    originX + inst.x,
+    originY + inst.y,
+    shiftX,
+    shiftY,
+    htmlParts,
+    cssParts,
+    z,
+    imgMap,
+    patternTiles,
+    warnings,
+    false,
+    env,
+    root.children,
+    undefined,
+    true
+  );
+  htmlParts.push('</div>');
+  return true;
+}
+
 function emitInstance(
   inst: InstanceNode,
   absX: number,
@@ -2185,6 +2269,29 @@ function emitInstance(
   }
 
   if (!target || (target.type !== 'COMPONENT' && target.type !== 'COMPONENT_SET')) {
+    if (
+      emitInstanceDetachedSubtree(
+        inst,
+        absX,
+        absY,
+        zIndex,
+        opRot,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        patternTiles,
+        warnings,
+        insideFlex,
+        env,
+        originX,
+        originY,
+        shiftX,
+        shiftY
+      )
+    ) {
+      return;
+    }
     warnings.push(`missing_component:${inst.mainComponentId}`);
     return;
   }
