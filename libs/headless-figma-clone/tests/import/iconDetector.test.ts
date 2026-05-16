@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest';
 import {
   analyzeIconSubtree,
   findStructuralIconExportRootIds,
+  isCompactVectorExportSize,
   isStructuralIconExportRoot,
   prefersRasterIconExport,
+  resolveMixedFillVectorExportIds,
 } from '../../src/import/iconDetector.js';
 import type { SerializedNode } from '../../src/import/snapshotSchema.js';
 
@@ -176,5 +178,48 @@ describe('iconDetector', () => {
     expect(isStructuralIconExportRoot(inner)).toBe(true);
     expect(isStructuralIconExportRoot(outer)).toBe(true);
     expect(findStructuralIconExportRootIds(outer)).toEqual(['1:1']);
+  });
+
+  it('isCompactVectorExportSize matches icon pixel bounds', () => {
+    expect(isCompactVectorExportSize(24, 24)).toBe(true);
+    expect(isCompactVectorExportSize(4, 24)).toBe(false);
+    expect(isCompactVectorExportSize(200, 24)).toBe(false);
+  });
+
+  it('resolveMixedFillVectorExportIds keeps compact vectors and skips structural icon roots', () => {
+    const iconFrame = loadSearchIconFrame('group-mask-icon.snapshot.json');
+    const licenseRow: SerializedNode = {
+      id: 'page',
+      type: 'PAGE',
+      name: 'License',
+      properties: {},
+      children: [
+        {
+          id: 'row',
+          type: 'FRAME',
+          name: 'Row',
+          properties: { width: 750, height: 24 },
+          children: [
+            {
+              id: 'check',
+              type: 'VECTOR',
+              name: 'Vector',
+              properties: { width: 24, height: 24, vectorPaths: [{ data: 'M0 0' }] },
+            },
+            {
+              id: 'label',
+              type: 'TEXT',
+              name: 'Label',
+              properties: { width: 700, height: 24 },
+            },
+          ],
+        },
+        iconFrame,
+      ],
+    };
+
+    expect(resolveMixedFillVectorExportIds(licenseRow, ['check'])).toEqual(['check']);
+    expect(resolveMixedFillVectorExportIds(licenseRow, [iconFrame.id])).toEqual([]);
+    expect(resolveMixedFillVectorExportIds(licenseRow, ['check', iconFrame.id])).toEqual(['check']);
   });
 });

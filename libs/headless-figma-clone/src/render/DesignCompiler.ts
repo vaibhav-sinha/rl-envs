@@ -1832,6 +1832,22 @@ function emitScene(
     const isTextPathGuide =
       parentChildren?.some((p) => p.type === 'TEXT' && p.textOnPath?.pathId === n.id) ?? false;
     if (!isTextPathGuide) {
+      if (
+        tryEmitExportedSvgIcon(
+          n,
+          absX,
+          absY,
+          zIndex,
+          opRot,
+          htmlParts,
+          cssParts,
+          imgMap,
+          insideFlex,
+          parentFrame
+        )
+      ) {
+        return;
+      }
       emitVector(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
     }
     return;
