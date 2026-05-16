@@ -10,6 +10,7 @@ import {
 } from '../engine/DocumentEngine.js';
 import { applyEnvelopeOperation } from '../engine/envelopeOps.js';
 import { boundsOfNodes, queueFlattenNodes, queueGroupNodes, queueUngroup } from '../engine/graphOps.js';
+import { computeFillGeometry, computeStrokeGeometry, outlineStrokeToVector } from '../render/geometry.js';
 import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
 import { hasMissingFont, listAvailableFonts, loadFontAsync } from '../fonts/fontCatalog.js';
 import { createNodeSpecFromSvg } from '../images/svgImport.js';
@@ -30,6 +31,10 @@ import type {
   Paint,
   SceneNode,
   StyledSegment,
+  TextCase,
+  TextDecoration,
+  TextBoundVariableField,
+  TextNode,
   TextRangeStyle,
   TransformModifier,
   VectorNode,
@@ -335,10 +340,12 @@ function normalizeTextOnPathInput(value: unknown): RuntimeText['textOnPath'] {
 }
 
 function runtimeMaySetLayoutSizingDetached(node: RuntimeSceneNode): boolean {
-  if (node.type === 'TEXT') return true;
-  if (node.type !== 'FRAME') return false;
-  const m = (node as { layoutMode?: FrameNode['layoutMode'] }).layoutMode;
-  return m === 'HORIZONTAL' || m === 'VERTICAL';
+  if (node.type === 'FRAME') {
+    const m = (node as { layoutMode?: FrameNode['layoutMode'] }).layoutMode;
+    return m === 'HORIZONTAL' || m === 'VERTICAL' || m === 'GRID';
+  }
+  /** Shapes/text may set layout sizing before appendChild attaches them under an auto-layout parent. */
+  return node.type !== 'PAGE' && node.type !== 'DOCUMENT';
 }
 
 function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext): N {
@@ -394,6 +401,12 @@ abstract class RuntimeSceneNode {
   minHeight?: number;
   maxHeight?: number;
   isMask?: boolean;
+  gridRowSpan?: number;
+  gridColumnSpan?: number;
+  gridRowAnchorIndex?: number;
+  gridColumnAnchorIndex?: number;
+  gridChildHorizontalAlign?: 'MIN' | 'CENTER' | 'MAX' | 'AUTO';
+  gridChildVerticalAlign?: 'MIN' | 'CENTER' | 'MAX' | 'AUTO';
   protected _id: string | null = null;
   attached = false;
   protected ctx!: ScriptContext;
@@ -548,6 +561,12 @@ abstract class RuntimeSceneNode {
       layoutSizingVertical: this.layoutSizingVertical,
       layoutPositioning: this.layoutPositioning,
       constraints: this.constraints,
+      gridRowSpan: this.gridRowSpan,
+      gridColumnSpan: this.gridColumnSpan,
+      gridRowAnchorIndex: this.gridRowAnchorIndex,
+      gridColumnAnchorIndex: this.gridColumnAnchorIndex,
+      gridChildHorizontalAlign: this.gridChildHorizontalAlign,
+      gridChildVerticalAlign: this.gridChildVerticalAlign,
     };
   }
 }
@@ -584,6 +603,39 @@ class RuntimeFrame extends RuntimeSceneNode {
   primaryAxisSizingMode?: LayoutSizing;
   counterAxisSizingMode?: LayoutSizing;
   layoutGrids?: FrameNode['layoutGrids'];
+  itemReverseZIndex?: boolean;
+  strokesIncludedInLayout?: boolean;
+  cornerSmoothing?: number;
+  individualStrokeWeights?: FrameNode['individualStrokeWeights'];
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
+  gridStyleId?: string;
+  gridRowCount?: number;
+  gridColumnCount?: number;
+  gridRowGap?: number;
+  gridColumnGap?: number;
+  gridRowSizes?: FrameNode['gridRowSizes'];
+  gridColumnSizes?: FrameNode['gridColumnSizes'];
+
+  appendChildAt(child: RuntimeSceneNode | { id: string }, rowIndex: number, columnIndex: number): void {
+    if (child instanceof RuntimeSceneNode) {
+      child.gridRowAnchorIndex = rowIndex;
+      child.gridColumnAnchorIndex = columnIndex;
+    }
+    this.appendChild(child);
+    const cid = readChildId(child);
+    queueUpdate(this.ctx, cid, { gridRowAnchorIndex: rowIndex, gridColumnAnchorIndex: columnIndex });
+  }
+
+  setGridChildPosition(child: RuntimeSceneNode | { id: string }, rowIndex: number, columnIndex: number): void {
+    const cid = readChildId(child);
+    if (child instanceof RuntimeSceneNode) {
+      child.gridRowAnchorIndex = rowIndex;
+      child.gridColumnAnchorIndex = columnIndex;
+    }
+    queueUpdate(this.ctx, cid, { gridRowAnchorIndex: rowIndex, gridColumnAnchorIndex: columnIndex });
+  }
 
   appendChild(child: RuntimeSceneNode | { id: string }, index?: number): void {
     this.appendChildInternal(child, index);
@@ -602,10 +654,29 @@ class RuntimeFrame extends RuntimeSceneNode {
       .map((c) => createHandleProxy(this.ctx, c.id));
   }
 
+  get fillGeometry(): { windingRule: string; data: string }[] {
+    return computeFillGeometry(this.liveFrameOrThrow());
+  }
+
+  get strokeGeometry(): { windingRule: string; data: string }[] {
+    return computeStrokeGeometry(this.liveFrameOrThrow());
+  }
+
+  outlineStroke(): VectorNode | null {
+    return outlineStrokeToVector(this.liveFrameOrThrow());
+  }
+
+  private liveFrameOrThrow(): FrameNode {
+    if (!this.attached || !this._id) throw new Error('Frame must be attached');
+    const live = findEnvelopeNode(this.ctx.working, this._id);
+    if (!live || live.type !== 'FRAME') throw new Error('Frame not found');
+    return live;
+  }
+
   resize(w: number, h: number): void {
     this.width = w;
     this.height = h;
-    if (this.layoutMode === 'HORIZONTAL' || this.layoutMode === 'VERTICAL') {
+    if (this.layoutMode === 'HORIZONTAL' || this.layoutMode === 'VERTICAL' || this.layoutMode === 'GRID') {
       this.primaryAxisSizingMode = 'FIXED';
       this.counterAxisSizingMode = 'FIXED';
     }
@@ -657,6 +728,20 @@ class RuntimeFrame extends RuntimeSceneNode {
       primaryAxisSizingMode: this.primaryAxisSizingMode,
       counterAxisSizingMode: this.counterAxisSizingMode,
       layoutGrids: this.layoutGrids,
+      itemReverseZIndex: this.itemReverseZIndex,
+      strokesIncludedInLayout: this.strokesIncludedInLayout,
+      cornerSmoothing: this.cornerSmoothing,
+      individualStrokeWeights: this.individualStrokeWeights,
+      fillStyleId: this.fillStyleId,
+      strokeStyleId: this.strokeStyleId,
+      effectStyleId: this.effectStyleId,
+      gridStyleId: this.gridStyleId,
+      gridRowCount: this.gridRowCount,
+      gridColumnCount: this.gridColumnCount,
+      gridRowGap: this.gridRowGap,
+      gridColumnGap: this.gridColumnGap,
+      gridRowSizes: this.gridRowSizes,
+      gridColumnSizes: this.gridColumnSizes,
       visible: this.visible,
       opacity: this.opacity,
       rotation: this.rotation,
@@ -687,6 +772,20 @@ class RuntimeText extends RuntimeSceneNode {
   fills?: FrameNode['fills'];
   textStyleId?: string;
   textOnPath?: { pathId: string; startOffset?: number };
+  lineHeight?: TextNode['lineHeight'];
+  letterSpacing?: TextNode['letterSpacing'];
+  leadingTrim?: TextNode['leadingTrim'];
+  paragraphIndent?: number;
+  paragraphSpacing?: number;
+  listSpacing?: number;
+  hangingPunctuation?: boolean;
+  hangingList?: boolean;
+  listOptions?: TextNode['listOptions'];
+  strokes?: Paint[];
+  strokeWeight?: number;
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
   private segments: StyledSegment[] = [];
 
   get styledSegments(): StyledSegment[] {
@@ -756,6 +855,83 @@ class RuntimeText extends RuntimeSceneNode {
     this.applyRangeStyle(start, end, { fills: deepClone(fills) });
   }
 
+  getStyledTextSegments(
+    fields: Array<keyof TextRangeStyle>,
+    start = 0,
+    end = this.characters.length
+  ): Array<{ start: number; end: number } & Partial<TextRangeStyle>> {
+    const out: Array<{ start: number; end: number } & Partial<TextRangeStyle>> = [];
+    const segs = [...this.segments].sort((a, b) => a.start - b.start);
+    let i = start;
+    while (i < end) {
+      const seg = segs.find((s) => s.start <= i && s.end > i);
+      const slice: { start: number; end: number } & Partial<TextRangeStyle> = {
+        start: i,
+        end: seg ? Math.min(seg.end, end) : end,
+      };
+      const style = seg?.style ?? {};
+      for (const f of fields) {
+        if (f in style) (slice as Record<string, unknown>)[f] = style[f];
+        else if (f === 'fontSize' && this.fontSize !== undefined) slice.fontSize = this.fontSize;
+        else if (f === 'fontWeight' && this.fontWeight !== undefined) slice.fontWeight = this.fontWeight;
+        else if (f === 'fills' && this.fills) slice.fills = this.fills;
+      }
+      out.push(slice);
+      i = slice.end;
+    }
+    return out;
+  }
+
+  setRangeLineHeight(start: number, end: number, lineHeight: TextNode['lineHeight']): void {
+    this.applyRangeStyle(start, end, { lineHeight });
+  }
+
+  setRangeLetterSpacing(start: number, end: number, letterSpacing: TextNode['letterSpacing']): void {
+    this.applyRangeStyle(start, end, { letterSpacing });
+  }
+
+  setRangeTextCase(start: number, end: number, textCase: TextCase): void {
+    this.applyRangeStyle(start, end, { textCase });
+  }
+
+  setRangeTextDecoration(start: number, end: number, textDecoration: TextDecoration): void {
+    this.applyRangeStyle(start, end, { textDecoration });
+  }
+
+  setRangeFontName(start: number, end: number, fontName: FontName): void {
+    this.applyRangeStyle(start, end, { fontName });
+  }
+
+  setRangeBoundVariable(
+    start: number,
+    end: number,
+    field: TextBoundVariableField,
+    variable: { id: string } | null
+  ): void {
+    const allowed: TextBoundVariableField[] = [
+      'fontFamily',
+      'fontSize',
+      'fontStyle',
+      'fontWeight',
+      'letterSpacing',
+      'lineHeight',
+      'paragraphSpacing',
+      'paragraphIndent',
+    ];
+    if (!allowed.includes(field)) {
+      throw new ValidationErr('VALIDATION_ERROR', `setRangeBoundVariable: unsupported field ${field}`);
+    }
+    const i = this.segments.findIndex((s) => s.start === start && s.end === end);
+    const prev = i >= 0 ? { ...(this.segments[i]!.style.boundVariables ?? {}) } : {};
+    if (variable === null) {
+      delete prev[field];
+    } else {
+      prev[field] = variable.id;
+    }
+    const boundVariables = Object.keys(prev).length ? prev : undefined;
+    this.applyRangeStyle(start, end, { boundVariables });
+  }
+
   setRangeHyperlink(
     start: number,
     end: number,
@@ -810,6 +986,25 @@ class RuntimeRectangle extends RuntimeSceneNode {
   bottomLeftRadius?: number;
   fillStyleId?: string;
   effectStyleId?: string;
+
+  get fillGeometry(): { windingRule: string; data: string }[] {
+    return computeFillGeometry(this.liveRectOrThrow());
+  }
+
+  get strokeGeometry(): { windingRule: string; data: string }[] {
+    return computeStrokeGeometry(this.liveRectOrThrow());
+  }
+
+  outlineStroke(): VectorNode | null {
+    return outlineStrokeToVector(this.liveRectOrThrow());
+  }
+
+  private liveRectOrThrow(): import('../model/types.js').RectangleNode {
+    if (!this.attached || !this._id) throw new Error('Rectangle must be attached');
+    const live = findEnvelopeNode(this.ctx.working, this._id);
+    if (!live || live.type !== 'RECTANGLE') throw new Error('Rectangle not found');
+    return live;
+  }
 
   toNewNodeSpec(): NewNodeSpec {
     return {

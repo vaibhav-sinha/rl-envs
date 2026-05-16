@@ -41,6 +41,13 @@ import { ValidationErr } from '../util/errors.js';
 import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } from './envelopeOps.js';
 import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
 import { normalizeLayoutGrids } from './figmaInterop.js';
+import {
+  parseGridTrackSizes,
+  parseIndividualStrokeWeights,
+  parseLetterSpacing,
+  parseLineHeight,
+  parseTextListOptions,
+} from './typographyParse.js';
 import { ENGINE_MATRIX, sceneShapeTypes } from './phase-matrix.js';
 import {
   applyLayoutSelfFromSpec,
@@ -472,7 +479,26 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
     layoutGrids: spec.layoutGrids,
     primaryAxisSizingMode: spec.primaryAxisSizingMode,
     counterAxisSizingMode: spec.counterAxisSizingMode,
+    cornerSmoothing: spec.cornerSmoothing,
+    individualStrokeWeights: spec.individualStrokeWeights as FrameNode['individualStrokeWeights'],
+    itemReverseZIndex: spec.itemReverseZIndex,
+    strokesIncludedInLayout: spec.strokesIncludedInLayout,
+    fillStyleId: spec.fillStyleId,
+    strokeStyleId: spec.strokeStyleId,
+    effectStyleId: spec.effectStyleId,
+    gridStyleId: spec.gridStyleId,
+    gridRowCount: spec.gridRowCount,
+    gridColumnCount: spec.gridColumnCount,
+    gridRowGap: spec.gridRowGap,
+    gridColumnGap: spec.gridColumnGap,
+    gridRowSizes: spec.gridRowSizes as FrameNode['gridRowSizes'],
+    gridColumnSizes: spec.gridColumnSizes as FrameNode['gridColumnSizes'],
   };
+  if (frame.gridStyleId) {
+    const gs = env.gridStyles?.find((s) => s.id === frame.gridStyleId);
+    if (!gs) throw new ValidationErr('VALIDATION_ERROR', 'FRAME.gridStyleId must reference existing grid style');
+    frame.layoutGrids = gs.layoutGrids;
+  }
   validateFrameGeometry(frame);
   if (frame.fills) frame.fills = validatePaintArray(frame.fills, 'fills', env) ?? [];
   if (frame.backgrounds) frame.backgrounds = validatePaintArray(frame.backgrounds, 'backgrounds', env) ?? [];
@@ -507,15 +533,24 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
   validateOptionalPrimaryAxisAlignItems(frame.primaryAxisAlignItems);
   validateOptionalCounterAxisAlignItems(frame.counterAxisAlignItems);
   validateLayoutNumbers(frame);
+  syncGridTrackSizes(frame);
   applyLayoutSelfFromSpec(frame, spec as Record<string, unknown>);
   return frame;
 }
 
 function validateOptionalLayoutMode(v: unknown): void {
   if (v === undefined) return;
-  if (v !== 'NONE' && v !== 'HORIZONTAL' && v !== 'VERTICAL') {
-    throw new ValidationErr('VALIDATION_ERROR', 'layoutMode must be NONE, HORIZONTAL, or VERTICAL');
+  if (v !== 'NONE' && v !== 'HORIZONTAL' && v !== 'VERTICAL' && v !== 'GRID') {
+    throw new ValidationErr('VALIDATION_ERROR', 'layoutMode must be NONE, HORIZONTAL, VERTICAL, or GRID');
   }
+}
+
+function syncGridTrackSizes(f: FrameNode): void {
+  if (f.layoutMode !== 'GRID') return;
+  const rc = Math.max(1, f.gridRowCount ?? 1);
+  const cc = Math.max(1, f.gridColumnCount ?? 1);
+  f.gridRowSizes = parseGridTrackSizes(f.gridRowSizes, rc, 'gridRowSizes');
+  f.gridColumnSizes = parseGridTrackSizes(f.gridColumnSizes, cc, 'gridColumnSizes');
 }
 
 function validateOptionalLayoutWrap(v: unknown): void {
@@ -564,11 +599,22 @@ function validateLayoutNumbers(f: FrameNode): void {
     ['paddingBottom', f.paddingBottom],
     ['itemSpacing', f.itemSpacing],
     ['counterAxisSpacing', f.counterAxisSpacing],
+    ['gridRowGap', f.gridRowGap],
+    ['gridColumnGap', f.gridColumnGap],
   ] as const) {
     if (v === undefined) continue;
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
       throw new ValidationErr('VALIDATION_ERROR', `${k} must be finite number >= 0`);
     }
+  }
+  if (f.gridRowCount !== undefined && (!Number.isInteger(f.gridRowCount) || f.gridRowCount < 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'gridRowCount must be integer >= 1');
+  }
+  if (f.gridColumnCount !== undefined && (!Number.isInteger(f.gridColumnCount) || f.gridColumnCount < 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'gridColumnCount must be integer >= 1');
+  }
+  if (f.cornerSmoothing !== undefined && (typeof f.cornerSmoothing !== 'number' || f.cornerSmoothing < 0 || f.cornerSmoothing > 1)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'cornerSmoothing must be 0..1');
   }
   if (f.layoutGrids !== undefined) {
     const grids = normalizeLayoutGrids(f.layoutGrids, f.width);
@@ -618,6 +664,25 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
     blendMode: spec.blendMode,
     textStyleId: spec.textStyleId,
     textOnPath,
+    lineHeight: parseLineHeight(spec.lineHeight, 'TEXT.lineHeight'),
+    letterSpacing: parseLetterSpacing(spec.letterSpacing, 'TEXT.letterSpacing'),
+    leadingTrim: spec.leadingTrim as TextNode['leadingTrim'],
+    paragraphIndent: typeof spec.paragraphIndent === 'number' ? spec.paragraphIndent : undefined,
+    paragraphSpacing: typeof spec.paragraphSpacing === 'number' ? spec.paragraphSpacing : undefined,
+    listSpacing: typeof spec.listSpacing === 'number' ? spec.listSpacing : undefined,
+    hangingPunctuation: spec.hangingPunctuation,
+    hangingList: spec.hangingList,
+    listOptions: parseTextListOptions(spec.listOptions, 'TEXT.listOptions'),
+    strokes: spec.strokes,
+    strokeWeight: spec.strokeWeight,
+    strokeAlign: spec.strokeAlign,
+    strokeCap: spec.strokeCap,
+    strokeJoin: spec.strokeJoin,
+    miterLimit: spec.miterLimit,
+    dashPattern: spec.dashPattern,
+    fillStyleId: spec.fillStyleId,
+    strokeStyleId: spec.strokeStyleId,
+    effectStyleId: spec.effectStyleId,
   };
   if (spec.textAutoResize !== undefined) {
     const ar = parseTextAutoResize(spec.textAutoResize, 'TEXT.textAutoResize');
@@ -642,7 +707,9 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
   }
   validateTextGeometry(text);
   if (text.fills) text.fills = validatePaintArray(text.fills, 'fills', env) ?? [];
+  if (text.strokes) text.strokes = validatePaintArray(text.strokes, 'strokes', env) ?? [];
   if (text.effects) text.effects = validateEffects(text.effects, 'effects') ?? [];
+  validateStrokeGeometry('TEXT', text);
   validateBlendMode(spec.blendMode, 'TEXT.blendMode');
   if (text.opacity !== undefined && (typeof text.opacity !== 'number' || text.opacity < 0 || text.opacity > 1)) {
     throw new ValidationErr('VALIDATION_ERROR', 'opacity must be 0..1');
@@ -2245,8 +2312,48 @@ export class DocumentEngine {
   }
 }
 
-const FRAME_BIND_FIELDS = new Set(['paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom', 'itemSpacing']);
-const TEXT_BIND_FIELDS = new Set(['fontSize', 'characters']);
+const FRAME_BIND_FIELDS = new Set([
+  'width',
+  'height',
+  'characters',
+  'itemSpacing',
+  'paddingLeft',
+  'paddingRight',
+  'paddingTop',
+  'paddingBottom',
+  'visible',
+  'topLeftRadius',
+  'topRightRadius',
+  'bottomLeftRadius',
+  'bottomRightRadius',
+  'minWidth',
+  'maxWidth',
+  'minHeight',
+  'maxHeight',
+  'counterAxisSpacing',
+  'strokeWeight',
+  'strokeTopWeight',
+  'strokeRightWeight',
+  'strokeBottomWeight',
+  'strokeLeftWeight',
+  'opacity',
+  'gridRowGap',
+  'gridColumnGap',
+]);
+
+const TEXT_BIND_FIELDS = new Set([
+  'fontFamily',
+  'fontSize',
+  'fontStyle',
+  'fontWeight',
+  'letterSpacing',
+  'lineHeight',
+  'paragraphSpacing',
+  'paragraphIndent',
+  'characters',
+]);
+
+const TEXT_STRING_BIND_FIELDS = new Set(['fontFamily', 'fontStyle', 'characters']);
 
 function parseBoundVariablesPatch(
   env: FileEnvelope,
@@ -2266,11 +2373,12 @@ function parseBoundVariablesPatch(
     }
     const hit = findVariableDefinition(env, v);
     if (!hit) throw new ValidationErr('VALIDATION_ERROR', `${nodeLabel}.boundVariables.${k}: unknown variable ${v}`);
-    const expectFloat = k !== 'characters';
+    const expectString = TEXT_STRING_BIND_FIELDS.has(k) || k === 'characters';
+    const expectFloat = !expectString;
     if (expectFloat && hit.variable.resolvedType !== 'FLOAT') {
       throw new ValidationErr('VALIDATION_ERROR', `${nodeLabel}.boundVariables.${k}: requires FLOAT variable`);
     }
-    if (!expectFloat && hit.variable.resolvedType !== 'STRING') {
+    if (expectString && hit.variable.resolvedType !== 'STRING') {
       throw new ValidationErr('VALIDATION_ERROR', `${nodeLabel}.boundVariables.${k}: requires STRING variable`);
     }
     out[k] = v;
@@ -2393,7 +2501,67 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
         }
       }
     }
+    if ('itemReverseZIndex' in patch) {
+      if (typeof patch.itemReverseZIndex !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'itemReverseZIndex must be boolean');
+      f.itemReverseZIndex = patch.itemReverseZIndex;
+    }
+    if ('strokesIncludedInLayout' in patch) {
+      if (typeof patch.strokesIncludedInLayout !== 'boolean') {
+        throw new ValidationErr('VALIDATION_ERROR', 'strokesIncludedInLayout must be boolean');
+      }
+      f.strokesIncludedInLayout = patch.strokesIncludedInLayout;
+    }
+    if ('cornerSmoothing' in patch) {
+      const cs = patch.cornerSmoothing;
+      if (cs === undefined || cs === null) delete f.cornerSmoothing;
+      else {
+        if (typeof cs !== 'number' || cs < 0 || cs > 1) throw new ValidationErr('VALIDATION_ERROR', 'cornerSmoothing must be 0..1');
+        f.cornerSmoothing = cs;
+      }
+    }
+    if ('individualStrokeWeights' in patch) {
+      const iw = patch.individualStrokeWeights;
+      if (iw === undefined || iw === null) delete f.individualStrokeWeights;
+      else f.individualStrokeWeights = parseIndividualStrokeWeights(iw, 'individualStrokeWeights');
+    }
+    for (const sid of ['fillStyleId', 'strokeStyleId', 'effectStyleId', 'gridStyleId'] as const) {
+      if (sid in patch) {
+        const v = patch[sid];
+        if (v === undefined || v === null) delete f[sid];
+        else {
+          if (typeof v !== 'string') throw new ValidationErr('VALIDATION_ERROR', `${sid} must be string`);
+          f[sid] = v;
+        }
+      }
+    }
+    if ('gridRowCount' in patch) {
+      const v = patch.gridRowCount;
+      if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'gridRowCount must be number');
+      f.gridRowCount = v;
+    }
+    if ('gridColumnCount' in patch) {
+      const v = patch.gridColumnCount;
+      if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'gridColumnCount must be number');
+      f.gridColumnCount = v;
+    }
+    if ('gridRowGap' in patch) {
+      const v = patch.gridRowGap;
+      if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'gridRowGap must be number');
+      f.gridRowGap = v;
+    }
+    if ('gridColumnGap' in patch) {
+      const v = patch.gridColumnGap;
+      if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'gridColumnGap must be number');
+      f.gridColumnGap = v;
+    }
+    if ('gridRowSizes' in patch) {
+      f.gridRowSizes = parseGridTrackSizes(patch.gridRowSizes, Math.max(1, f.gridRowCount ?? 1), 'gridRowSizes');
+    }
+    if ('gridColumnSizes' in patch) {
+      f.gridColumnSizes = parseGridTrackSizes(patch.gridColumnSizes, Math.max(1, f.gridColumnCount ?? 1), 'gridColumnSizes');
+    }
     validateLayoutNumbers(f);
+    syncGridTrackSizes(f);
     applyStrokeFieldsFromPatch(f as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('FRAME', f);
     if ('boundVariables' in patch) {
@@ -2492,6 +2660,39 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       const va = patch.textAlignVertical;
       if (va === undefined || va === null) delete t.textAlignVertical;
       else t.textAlignVertical = parseTextAlignVertical(va, 'textAlignVertical');
+    }
+    if ('lineHeight' in patch) {
+      const lh = patch.lineHeight;
+      if (lh === undefined || lh === null) delete t.lineHeight;
+      else t.lineHeight = parseLineHeight(lh, 'lineHeight');
+    }
+    if ('letterSpacing' in patch) {
+      const ls = patch.letterSpacing;
+      if (ls === undefined || ls === null) delete t.letterSpacing;
+      else t.letterSpacing = parseLetterSpacing(ls, 'letterSpacing');
+    }
+    if ('paragraphIndent' in patch && typeof patch.paragraphIndent === 'number') t.paragraphIndent = patch.paragraphIndent;
+    if ('paragraphSpacing' in patch && typeof patch.paragraphSpacing === 'number') t.paragraphSpacing = patch.paragraphSpacing;
+    if ('listSpacing' in patch && typeof patch.listSpacing === 'number') t.listSpacing = patch.listSpacing;
+    if ('hangingPunctuation' in patch && typeof patch.hangingPunctuation === 'boolean') {
+      t.hangingPunctuation = patch.hangingPunctuation;
+    }
+    if ('hangingList' in patch && typeof patch.hangingList === 'boolean') t.hangingList = patch.hangingList;
+    if ('listOptions' in patch) {
+      const lo = patch.listOptions;
+      if (lo === undefined || lo === null) delete t.listOptions;
+      else t.listOptions = parseTextListOptions(lo, 'listOptions');
+    }
+    if ('strokes' in patch) t.strokes = validatePaintArray(patch.strokes, 'strokes', env);
+    if ('strokeWeight' in patch && typeof patch.strokeWeight === 'number') t.strokeWeight = patch.strokeWeight;
+    applyStrokeFieldsFromPatch(t as unknown as Record<string, unknown>, patch);
+    validateStrokeGeometry('TEXT', t);
+    for (const sid of ['fillStyleId', 'strokeStyleId', 'effectStyleId'] as const) {
+      if (sid in patch) {
+        const v = patch[sid];
+        if (v === undefined || v === null) delete t[sid];
+        else if (typeof v === 'string') t[sid] = v;
+      }
     }
     if ('boundVariables' in patch) {
       const bv = parseBoundVariablesPatch(env, patch.boundVariables, TEXT_BIND_FIELDS, 'TEXT');

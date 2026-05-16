@@ -1,11 +1,19 @@
-import type { BlendMode, BackgroundBlurEffect, DropShadowEffect, Effect } from '../model/types.js';
+import type {
+  BackgroundBlurEffect,
+  BlendMode,
+  DropShadowEffect,
+  Effect,
+  InnerShadowEffect,
+  LayerBlurEffect,
+  NoiseEffect,
+  TextureEffect,
+} from '../model/types.js';
 import { ValidationErr } from '../util/errors.js';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** Blend modes allowed on Figma shadow effects (excludes PASS_THROUGH). */
 const EFFECT_BLEND_MODES = new Set<BlendMode>([
   'NORMAL',
   'MULTIPLY',
@@ -25,7 +33,14 @@ const EFFECT_BLEND_MODES = new Set<BlendMode>([
   'LUMINOSITY',
 ]);
 
-const SUPPORTED_EFFECT_TYPES = new Set(['DROP_SHADOW', 'BACKGROUND_BLUR']);
+const SUPPORTED_EFFECT_TYPES = new Set([
+  'DROP_SHADOW',
+  'INNER_SHADOW',
+  'BACKGROUND_BLUR',
+  'LAYER_BLUR',
+  'NOISE',
+  'TEXTURE',
+]);
 
 function validateRgb(c: { r: unknown; g: unknown; b: unknown }, label: string): void {
   for (const k of ['r', 'g', 'b'] as const) {
@@ -45,78 +60,85 @@ function validateRgba(c: Record<string, unknown>, label: string): void {
   }
 }
 
-function validateDropShadow(e: Record<string, unknown>, label: string): DropShadowEffect {
+function validateShadowBase(e: Record<string, unknown>, label: string, type: 'DROP_SHADOW' | 'INNER_SHADOW'): DropShadowEffect | InnerShadowEffect {
   if (!isRecord(e.offset) || typeof e.offset.x !== 'number' || typeof e.offset.y !== 'number') {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: DROP_SHADOW.offset {x,y} required`);
-  }
-  if (!Number.isFinite(e.offset.x) || !Number.isFinite(e.offset.y)) {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: DROP_SHADOW.offset {x,y} must be finite`);
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: ${type}.offset {x,y} required`);
   }
   if (!isRecord(e.color)) {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: DROP_SHADOW.color required`);
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: ${type}.color required`);
   }
   validateRgba(e.color, `${label}.color`);
   const radius = e.radius;
   if (typeof radius !== 'number' || !Number.isFinite(radius) || radius < 0) {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: DROP_SHADOW.radius must be finite number >= 0`);
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: ${type}.radius must be finite number >= 0`);
   }
   if (typeof e.blendMode !== 'string' || !EFFECT_BLEND_MODES.has(e.blendMode as BlendMode)) {
-    throw new ValidationErr(
-      'VALIDATION_ERROR',
-      `${label}: DROP_SHADOW.blendMode required (e.g. "NORMAL")`
-    );
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: ${type}.blendMode required`);
   }
-  if (e.spread !== undefined) {
-    if (typeof e.spread !== 'number' || !Number.isFinite(e.spread)) {
-      throw new ValidationErr('VALIDATION_ERROR', `${label}: DROP_SHADOW.spread must be finite number`);
-    }
-  }
-  if (e.visible !== undefined && typeof e.visible !== 'boolean') {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: DROP_SHADOW.visible must be boolean`);
+  if (type === 'DROP_SHADOW') return e as unknown as DropShadowEffect;
+  return e as unknown as InnerShadowEffect;
+}
+
+function validateDropShadow(e: Record<string, unknown>, label: string): DropShadowEffect {
+  const ds = validateShadowBase(e, label, 'DROP_SHADOW') as DropShadowEffect;
+  if (e.spread !== undefined && (typeof e.spread !== 'number' || !Number.isFinite(e.spread))) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: DROP_SHADOW.spread must be finite`);
   }
   if (e.showShadowBehindNode !== undefined && typeof e.showShadowBehindNode !== 'boolean') {
-    throw new ValidationErr(
-      'VALIDATION_ERROR',
-      `${label}: DROP_SHADOW.showShadowBehindNode must be boolean`
-    );
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: showShadowBehindNode must be boolean`);
   }
-  return e as unknown as DropShadowEffect;
+  return ds;
+}
+
+function validateInnerShadow(e: Record<string, unknown>, label: string): InnerShadowEffect {
+  return validateShadowBase(e, label, 'INNER_SHADOW') as InnerShadowEffect;
+}
+
+function validateBlurRadius(e: Record<string, unknown>, label: string, type: string): number {
+  const r = e.radius;
+  if (typeof r !== 'number' || !Number.isFinite(r) || r < 0) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: ${type}.radius must be finite >= 0`);
+  }
+  return r;
 }
 
 function validateBackgroundBlur(e: Record<string, unknown>, label: string): BackgroundBlurEffect {
-  const r = e.radius;
-  if (typeof r !== 'number' || !Number.isFinite(r) || r < 0) {
-    throw new ValidationErr(
-      'VALIDATION_ERROR',
-      `${label}: BACKGROUND_BLUR.radius must be finite number >= 0`
-    );
-  }
-  if (e.visible !== undefined && typeof e.visible !== 'boolean') {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: BACKGROUND_BLUR.visible must be boolean`);
-  }
+  validateBlurRadius(e, label, 'BACKGROUND_BLUR');
   return e as unknown as BackgroundBlurEffect;
+}
+
+function validateLayerBlur(e: Record<string, unknown>, label: string): LayerBlurEffect {
+  validateBlurRadius(e, label, 'LAYER_BLUR');
+  return e as unknown as LayerBlurEffect;
+}
+
+function validateNoise(e: Record<string, unknown>, label: string): NoiseEffect {
+  if (e.radius !== undefined) validateBlurRadius(e, label, 'NOISE');
+  return e as unknown as NoiseEffect;
+}
+
+function validateTexture(e: Record<string, unknown>, label: string): TextureEffect {
+  if (e.radius !== undefined) validateBlurRadius(e, label, 'TEXTURE');
+  return e as unknown as TextureEffect;
 }
 
 function validateEffectEntry(e: Record<string, unknown>, label: string): Effect {
   const type = e.type;
   if (type === 'BACKDROP_BLUR') {
-    throw new ValidationErr(
-      'VALIDATION_ERROR',
-      `${label}: use BACKGROUND_BLUR (Figma effect type), not BACKDROP_BLUR`
-    );
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: use BACKGROUND_BLUR, not BACKDROP_BLUR`);
   }
   if (type === 'DROP_SHADOW') return validateDropShadow(e, label);
+  if (type === 'INNER_SHADOW') return validateInnerShadow(e, label);
   if (type === 'BACKGROUND_BLUR') return validateBackgroundBlur(e, label);
+  if (type === 'LAYER_BLUR') return validateLayerBlur(e, label);
+  if (type === 'NOISE') return validateNoise(e, label);
+  if (type === 'TEXTURE') return validateTexture(e, label);
   if (typeof type === 'string' && !SUPPORTED_EFFECT_TYPES.has(type)) {
-    throw new ValidationErr(
-      'VALIDATION_ERROR',
-      `${label}: unsupported effect type "${type}" (supported: ${[...SUPPORTED_EFFECT_TYPES].join(', ')})`
-    );
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: unsupported effect type "${type}"`);
   }
   throw new ValidationErr('VALIDATION_ERROR', `${label}: effect type required`);
 }
 
-/** Validate node/style effects arrays using Figma plugin API names and required fields. */
 export function validateEffects(arr: unknown, label: string): Effect[] | undefined {
   if (arr === undefined) return undefined;
   if (!Array.isArray(arr)) throw new ValidationErr('VALIDATION_ERROR', `${label}: must be array`);
