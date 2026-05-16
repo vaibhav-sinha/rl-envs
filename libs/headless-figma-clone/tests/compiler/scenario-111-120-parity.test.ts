@@ -39,6 +39,8 @@ const PARITY_SCENARIOS: Array<{
     assertHtml: (html) => {
       expect(html).toMatch(/Release notes/);
       expect(html).toMatch(/list-style-type:\s*decimal/);
+      expect(html).toMatch(/<ol[^>]*class="hfc-text-list"/);
+      expect(html.match(/<li class="hfc-list-item"/g)?.length).toBe(3);
     },
   },
   {
@@ -60,6 +62,7 @@ const PARITY_SCENARIOS: Array<{
     assertHtml: (html) => {
       expect(html).toMatch(/display:\s*grid/);
       expect(html).toMatch(/var\(--hfc-var-/);
+      expect(html.match(/grid-row:\d+ \/ span 1;grid-column:\d+ \/ span 1/g)?.length).toBeGreaterThanOrEqual(6);
     },
   },
   {

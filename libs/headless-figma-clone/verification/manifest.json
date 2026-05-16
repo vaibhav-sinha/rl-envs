@@ -1156,6 +1156,40 @@
         "effects",
         "styles"
       ]
+    },
+    {
+      "id": "121-remote-photo-gallery",
+      "title": "Remote photo gallery",
+      "order": 121,
+      "tier": "foundational",
+      "tags": [
+        "image",
+        "network"
+      ],
+      "needsNetwork": true
+    },
+    {
+      "id": "122-image-scale-modes",
+      "title": "Image scale modes",
+      "order": 122,
+      "tier": "foundational",
+      "tags": [
+        "image",
+        "network"
+      ],
+      "needsNetwork": true
+    },
+    {
+      "id": "123-hero-photo-gradient",
+      "title": "Hero photo gradient",
+      "order": 123,
+      "tier": "foundational",
+      "tags": [
+        "image",
+        "gradient",
+        "network"
+      ],
+      "needsNetwork": true
     }
   ]
 }

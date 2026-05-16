@@ -1,1 +1,1 @@
-Dark card with squircle-style corners, per-corner radii, gradient stroke, and individual stroke weights.
+Dark card with squircle corners and gradient stroke; child badge with per-side weights via strokeTopWeight et al.

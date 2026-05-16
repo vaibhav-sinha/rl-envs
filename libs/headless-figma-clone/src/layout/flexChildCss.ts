@@ -6,6 +6,10 @@ function isAutoLayoutFrameNode(n: SceneNode): n is FrameNode {
   return n.type === 'FRAME' && (n.layoutMode === 'HORIZONTAL' || n.layoutMode === 'VERTICAL');
 }
 
+function isTextNode(n: SceneNode): boolean {
+  return n.type === 'TEXT';
+}
+
 export interface BoxPos {
   absX: number;
   absY: number;
@@ -114,7 +118,7 @@ export function flexChildLayoutCss(
     return `position:absolute;left:${String(n.x)}px;top:${String(n.y)}px;width:${String(box.width)}px;height:${String(box.height)}px;`;
   }
   if (parentFrame?.layoutMode === 'GRID') {
-    return `position:relative;left:0;top:0;width:${String(box.width)}px;height:${String(box.height)}px;${gridChildPlacementCss(node)}`;
+    return `position:relative;left:0;top:0;width:${String(box.width)}px;height:${String(box.height)}px;${gridChildPlacementCss(node, parentFrame)}`;
   }
   const isRow = parentFrame?.layoutMode !== 'VERTICAL';
   const mainSizing = isRow ? n.layoutSizingHorizontal : n.layoutSizingVertical;
@@ -129,7 +133,7 @@ export function flexChildLayoutCss(
     const px = Math.round(mainSize);
     basisMain = `${String(px)}px`;
   }
-  if (isAutoLayoutFrameNode(node) && mainSizing === 'HUG') {
+  if ((isAutoLayoutFrameNode(node) || isTextNode(node)) && mainSizing === 'HUG') {
     basisMain = `${String(Math.round(mainSize))}px`;
   }
   const alignSelf =
@@ -143,8 +147,12 @@ export function flexChildLayoutCss(
   const crossDim =
     crossSizing === 'HUG' && !isAutoLayoutFrameNode(node)
       ? isRow
-        ? 'height:auto;'
-        : 'width:auto;'
+        ? isTextNode(node)
+          ? `height:${String(Math.round(crossSize))}px;`
+          : 'height:auto;'
+        : isTextNode(node)
+          ? `width:${String(Math.round(crossSize))}px;`
+          : 'width:auto;'
       : crossSizing === 'FILL'
         ? ''
         : isRow

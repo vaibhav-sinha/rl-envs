@@ -19,6 +19,100 @@ export function isGridFrame(f: FrameNode): boolean {
   return f.layoutMode === 'GRID';
 }
 
+export interface GridCellAnchor {
+  row: number;
+  col: number;
+}
+
+function cellKey(row: number, col: number): string {
+  return `${String(row)},${String(col)}`;
+}
+
+function occupies(
+  occupied: Set<string>,
+  row: number,
+  col: number,
+  rowSpan: number,
+  colSpan: number
+): boolean {
+  for (let r = row; r < row + rowSpan; r++) {
+    for (let c = col; c < col + colSpan; c++) {
+      if (occupied.has(cellKey(r, c))) return true;
+    }
+  }
+  return false;
+}
+
+function markOccupied(
+  occupied: Set<string>,
+  row: number,
+  col: number,
+  rowSpan: number,
+  colSpan: number
+): void {
+  for (let r = row; r < row + rowSpan; r++) {
+    for (let c = col; c < col + colSpan; c++) {
+      occupied.add(cellKey(r, c));
+    }
+  }
+}
+
+function nextFreeCell(
+  occupied: Set<string>,
+  rowCount: number,
+  colCount: number,
+  rowSpan: number,
+  colSpan: number
+): GridCellAnchor | null {
+  for (let r = 0; r < rowCount; r++) {
+    for (let c = 0; c < colCount; c++) {
+      if (!occupies(occupied, r, c, rowSpan, colSpan)) return { row: r, col: c };
+    }
+  }
+  return null;
+}
+
+/** Figma row-major auto-placement for grid children without explicit anchors. */
+export function buildGridPlacementIndex(parent: FrameNode, children: SceneNode[]): Map<string, GridCellAnchor> {
+  const rowCount = Math.max(1, parent.gridRowCount ?? 1);
+  const colCount = Math.max(1, parent.gridColumnCount ?? 1);
+  const occupied = new Set<string>();
+  const placements = new Map<string, GridCellAnchor>();
+  const layoutChildren = children.filter((ch) => ch.layoutPositioning !== 'ABSOLUTE');
+
+  for (const ch of layoutChildren) {
+    if (ch.gridRowAnchorIndex === undefined || ch.gridColumnAnchorIndex === undefined) continue;
+    const rs = ch.gridRowSpan ?? 1;
+    const cs = ch.gridColumnSpan ?? 1;
+    const row = ch.gridRowAnchorIndex;
+    const col = ch.gridColumnAnchorIndex;
+    placements.set(ch.id, { row, col });
+    markOccupied(occupied, row, col, rs, cs);
+  }
+
+  for (const ch of layoutChildren) {
+    if (placements.has(ch.id)) continue;
+    const rs = ch.gridRowSpan ?? 1;
+    const cs = ch.gridColumnSpan ?? 1;
+    const pos = nextFreeCell(occupied, rowCount, colCount, rs, cs) ?? { row: 0, col: 0 };
+    placements.set(ch.id, pos);
+    markOccupied(occupied, pos.row, pos.col, rs, cs);
+  }
+
+  return placements;
+}
+
+/** Persist Figma-style grid cell anchors when a child is appended to a grid frame. */
+export function assignGridChildAutoPlacement(parent: FrameNode, child: SceneNode): void {
+  if (parent.layoutMode !== 'GRID' || child.layoutPositioning === 'ABSOLUTE') return;
+  if (child.gridRowAnchorIndex !== undefined && child.gridColumnAnchorIndex !== undefined) return;
+  const placements = buildGridPlacementIndex(parent, parent.children);
+  const pos = placements.get(child.id);
+  if (!pos) return;
+  child.gridRowAnchorIndex = pos.row;
+  child.gridColumnAnchorIndex = pos.col;
+}
+
 function trackToCss(track: GridTrackSize, hugPx?: number): string {
   if (track.type === 'FIXED') return `${String(track.value)}px`;
   if (track.type === 'HUG') return hugPx !== undefined ? `${String(hugPx)}px` : 'max-content';
@@ -52,14 +146,14 @@ export function computeGridTemplate(
   const rowHugs: number[] = Array(rc).fill(0);
   const colHugs: number[] = Array(cc).fill(0);
 
+  const placements = buildGridPlacementIndex(f, children);
   for (const ch of children) {
     if (ch.layoutPositioning === 'ABSOLUTE') continue;
-    const r0 = ch.gridRowAnchorIndex ?? 0;
-    const c0 = ch.gridColumnAnchorIndex ?? 0;
+    const anchor = placements.get(ch.id) ?? { row: 0, col: 0 };
     const rs = ch.gridRowSpan ?? 1;
     const cs = ch.gridColumnSpan ?? 1;
-    rowHugs[r0] = Math.max(rowHugs[r0] ?? 0, measureChildMinCross(ch, env) * rs);
-    colHugs[c0] = Math.max(colHugs[c0] ?? 0, measureChildMinMain(ch) * cs);
+    rowHugs[anchor.row] = Math.max(rowHugs[anchor.row] ?? 0, measureChildMinCross(ch, env) * rs);
+    colHugs[anchor.col] = Math.max(colHugs[anchor.col] ?? 0, measureChildMinMain(ch) * cs);
   }
 
   const rows = rowSizes.map((t, i) => trackToCss(t, rowHugs[i])).join(' ');
@@ -75,10 +169,14 @@ export function computeGridTemplate(
   };
 }
 
-export function gridChildPlacementCss(ch: SceneNode): string {
+export function gridChildPlacementCss(ch: SceneNode, parent?: FrameNode): string {
   if (ch.layoutPositioning === 'ABSOLUTE') return '';
-  const r0 = (ch.gridRowAnchorIndex ?? 0) + 1;
-  const c0 = (ch.gridColumnAnchorIndex ?? 0) + 1;
+  const anchor =
+    parent && isGridFrame(parent)
+      ? (buildGridPlacementIndex(parent, parent.children).get(ch.id) ?? { row: 0, col: 0 })
+      : { row: ch.gridRowAnchorIndex ?? 0, col: ch.gridColumnAnchorIndex ?? 0 };
+  const r0 = anchor.row + 1;
+  const c0 = anchor.col + 1;
   const rs = ch.gridRowSpan ?? 1;
   const cs = ch.gridColumnSpan ?? 1;
   let s = `grid-row:${String(r0)} / span ${String(rs)};grid-column:${String(c0)} / span ${String(cs)};`;

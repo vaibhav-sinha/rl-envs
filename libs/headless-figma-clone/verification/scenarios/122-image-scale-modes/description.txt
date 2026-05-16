@@ -1,0 +1,5 @@
+One remote JPEG loaded once, then applied with FILL, FIT, and TILE scale modes on three rectangles.
+
+Expected: fill crops, fit letterboxes, tile repeats the cat photo pattern.
+
+Clone verification requires HFC_ALLOW_NETWORK=1 on the MCP server.

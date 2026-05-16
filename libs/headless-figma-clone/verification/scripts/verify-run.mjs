@@ -167,6 +167,18 @@ async function main() {
     process.exit(1);
   }
 
+  const networkScenarios = scenarios.filter((s) => s.needsNetwork);
+  if (
+    networkScenarios.length > 0 &&
+    (opts.only === 'both' || opts.only === 'clone') &&
+    process.env.HFC_ALLOW_NETWORK !== '1'
+  ) {
+    console.warn(
+      `Warning: ${networkScenarios.length} scenario(s) need remote images (createImageAsync). ` +
+        'Start the clone MCP server with HFC_ALLOW_NETWORK=1 or pass --allow-network to `npm start`.'
+    );
+  }
+
   const viewportMaxDim = Math.max(manifest.viewport?.width ?? 480, manifest.viewport?.height ?? 360);
 
   /** @type {import('@modelcontextprotocol/sdk/client/index.js').Client | null} */

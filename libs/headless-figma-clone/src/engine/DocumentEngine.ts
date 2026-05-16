@@ -52,11 +52,15 @@ import { ENGINE_MATRIX, sceneShapeTypes } from './phase-matrix.js';
 import {
   applyLayoutSelfFromSpec,
   applyLayoutSelfPatch,
+  assertGridChildFieldsInCreateSpec,
   validateFontName,
   validateLayoutSizing,
 } from './phase7Fields.js';
 import { validateEffects } from './validateEffects.js';
+import { assertFigmaObjectAssignable } from './pluginObjectAssign.js';
+import { applySideStrokeWeightPatch } from './sideStrokeWeights.js';
 import { validatePaintArray } from './validatePaints.js';
+import { assignGridChildAutoPlacement } from '../layout/gridLayout.js';
 import { parseStyledSegmentsInput } from './styledSegmentsNormalize.js';
 import { validateStyledSegments } from './utf16Segments.js';
 import { findVariableDefinition } from '../variables/resolution.js';
@@ -1787,9 +1791,19 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphO
   } else {
     throw new ValidationErr('VALIDATION_ERROR', `Unsupported node type ${(op.node as { type: string }).type}`);
   }
+  if (node.type !== 'PAGE') {
+    assertGridChildFieldsInCreateSpec(
+      parent.type,
+      parent.type === 'FRAME' ? parent.layoutMode : undefined,
+      op.node as Record<string, unknown>
+    );
+  }
   attachSceneNode(working.document, op.parentId, op.index, node);
   if (parent.type === 'FRAME' && node.type !== 'PAGE') {
     applyAutoLayoutChildDefaults(parent, node);
+    if (parent.layoutMode === 'GRID') {
+      assignGridChildAutoPlacement(parent, node as SceneNode);
+    }
   }
   if (node.type !== 'PAGE' && (sceneShapeTypes as readonly string[]).includes(node.type)) {
     validateLayoutSizingNodeContextForParent(working.document, node as SceneNode, parent);
@@ -1832,7 +1846,10 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
     }
     applyPatch(working, node, patch);
     if ((sceneShapeTypes as readonly string[]).includes(node.type)) {
-      applyLayoutSelfPatch(node as LayoutSelfFields, patch);
+      applyLayoutSelfPatch(node as LayoutSelfFields, patch, {
+        document: working.document,
+        nodeId: node.id,
+      });
       if ('layoutSizingHorizontal' in patch || 'layoutSizingVertical' in patch) {
         const hint =
           'layoutSizingHorizontal' in patch
@@ -1935,6 +1952,9 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
     attachSceneNode(working.document, op.newParentId, op.index, subtree);
     if (newParent.type === 'FRAME') {
       applyAutoLayoutChildDefaults(newParent, subtree);
+      if (newParent.layoutMode === 'GRID') {
+        assignGridChildAutoPlacement(newParent, subtree);
+      }
     }
     if (newParent.type === 'GROUP') {
       syncGroupBounds(newParent);
@@ -2561,10 +2581,23 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
         f.cornerSmoothing = cs;
       }
     }
+    applySideStrokeWeightPatch(f, patch);
     if ('individualStrokeWeights' in patch) {
       const iw = patch.individualStrokeWeights;
       if (iw === undefined || iw === null) delete f.individualStrokeWeights;
-      else f.individualStrokeWeights = parseIndividualStrokeWeights(iw, 'individualStrokeWeights');
+      else {
+        if (f.strokes?.some((s) => s.type !== 'SOLID')) {
+          throw new ValidationErr('VALIDATION_ERROR', 'object is not extensible');
+        }
+        if (f.individualStrokeWeights !== undefined) assertFigmaObjectAssignable(f.individualStrokeWeights, iw);
+        f.individualStrokeWeights = parseIndividualStrokeWeights(iw, 'individualStrokeWeights');
+      }
+    }
+    if ('strokes' in patch && f.individualStrokeWeights) {
+      const next = validatePaintArray(patch.strokes, 'strokes', env);
+      if (next?.some((s) => s.type !== 'SOLID')) {
+        throw new ValidationErr('VALIDATION_ERROR', 'object is not extensible');
+      }
     }
     for (const sid of ['fillStyleId', 'strokeStyleId', 'effectStyleId', 'gridStyleId'] as const) {
       if (sid in patch) {
@@ -2723,7 +2756,10 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     if ('listOptions' in patch) {
       const lo = patch.listOptions;
       if (lo === undefined || lo === null) delete t.listOptions;
-      else t.listOptions = parseTextListOptions(lo, 'listOptions');
+      else {
+        if (t.listOptions !== undefined) assertFigmaObjectAssignable(t.listOptions, lo);
+        t.listOptions = parseTextListOptions(lo, 'listOptions');
+      }
     }
     if ('strokes' in patch) t.strokes = validatePaintArray(patch.strokes, 'strokes', env);
     if ('strokeWeight' in patch && typeof patch.strokeWeight === 'number') t.strokeWeight = patch.strokeWeight;
@@ -2790,6 +2826,26 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       r.blendMode = patch.blendMode as RectangleNode['blendMode'];
     }
     applyStrokeFieldsFromPatch(r as unknown as Record<string, unknown>, patch);
+    applySideStrokeWeightPatch(r, patch);
+    if ('cornerSmoothing' in patch) {
+      const cs = patch.cornerSmoothing;
+      if (cs === undefined || cs === null) delete r.cornerSmoothing;
+      else {
+        if (typeof cs !== 'number' || cs < 0 || cs > 1) throw new ValidationErr('VALIDATION_ERROR', 'cornerSmoothing must be 0..1');
+        r.cornerSmoothing = cs;
+      }
+    }
+    if ('individualStrokeWeights' in patch) {
+      const iw = patch.individualStrokeWeights;
+      if (iw === undefined || iw === null) delete r.individualStrokeWeights;
+      else {
+        if (r.strokes?.some((s) => s.type !== 'SOLID')) {
+          throw new ValidationErr('VALIDATION_ERROR', 'object is not extensible');
+        }
+        if (r.individualStrokeWeights !== undefined) assertFigmaObjectAssignable(r.individualStrokeWeights, iw);
+        r.individualStrokeWeights = parseIndividualStrokeWeights(iw, 'individualStrokeWeights');
+      }
+    }
     validateStrokeGeometry('RECTANGLE', r);
     if ('fillStyleId' in patch) {
       const fs = patch.fillStyleId;

@@ -33,6 +33,10 @@ function parseArgv(argv: string[]): {
       process.env.HFC_ALLOW_DEBUG = '1';
       continue;
     }
+    if (a === '--allow-network') {
+      process.env.HFC_ALLOW_NETWORK = '1';
+      continue;
+    }
     if (a === '--transport' && argv[i + 1]) {
       const v = argv[++i]!;
       if (v === 'http' || v === 'stdio') transport = v;

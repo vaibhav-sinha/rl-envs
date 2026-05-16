@@ -34,6 +34,7 @@ import type {
   TextCase,
   TextDecoration,
   TextBoundVariableField,
+  TextListOptions,
   TextNode,
   TextRangeStyle,
   TransformModifier,
@@ -46,6 +47,9 @@ import {
   canDeferSetBoundVariable,
   createVariablesApi,
 } from '../variables/VariablesAPI.js';
+import { assertGridChildLayoutField, GRID_CHILD_LAYOUT_FIELDS } from '../engine/gridChildValidate.js';
+import { assertFigmaObjectAssignable } from '../engine/pluginObjectAssign.js';
+import { writeSideStrokeWeight, type SideStrokeWeightTarget } from '../engine/sideStrokeWeights.js';
 import { ValidationErr } from '../util/errors.js';
 
 function deepClone<T>(v: T): T {
@@ -348,10 +352,62 @@ function runtimeMaySetLayoutSizingDetached(node: RuntimeSceneNode): boolean {
   return node.type !== 'PAGE' && node.type !== 'DOCUMENT';
 }
 
+const GRID_LAYOUT_PROP_SET = new Set<string>(GRID_CHILD_LAYOUT_FIELDS);
+
+const SIDE_STROKE_PROPS: Record<string, 'top' | 'right' | 'bottom' | 'left'> = {
+  strokeTopWeight: 'top',
+  strokeRightWeight: 'right',
+  strokeBottomWeight: 'bottom',
+  strokeLeftWeight: 'left',
+};
+
 function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext): N {
   return new Proxy(node, {
     set(target, prop, value, receiver) {
       const p = prop as string;
+      if (GRID_LAYOUT_PROP_SET.has(p)) {
+        const nodeId = target.getAttachedIdOrNull();
+        if (!nodeId) {
+          throw new ValidationErr(
+            'VALIDATION_ERROR',
+            `in set_${p}: Node must be a grid child to set ${p === 'gridRowSpan' ? 'row span' : p === 'gridColumnSpan' ? 'column span' : p}`
+          );
+        }
+        assertGridChildLayoutField(ctx.working.document, nodeId, p as (typeof GRID_CHILD_LAYOUT_FIELDS)[number]);
+      }
+      if (target.type === 'TEXT' && p === 'listOptions') {
+        assertFigmaObjectAssignable(
+          Reflect.get(target, p, receiver) ?? Object.freeze({ type: 'NONE' }),
+          value
+        );
+      }
+      const sideStroke = SIDE_STROKE_PROPS[p];
+      if (sideStroke && (target.type === 'RECTANGLE' || target.type === 'FRAME')) {
+        const host = target as RuntimeSceneNode & SideStrokeWeightTarget;
+        const next = writeSideStrokeWeight(host, sideStroke, value as number);
+        if (target.attached && target.getAttachedIdOrNull() !== null) {
+          queueUpdate(ctx, target.getAttachedIdOrNull()!, { individualStrokeWeights: next });
+        }
+        return true;
+      }
+      if (
+        (target.type === 'FRAME' || target.type === 'RECTANGLE') &&
+        p === 'individualStrokeWeights'
+      ) {
+        const strokes = Reflect.get(target, 'strokes', receiver) as Paint[] | undefined;
+        if (strokes?.some((s) => s.type !== 'SOLID')) {
+          throw new ValidationErr('VALIDATION_ERROR', 'object is not extensible');
+        }
+        const cur = Reflect.get(target, p, receiver);
+        if (cur !== undefined) assertFigmaObjectAssignable(cur, value);
+      }
+      if ((target.type === 'FRAME' || target.type === 'RECTANGLE') && p === 'strokes') {
+        const weights = Reflect.get(target, 'individualStrokeWeights', receiver);
+        const paints = value as Paint[] | undefined;
+        if (weights && paints?.some((s) => s.type !== 'SOLID')) {
+          throw new ValidationErr('VALIDATION_ERROR', 'object is not extensible');
+        }
+      }
       if (p === 'layoutSizingHorizontal' || p === 'layoutSizingVertical') {
         if (!target.attached && !runtimeMaySetLayoutSizingDetached(target)) {
           throw new ValidationErr(
@@ -462,6 +518,21 @@ abstract class RuntimeSceneNode {
   /** Used by script helpers outside subclasses (reparent / booleans). */
   getAttachedIdOrNull(): string | null {
     return this._id;
+  }
+
+  /** Plugin API: child sets its own grid anchor (not on the parent frame). */
+  setGridChildPosition(rowIndex: number, columnIndex: number): void {
+    const nodeId = this.getAttachedIdOrNull();
+    if (!nodeId) {
+      throw new ValidationErr(
+        'VALIDATION_ERROR',
+        'in set_gridRowAnchorIndex: Node must be a grid child to set row anchor'
+      );
+    }
+    assertGridChildLayoutField(this.ctx.working.document, nodeId, 'gridRowAnchorIndex');
+    this.gridRowAnchorIndex = rowIndex;
+    this.gridColumnAnchorIndex = columnIndex;
+    queueUpdate(this.ctx, nodeId, { gridRowAnchorIndex: rowIndex, gridColumnAnchorIndex: columnIndex });
   }
 
   appendUnderParent(parentId: string, index: number | undefined, ctx: ScriptContext): void {
@@ -619,22 +690,15 @@ class RuntimeFrame extends RuntimeSceneNode {
   gridColumnSizes?: FrameNode['gridColumnSizes'];
 
   appendChildAt(child: RuntimeSceneNode | { id: string }, rowIndex: number, columnIndex: number): void {
-    if (child instanceof RuntimeSceneNode) {
-      child.gridRowAnchorIndex = rowIndex;
-      child.gridColumnAnchorIndex = columnIndex;
-    }
     this.appendChild(child);
     const cid = readChildId(child);
-    queueUpdate(this.ctx, cid, { gridRowAnchorIndex: rowIndex, gridColumnAnchorIndex: columnIndex });
-  }
-
-  setGridChildPosition(child: RuntimeSceneNode | { id: string }, rowIndex: number, columnIndex: number): void {
-    const cid = readChildId(child);
     if (child instanceof RuntimeSceneNode) {
       child.gridRowAnchorIndex = rowIndex;
       child.gridColumnAnchorIndex = columnIndex;
     }
-    queueUpdate(this.ctx, cid, { gridRowAnchorIndex: rowIndex, gridColumnAnchorIndex: columnIndex });
+    if (this.attached && this._id !== null && cid) {
+      queueUpdate(this.ctx, cid, { gridRowAnchorIndex: rowIndex, gridColumnAnchorIndex: columnIndex });
+    }
   }
 
   appendChild(child: RuntimeSceneNode | { id: string }, index?: number): void {
@@ -780,7 +844,7 @@ class RuntimeText extends RuntimeSceneNode {
   listSpacing?: number;
   hangingPunctuation?: boolean;
   hangingList?: boolean;
-  listOptions?: TextNode['listOptions'];
+  listOptions: TextNode['listOptions'] = Object.freeze({ type: 'NONE' });
   strokes?: Paint[];
   strokeWeight?: number;
   strokeAlign?: TextNode['strokeAlign'];
@@ -914,6 +978,10 @@ class RuntimeText extends RuntimeSceneNode {
     this.applyRangeStyle(start, end, { textDecoration });
   }
 
+  setRangeListOptions(start: number, end: number, listOptions: TextListOptions): void {
+    this.applyRangeStyle(start, end, { listOptions });
+  }
+
   setRangeFontName(start: number, end: number, fontName: FontName): void {
     this.applyRangeStyle(start, end, { fontName });
   }
@@ -1000,6 +1068,8 @@ class RuntimeRectangle extends RuntimeSceneNode {
   topRightRadius?: number;
   bottomRightRadius?: number;
   bottomLeftRadius?: number;
+  cornerSmoothing?: number;
+  individualStrokeWeights?: FrameNode['individualStrokeWeights'];
   fillStyleId?: string;
   effectStyleId?: string;
 
@@ -1043,6 +1113,8 @@ class RuntimeRectangle extends RuntimeSceneNode {
       topRightRadius: this.topRightRadius,
       bottomRightRadius: this.bottomRightRadius,
       bottomLeftRadius: this.bottomLeftRadius,
+      cornerSmoothing: this.cornerSmoothing,
+      individualStrokeWeights: this.individualStrokeWeights,
       effects: this.effects,
       visible: this.visible,
       opacity: this.opacity,
