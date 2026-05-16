@@ -1,10 +1,11 @@
 import type { FigmaPluginSnapshot, SerializedAsset, SerializedNode } from '../snapshotTypes.js';
 import { SNAPSHOT_VERSION } from '../snapshotTypes.js';
 import {
-  findSerializedNodeById,
   findStructuralIconExportRootIds,
+  findSerializedNodeById,
   ICON_RASTER_EXPORT_SCALE,
   prefersRasterIconExport,
+  resolveMixedFillVectorExportIds,
   tagSerializedIconPngExport,
   tagSerializedIconSvgExport,
 } from './iconDetector.js';
@@ -146,13 +147,7 @@ async function buildIconExportAssets(document: SerializedNode): Promise<Serializ
         });
         tagSerializedIconPngExport(document, nodeId, nodeId);
       } else {
-        const bytes = await exportNode.exportAsync({
-          format: 'SVG',
-          contentsOnly: true,
-          svgOutlineText: true,
-          svgIdAttribute: false,
-          svgSimplifyStroke: true,
-        });
+        const bytes = await exportNode.exportAsync(SVG_EXPORT_SETTINGS);
         assets.push({
           figmaNodeId: nodeId,
           mimeType: 'image/svg+xml',
@@ -162,6 +157,61 @@ async function buildIconExportAssets(document: SerializedNode): Promise<Serializ
       }
     } catch {
       /* skip failed icon export */
+    }
+  }
+
+  return assets;
+}
+
+const SVG_EXPORT_SETTINGS = {
+  format: 'SVG',
+  contentsOnly: true,
+  svgOutlineText: true,
+  svgIdAttribute: false,
+  svgSimplifyStroke: true,
+} as ExportSettings;
+
+function collectMixedFillVectorNodeIds(node: BaseNode, out: string[]): void {
+  if (node.type === 'VECTOR') {
+    try {
+      const v = node as VectorNode;
+      if (v.fills === figma.mixed) out.push(node.id);
+    } catch {
+      /* skip unreadable */
+    }
+  }
+  if ('children' in node && Array.isArray(node.children)) {
+    for (const ch of node.children) collectMixedFillVectorNodeIds(ch, out);
+  }
+}
+
+async function buildMixedFillVectorExportAssets(document: SerializedNode): Promise<SerializedAsset[]> {
+  const mixedIds: string[] = [];
+  collectMixedFillVectorNodeIds(figma.root, mixedIds);
+  const nodeIds = resolveMixedFillVectorExportIds(document, mixedIds);
+  const assets: SerializedAsset[] = [];
+
+  for (const nodeId of nodeIds) {
+    const serialized = findSerializedNodeById(document, nodeId);
+    if (!serialized) continue;
+
+    const node = await figma.getNodeByIdAsync(nodeId);
+    if (!node || !('exportAsync' in node)) continue;
+
+    const exportNode = node as SceneNode & {
+      exportAsync: (settings: ExportSettings) => Promise<Uint8Array>;
+    };
+
+    try {
+      const bytes = await exportNode.exportAsync(SVG_EXPORT_SETTINGS);
+      assets.push({
+        figmaNodeId: nodeId,
+        mimeType: 'image/svg+xml',
+        base64: bytesToBase64(bytes),
+      });
+      tagSerializedIconSvgExport(document, nodeId, nodeId);
+    } catch {
+      /* skip failed mixed-fill vector export */
     }
   }
 
@@ -246,7 +296,8 @@ export async function buildFigmaPluginSnapshot(): Promise<FigmaPluginSnapshot> {
 
   const rasterAssets = await buildAssets();
   const iconExportAssets = await buildIconExportAssets(document);
-  const assets = [...rasterAssets, ...iconExportAssets];
+  const mixedFillVectorAssets = await buildMixedFillVectorExportAssets(document);
+  const assets = [...rasterAssets, ...iconExportAssets, ...mixedFillVectorAssets];
 
   return {
     snapshotVersion: SNAPSHOT_VERSION,

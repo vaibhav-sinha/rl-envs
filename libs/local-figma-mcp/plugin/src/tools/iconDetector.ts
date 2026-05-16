@@ -200,6 +200,47 @@ export function findStructuralIconExportRootIds(document: SerializedNode): strin
   return candidates.filter((id) => !hasCandidateAncestor(id, candidateSet, parentById));
 }
 
+/** Same pixel bounds as structural icon export (compact vectors only). */
+export function isCompactVectorExportSize(width: number, height: number): boolean {
+  if (width < MIN_ICON_PX || height < MIN_ICON_PX) return false;
+  if (width > MAX_ICON_PX || height > MAX_ICON_PX) return false;
+  const shortSide = Math.min(width, height);
+  const longSide = Math.max(width, height);
+  if (shortSide > 0 && longSide / shortSide > MAX_ASPECT) return false;
+  return true;
+}
+
+/**
+ * VECTOR nodes with `fills === figma.mixed` (per-region paints). Excludes nodes already
+ * covered by structural icon export and nested mixed-fill vectors (outermost only).
+ */
+export function resolveMixedFillVectorExportIds(
+  document: SerializedNode,
+  mixedFillNodeIds: string[]
+): string[] {
+  if (mixedFillNodeIds.length === 0) return [];
+
+  const structuralRoots = new Set(findStructuralIconExportRootIds(document));
+  const candidates: string[] = [];
+
+  for (const nodeId of mixedFillNodeIds) {
+    if (structuralRoots.has(nodeId)) continue;
+    const serialized = findSerializedNodeById(document, nodeId);
+    if (!serialized || serialized.type !== 'VECTOR') continue;
+    const { width, height } = boundsFromSerializedNode(serialized);
+    if (!isCompactVectorExportSize(width, height)) continue;
+    candidates.push(nodeId);
+  }
+
+  if (candidates.length === 0) return [];
+
+  const candidateSet = new Set(candidates);
+  const parentById = new Map<string, string | null>();
+  buildParentMap(document, null, parentById);
+
+  return candidates.filter((id) => !hasCandidateAncestor(id, candidateSet, parentById));
+}
+
 export function tagSerializedIconSvgExport(
   root: SerializedNode,
   nodeId: string,
