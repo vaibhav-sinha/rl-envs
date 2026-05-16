@@ -2627,6 +2627,1203 @@ modal.effects = [{ type: 'BACKGROUND_BLUR', radius: 12, visible: true }];
 root.appendChild(modal);
 `,
   },
+  {
+    id: '101-settings-workspace-shell',
+    title: 'Settings workspace shell',
+    order: 101,
+    tier: 'advanced',
+    tags: ['composite', 'settings', 'variables', 'autoLayout'],
+    needsFont: true,
+    description:
+      'Settings screen: variable-bound surfaces, left nav rail, General copy block, toggle capsule, select row with chevron, and dividers.\n\nExpected: two-column shell with highlighted nav item and interactive-looking controls.',
+    body: `
+const col = figma.variables.createVariableCollection('Settings');
+const modeId = col.modes[0].modeId;
+const accent = figma.variables.createVariable('accent', col, 'COLOR');
+accent.setValueForMode(modeId, { r: 0.2, g: 0.48, b: 0.95 });
+const railBg = figma.variables.createVariable('rail', col, 'COLOR');
+railBg.setValueForMode(modeId, { r: 0.97, g: 0.97, b: 0.99 });
+const shell = createAutoLayout('HORIZONTAL');
+shell.resize(440, 318);
+shell.x = 20;
+shell.y = 21;
+shell.itemSpacing = 12;
+const rail = createAutoLayout('VERTICAL');
+rail.resize(112, 318);
+rail.paddingTop = 14;
+rail.paddingLeft = 10;
+rail.paddingRight = 10;
+rail.paddingBottom = 12;
+rail.itemSpacing = 6;
+rail.cornerRadius = 14;
+rail.fills = [figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }, 'color', railBg)];
+rail.strokes = [{ type: 'SOLID', color: { r: 0.86, g: 0.89, b: 0.93 } }];
+rail.strokeWeight = 1;
+function navRow(label, active) {
+  const row = createAutoLayout('HORIZONTAL');
+  row.resize(92, 34);
+  row.paddingLeft = 10;
+  row.paddingRight = 10;
+  row.cornerRadius = 9;
+  row.counterAxisAlignItems = 'CENTER';
+  if (active) {
+    row.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.95, b: 1 } }];
+  }
+  const t = figma.createText();
+  t.characters = label;
+  t.fontSize = 11;
+  t.fills = [{ type: 'SOLID', color: active ? { r: 0.12, g: 0.35, b: 0.88 } : { r: 0.38, g: 0.4, b: 0.48 } }];
+  row.appendChild(t);
+  return row;
+}
+rail.appendChild(navRow('General', true));
+rail.appendChild(navRow('Team', false));
+rail.appendChild(navRow('Billing', false));
+rail.appendChild(navRow('Notifications', false));
+const pane = createAutoLayout('VERTICAL');
+pane.resize(316, 318);
+pane.paddingTop = 16;
+pane.paddingLeft = 18;
+pane.paddingRight = 18;
+pane.paddingBottom = 14;
+pane.itemSpacing = 14;
+pane.cornerRadius = 14;
+pane.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+pane.strokes = [{ type: 'SOLID', color: { r: 0.86, g: 0.89, b: 0.93 } }];
+pane.strokeWeight = 1;
+const h1 = figma.createText();
+h1.characters = 'Workspace defaults';
+h1.fontSize = 18;
+h1.fills = [{ type: 'SOLID', color: { r: 0.08, g: 0.1, b: 0.14 } }];
+pane.appendChild(h1);
+const lead = figma.createText();
+lead.characters = 'Org-wide rules for libraries, exports, and review flows.';
+lead.fontSize = 11;
+lead.fills = [{ type: 'SOLID', color: { r: 0.42, g: 0.45, b: 0.52 } }];
+pane.appendChild(lead);
+const rule = figma.createRectangle();
+rule.resize(268, 1);
+rule.fills = [{ type: 'SOLID', color: { r: 0.91, g: 0.92, b: 0.95 } }];
+pane.appendChild(rule);
+const rowToggle = createAutoLayout('HORIZONTAL');
+rowToggle.resize(280, 44);
+rowToggle.primaryAxisAlignItems = 'SPACE_BETWEEN';
+rowToggle.counterAxisAlignItems = 'CENTER';
+const stack = createAutoLayout('VERTICAL');
+stack.itemSpacing = 3;
+const a = figma.createText();
+a.characters = 'Auto-save version history';
+a.fontSize = 12;
+a.fills = [{ type: 'SOLID', color: { r: 0.14, g: 0.15, b: 0.2 } }];
+const b = figma.createText();
+b.characters = 'Capture checkpoints while editors are open';
+b.fontSize = 10;
+b.fills = [{ type: 'SOLID', color: { r: 0.48, g: 0.5, b: 0.56 } }];
+stack.appendChild(a);
+stack.appendChild(b);
+const cap = figma.createFrame();
+cap.resize(52, 28);
+cap.fills = [];
+const track = figma.createRectangle();
+track.resize(46, 22);
+track.x = 3;
+track.y = 3;
+track.cornerRadius = 11;
+track.fills = [figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', accent)];
+const knob = figma.createEllipse();
+knob.resize(18, 18);
+knob.x = 28;
+knob.y = 5;
+knob.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+cap.appendChild(track);
+cap.appendChild(knob);
+rowToggle.appendChild(stack);
+rowToggle.appendChild(cap);
+pane.appendChild(rowToggle);
+const row2 = createAutoLayout('HORIZONTAL');
+row2.resize(280, 40);
+row2.primaryAxisAlignItems = 'SPACE_BETWEEN';
+row2.counterAxisAlignItems = 'CENTER';
+row2.cornerRadius = 10;
+row2.paddingLeft = 12;
+row2.paddingRight = 12;
+row2.fills = [{ type: 'SOLID', color: { r: 0.97, g: 0.98, b: 0.99 } }];
+const l2 = figma.createText();
+l2.characters = 'Default review branch';
+l2.fontSize = 12;
+l2.fills = [{ type: 'SOLID', color: { r: 0.18, g: 0.18, b: 0.22 } }];
+const chev = figma.createText();
+chev.characters = 'main  \u203a';
+chev.fontSize = 12;
+chev.fills = [{ type: 'SOLID', color: { r: 0.45, g: 0.48, b: 0.55 } }];
+row2.appendChild(l2);
+row2.appendChild(chev);
+pane.appendChild(row2);
+shell.appendChild(rail);
+shell.appendChild(pane);
+root.appendChild(shell);
+`,
+  },
+  {
+    id: '102-analytics-kpi-strip',
+    title: 'Analytics KPI strip',
+    order: 102,
+    tier: 'advanced',
+    tags: ['composite', 'dashboard', 'autoLayout'],
+    needsFont: true,
+    description:
+      'Dashboard chrome: title with range chip, three KPI cards with delta pills, and a sparkline built from rounded bars.\n\nExpected: metrics row and warm-neutral chart legible at 480×360.',
+    body: `
+const wrap = createAutoLayout('VERTICAL');
+wrap.resize(440, 310);
+wrap.x = 20;
+wrap.y = 24;
+wrap.itemSpacing = 14;
+const top = createAutoLayout('HORIZONTAL');
+top.resize(440, 40);
+top.primaryAxisAlignItems = 'SPACE_BETWEEN';
+top.counterAxisAlignItems = 'CENTER';
+const brand = figma.createText();
+brand.characters = 'Northwind Analytics';
+brand.fontSize = 17;
+brand.fills = [{ type: 'SOLID', color: { r: 0.07, g: 0.09, b: 0.14 } }];
+const chip = createAutoLayout('HORIZONTAL');
+chip.paddingLeft = 12;
+chip.paddingRight = 12;
+chip.paddingTop = 7;
+chip.paddingBottom = 7;
+chip.cornerRadius = 16;
+chip.counterAxisAlignItems = 'CENTER';
+chip.fills = [{ type: 'SOLID', color: { r: 0.94, g: 0.95, b: 0.98 } }];
+chip.strokes = [{ type: 'SOLID', color: { r: 0.86, g: 0.88, b: 0.93 } }];
+chip.strokeWeight = 1;
+const chipT = figma.createText();
+chipT.characters = 'Last 7 days';
+chipT.fontSize = 11;
+chipT.fills = [{ type: 'SOLID', color: { r: 0.32, g: 0.34, b: 0.42 } }];
+chip.appendChild(chipT);
+top.appendChild(brand);
+top.appendChild(chip);
+wrap.appendChild(top);
+const cards = createAutoLayout('HORIZONTAL');
+cards.resize(440, 108);
+cards.itemSpacing = 10;
+function kpi(title, value, delta, up) {
+  const card = createAutoLayout('VERTICAL');
+  card.resize(140, 108);
+  card.paddingTop = 12;
+  card.paddingLeft = 12;
+  card.paddingRight = 12;
+  card.paddingBottom = 12;
+  card.itemSpacing = 10;
+  card.cornerRadius = 12;
+  card.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  card.effects = [{ type: 'DROP_SHADOW', color: { r: 0.12, g: 0.2, b: 0.45, a: 0.12 }, offset: { x: 0, y: 6 }, radius: 14, blendMode: 'NORMAL', visible: true }];
+  const t0 = figma.createText();
+  t0.characters = title;
+  t0.fontSize = 10;
+  t0.fills = [{ type: 'SOLID', color: { r: 0.45, g: 0.47, b: 0.55 } }];
+  const t1 = figma.createText();
+  t1.characters = value;
+  t1.fontSize = 22;
+  t1.fills = [{ type: 'SOLID', color: { r: 0.08, g: 0.1, b: 0.16 } }];
+  const pill = createAutoLayout('HORIZONTAL');
+  pill.paddingLeft = 8;
+  pill.paddingRight = 8;
+  pill.paddingTop = 4;
+  pill.paddingBottom = 4;
+  pill.cornerRadius = 8;
+  pill.counterAxisAlignItems = 'CENTER';
+  pill.fills = [{ type: 'SOLID', color: up ? { r: 0.9, g: 0.98, b: 0.93 } : { r: 1, g: 0.93, b: 0.93 } }];
+  const pt = figma.createText();
+  pt.characters = delta;
+  pt.fontSize = 10;
+  pt.fills = [{ type: 'SOLID', color: up ? { r: 0.1, g: 0.52, b: 0.38 } : { r: 0.75, g: 0.18, b: 0.2 } }];
+  pill.appendChild(pt);
+  card.appendChild(t0);
+  card.appendChild(t1);
+  card.appendChild(pill);
+  return card;
+}
+cards.appendChild(kpi('Active trials', '1,284', '+6.4%', true));
+cards.appendChild(kpi('Conversion', '3.9%', '+0.3pt', true));
+cards.appendChild(kpi('Churn', '0.8%', '-0.1pt', true));
+wrap.appendChild(cards);
+const chartShell = createAutoLayout('VERTICAL');
+chartShell.resize(440, 140);
+chartShell.paddingTop = 14;
+chartShell.paddingLeft = 14;
+chartShell.paddingRight = 14;
+chartShell.paddingBottom = 14;
+chartShell.itemSpacing = 10;
+chartShell.cornerRadius = 14;
+chartShell.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+chartShell.strokes = [{ type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.94 } }];
+chartShell.strokeWeight = 1;
+const capT = figma.createText();
+capT.characters = 'Engagement index';
+capT.fontSize = 12;
+capT.fills = [{ type: 'SOLID', color: { r: 0.22, g: 0.24, b: 0.3 } }];
+chartShell.appendChild(capT);
+const bars = createAutoLayout('HORIZONTAL');
+bars.resize(400, 72);
+bars.itemSpacing = 6;
+bars.counterAxisAlignItems = 'MAX';
+const hVals = [28, 44, 36, 58, 42, 66, 52];
+const warm = [{ r: 0.95, g: 0.65, b: 0.38 }, { r: 0.98, g: 0.72, b: 0.42 }, { r: 0.92, g: 0.55, b: 0.34 }, { r: 0.96, g: 0.62, b: 0.4 }, { r: 0.94, g: 0.58, b: 0.36 }, { r: 0.99, g: 0.75, b: 0.45 }, { r: 0.9, g: 0.52, b: 0.33 }];
+for (let i = 0; i < 7; i++) {
+  const bar = figma.createRectangle();
+  bar.resize(44, hVals[i]);
+  bar.cornerRadius = 8;
+  bar.fills = [{ type: 'SOLID', color: warm[i] }];
+  bars.appendChild(bar);
+}
+chartShell.appendChild(bars);
+const foot = figma.createText();
+foot.characters = 'Mon     Tue     Wed     Thu     Fri     Sat     Sun';
+foot.fontSize = 9;
+foot.fills = [{ type: 'SOLID', color: { r: 0.55, g: 0.56, b: 0.62 } }];
+chartShell.appendChild(foot);
+wrap.appendChild(chartShell);
+root.appendChild(wrap);
+`,
+  },
+  {
+    id: '103-checkout-order-review',
+    title: 'Checkout order review',
+    order: 103,
+    tier: 'advanced',
+    tags: ['composite', 'checkout', 'autoLayout'],
+    needsFont: true,
+    description:
+      'Checkout panel: hero bag summary, line items with thumbnails, promo field, totals ladder, and primary Pay CTA strip.\n\nExpected: readable commerce hierarchy with aligned prices.',
+    body: `
+const page = createAutoLayout('VERTICAL');
+page.resize(432, 328);
+page.x = 24;
+page.y = 18;
+page.itemSpacing = 12;
+const hero = createAutoLayout('HORIZONTAL');
+hero.resize(432, 56);
+hero.paddingLeft = 14;
+hero.paddingRight = 14;
+hero.cornerRadius = 12;
+hero.counterAxisAlignItems = 'CENTER';
+hero.itemSpacing = 12;
+hero.fills = [{ type: 'GRADIENT_LINEAR', gradientStops: [{ position: 0, color: { r: 0.12, g: 0.18, b: 0.42, a: 1 } }, { position: 1, color: { r: 0.32, g: 0.22, b: 0.55, a: 1 } }], gradientTransform: [[1, 0, 0], [0, 1, 0]] }];
+const bag = figma.createText();
+bag.characters = 'Secure checkout';
+bag.fontSize = 16;
+bag.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+const subhero = figma.createText();
+subhero.characters = 'Order ORD-9182';
+subhero.fontSize = 11;
+subhero.fills = [{ type: 'SOLID', color: { r: 0.82, g: 0.86, b: 0.95, a: 1 } }];
+const heroStack = createAutoLayout('VERTICAL');
+heroStack.itemSpacing = 2;
+heroStack.appendChild(bag);
+heroStack.appendChild(subhero);
+hero.appendChild(heroStack);
+page.appendChild(hero);
+function line(title, price) {
+  const row = createAutoLayout('HORIZONTAL');
+  row.resize(408, 52);
+  row.primaryAxisAlignItems = 'SPACE_BETWEEN';
+  row.counterAxisAlignItems = 'CENTER';
+  row.paddingLeft = 10;
+  row.paddingRight = 10;
+  row.cornerRadius = 10;
+  row.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  row.strokes = [{ type: 'SOLID', color: { r: 0.9, g: 0.91, b: 0.94 } }];
+  row.strokeWeight = 1;
+  const left = createAutoLayout('HORIZONTAL');
+  left.itemSpacing = 10;
+  left.counterAxisAlignItems = 'CENTER';
+  const thumb = figma.createRectangle();
+  thumb.resize(40, 40);
+  thumb.cornerRadius = 8;
+  thumb.fills = [{ type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.96 } }];
+  const v = createAutoLayout('VERTICAL');
+  v.itemSpacing = 3;
+  const t1 = figma.createText();
+  t1.characters = title;
+  t1.fontSize = 12;
+  t1.fills = [{ type: 'SOLID', color: { r: 0.12, g: 0.13, b: 0.18 } }];
+  const t2 = figma.createText();
+  t2.characters = 'Qty 1 · Digital';
+  t2.fontSize = 10;
+  t2.fills = [{ type: 'SOLID', color: { r: 0.48, g: 0.5, b: 0.56 } }];
+  v.appendChild(t1);
+  v.appendChild(t2);
+  left.appendChild(thumb);
+  left.appendChild(v);
+  const pr = figma.createText();
+  pr.characters = price;
+  pr.fontSize = 13;
+  pr.fills = [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.14 } }];
+  row.appendChild(left);
+  row.appendChild(pr);
+  return row;
+}
+page.appendChild(line('Pro workspace (annual)', '$228.00'));
+page.appendChild(line('Brand kit add-on', '$48.00'));
+const promo = createAutoLayout('HORIZONTAL');
+promo.resize(408, 38);
+promo.paddingLeft = 10;
+promo.paddingRight = 10;
+promo.cornerRadius = 9;
+promo.counterAxisAlignItems = 'CENTER';
+promo.itemSpacing = 10;
+promo.fills = [{ type: 'SOLID', color: { r: 0.97, g: 0.98, b: 1 } }];
+promo.strokes = [{ type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.94 } }];
+promo.strokeWeight = 1;
+const ph = figma.createText();
+ph.characters = 'Gift or promo code';
+ph.fontSize = 11;
+ph.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.52, b: 0.58 } }];
+const apply = figma.createRectangle();
+apply.resize(64, 26);
+apply.cornerRadius = 7;
+apply.fills = [{ type: 'SOLID', color: { r: 0.12, g: 0.14, b: 0.2 } }];
+promo.appendChild(ph);
+promo.appendChild(apply);
+page.appendChild(promo);
+const math = createAutoLayout('VERTICAL');
+math.resize(408, 92);
+math.paddingTop = 10;
+math.paddingLeft = 10;
+math.paddingRight = 10;
+math.paddingBottom = 10;
+math.itemSpacing = 8;
+math.cornerRadius = 10;
+math.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+function rowAmt(label, val, bold) {
+  const r = createAutoLayout('HORIZONTAL');
+  r.resize(388, 18);
+  r.primaryAxisAlignItems = 'SPACE_BETWEEN';
+  const l = figma.createText();
+  l.characters = label;
+  l.fontSize = bold ? 13 : 11;
+  l.fills = [{ type: 'SOLID', color: bold ? { r: 0.08, g: 0.09, b: 0.12 } : { r: 0.43, g: 0.45, b: 0.52 } }];
+  const p = figma.createText();
+  p.characters = val;
+  p.fontSize = bold ? 13 : 11;
+  p.fills = [{ type: 'SOLID', color: bold ? { r: 0.08, g: 0.09, b: 0.12 } : { r: 0.35, g: 0.37, b: 0.45 } }];
+  r.appendChild(l);
+  r.appendChild(p);
+  return r;
+}
+math.appendChild(rowAmt('Subtotal', '$276.00', false));
+math.appendChild(rowAmt('Estimated tax', '$22.04', false));
+math.appendChild(rowAmt('Total', '$298.04', true));
+page.appendChild(math);
+const pay = createAutoLayout('HORIZONTAL');
+pay.resize(408, 46);
+pay.cornerRadius = 12;
+pay.counterAxisAlignItems = 'CENTER';
+pay.primaryAxisAlignItems = 'CENTER';
+pay.fills = [{ type: 'SOLID', color: { r: 0.16, g: 0.46, b: 0.98 } }];
+pay.effects = [{ type: 'DROP_SHADOW', color: { r: 0.1, g: 0.28, b: 0.8, a: 0.25 }, offset: { x: 0, y: 8 }, radius: 18, blendMode: 'NORMAL', visible: true }];
+const payT = figma.createText();
+payT.characters = 'Pay $298.04';
+payT.fontSize = 15;
+payT.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+pay.appendChild(payT);
+page.appendChild(pay);
+root.appendChild(page);
+`,
+  },
+  {
+    id: '104-profile-identity-card',
+    title: 'Profile identity card',
+    order: 104,
+    tier: 'advanced',
+    tags: ['composite', 'profile', 'effects'],
+    needsFont: true,
+    description:
+      'Profile hero: soft gradient header, avatar with ring, handle block, stat trio, and tag chips over a white body card.\n\nExpected: layered portrait card with clear focus on name and stats.',
+    body: `
+const card = createAutoLayout('VERTICAL');
+card.resize(400, 312);
+card.x = 40;
+card.y = 24;
+card.cornerRadius = 18;
+card.clipsContent = true;
+card.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+card.effects = [{ type: 'DROP_SHADOW', color: { r: 0.2, g: 0.25, b: 0.4, a: 0.14 }, offset: { x: 0, y: 10 }, radius: 22, blendMode: 'NORMAL', visible: true }];
+const hero = figma.createRectangle();
+hero.resize(400, 120);
+hero.fills = [{ type: 'GRADIENT_LINEAR', gradientStops: [{ position: 0, color: { r: 0.65, g: 0.78, b: 1, a: 1 } }, { position: 1, color: { r: 0.82, g: 0.7, b: 1, a: 1 } }], gradientTransform: [[1, 0, 0], [0, 1, 0]] }];
+card.appendChild(hero);
+const avatarWrap = figma.createFrame();
+avatarWrap.resize(88, 88);
+avatarWrap.x = 156;
+avatarWrap.y = 76;
+avatarWrap.fills = [];
+const ring = figma.createEllipse();
+ring.resize(88, 88);
+ring.fills = [];
+ring.strokes = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+ring.strokeWeight = 4;
+const face = figma.createEllipse();
+face.resize(72, 72);
+face.x = 8;
+face.y = 8;
+face.fills = [{ type: 'SOLID', color: { r: 0.55, g: 0.72, b: 0.9 } }];
+avatarWrap.appendChild(ring);
+avatarWrap.appendChild(face);
+card.appendChild(avatarWrap);
+const body = createAutoLayout('VERTICAL');
+body.resize(400, 200);
+body.y = 164;
+body.paddingTop = 20;
+body.paddingLeft = 24;
+body.paddingRight = 24;
+body.itemSpacing = 12;
+body.primaryAxisAlignItems = 'CENTER';
+body.counterAxisAlignItems = 'CENTER';
+const name = figma.createText();
+name.characters = 'Mira Chen';
+name.fontSize = 20;
+name.fills = [{ type: 'SOLID', color: { r: 0.07, g: 0.08, b: 0.12 } }];
+const handle = figma.createText();
+handle.characters = '@mchen · Product Design';
+handle.fontSize = 11;
+handle.fills = [{ type: 'SOLID', color: { r: 0.45, g: 0.48, b: 0.55 } }];
+body.appendChild(name);
+body.appendChild(handle);
+const stats = createAutoLayout('HORIZONTAL');
+stats.itemSpacing = 18;
+stats.paddingTop = 4;
+function statBlock(n, lab) {
+  const col = createAutoLayout('VERTICAL');
+  col.itemSpacing = 2;
+  col.primaryAxisAlignItems = 'CENTER';
+  const nv = figma.createText();
+  nv.characters = n;
+  nv.fontSize = 16;
+  nv.fills = [{ type: 'SOLID', color: { r: 0.12, g: 0.45, b: 0.9 } }];
+  const lb = figma.createText();
+  lb.characters = lab;
+  lb.fontSize = 10;
+  lb.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.52, b: 0.58 } }];
+  col.appendChild(nv);
+  col.appendChild(lb);
+  return col;
+}
+stats.appendChild(statBlock('128', 'Projects'));
+stats.appendChild(statBlock('14k', 'Followers'));
+stats.appendChild(statBlock('96%', 'Response'));
+body.appendChild(stats);
+const chips = createAutoLayout('HORIZONTAL');
+chips.itemSpacing = 8;
+chips.paddingTop = 4;
+function chip(txt) {
+  const c = createAutoLayout('HORIZONTAL');
+  c.paddingLeft = 10;
+  c.paddingRight = 10;
+  c.paddingTop = 5;
+  c.paddingBottom = 5;
+  c.cornerRadius = 14;
+  c.counterAxisAlignItems = 'CENTER';
+  c.fills = [{ type: 'SOLID', color: { r: 0.94, g: 0.95, b: 0.99 } }];
+  const t = figma.createText();
+  t.characters = txt;
+  t.fontSize = 10;
+  t.fills = [{ type: 'SOLID', color: { r: 0.32, g: 0.35, b: 0.45 } }];
+  c.appendChild(t);
+  return c;
+}
+chips.appendChild(chip('Design systems'));
+chips.appendChild(chip('Prototyping'));
+chips.appendChild(chip('Tokyo'));
+body.appendChild(chips);
+card.appendChild(body);
+root.appendChild(card);
+`,
+  },
+  {
+    id: '105-calendar-week-agenda',
+    title: 'Calendar week agenda',
+    order: 105,
+    tier: 'advanced',
+    tags: ['composite', 'calendar', 'autoLayout'],
+    needsFont: true,
+    description:
+      'Week planner: day chips with today highlight, timed grid backdrop, and stacked event pills across the week.\n\nExpected: readable mini calendar with today emphasis.',
+    body: `
+const cal = createAutoLayout('VERTICAL');
+cal.resize(440, 318);
+cal.x = 20;
+cal.y = 20;
+cal.itemSpacing = 12;
+const head = createAutoLayout('HORIZONTAL');
+head.resize(440, 36);
+head.primaryAxisAlignItems = 'SPACE_BETWEEN';
+head.counterAxisAlignItems = 'CENTER';
+const ht = figma.createText();
+ht.characters = 'April 2026';
+ht.fontSize = 17;
+ht.fills = [{ type: 'SOLID', color: { r: 0.09, g: 0.1, b: 0.15 } }];
+const dots = createAutoLayout('HORIZONTAL');
+dots.itemSpacing = 6;
+const d1 = figma.createRectangle();
+d1.resize(8, 8);
+d1.cornerRadius = 4;
+d1.fills = [{ type: 'SOLID', color: { r: 0.85, g: 0.87, b: 0.92 } }];
+const d2 = figma.createRectangle();
+d2.resize(8, 8);
+d2.cornerRadius = 4;
+d2.fills = [{ type: 'SOLID', color: { r: 0.85, g: 0.87, b: 0.92 } }];
+dots.appendChild(d1);
+dots.appendChild(d2);
+head.appendChild(ht);
+head.appendChild(dots);
+cal.appendChild(head);
+const days = createAutoLayout('HORIZONTAL');
+days.resize(440, 52);
+days.itemSpacing = 8;
+const dayMeta = [
+  ['Mon', '13', false],
+  ['Tue', '14', false],
+  ['Wed', '15', true],
+  ['Thu', '16', false],
+  ['Fri', '17', false],
+];
+for (const [d, n, today] of dayMeta) {
+  const cell = createAutoLayout('VERTICAL');
+  cell.resize(76, 52);
+  cell.paddingTop = 8;
+  cell.paddingBottom = 8;
+  cell.itemSpacing = 3;
+  cell.cornerRadius = 12;
+  cell.primaryAxisAlignItems = 'CENTER';
+  cell.fills = [{ type: 'SOLID', color: today ? { r: 0.12, g: 0.36, b: 0.95 } : { r: 0.97, g: 0.98, b: 1 } }];
+  cell.strokes = today ? [] : [{ type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.94 } }];
+  cell.strokeWeight = today ? 0 : 1;
+  const d0 = figma.createText();
+  d0.characters = d;
+  d0.fontSize = 9;
+  d0.fills = [{ type: 'SOLID', color: today ? { r: 1, g: 1, b: 1 } : { r: 0.45, g: 0.47, b: 0.55 } }];
+  const d1t = figma.createText();
+  d1t.characters = n;
+  d1t.fontSize = 15;
+  d1t.fills = [{ type: 'SOLID', color: today ? { r: 1, g: 1, b: 1 } : { r: 0.1, g: 0.11, b: 0.16 } }];
+  cell.appendChild(d0);
+  cell.appendChild(d1t);
+  days.appendChild(cell);
+}
+cal.appendChild(days);
+const board = figma.createFrame();
+board.resize(440, 206);
+board.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+board.strokes = [{ type: 'SOLID', color: { r: 0.9, g: 0.91, b: 0.94 } }];
+board.strokeWeight = 1;
+board.cornerRadius = 14;
+for (let g = 0; g < 4; g++) {
+  const gl = figma.createLine();
+  gl.resize(420, 0);
+  gl.x = 10;
+  gl.y = 20 + g * 48;
+  gl.strokes = [{ type: 'SOLID', color: { r: 0.93, g: 0.94, b: 0.97 } }];
+  gl.strokeWeight = 1;
+  board.appendChild(gl);
+}
+function ev(x, y, w, c, title) {
+  const f = figma.createFrame();
+  f.resize(w, 34);
+  f.x = x;
+  f.y = y;
+  f.cornerRadius = 8;
+  f.fills = [{ type: 'SOLID', color: c }];
+  const tx = figma.createText();
+  tx.characters = title;
+  tx.fontSize = 10;
+  tx.x = 8;
+  tx.y = 10;
+  tx.fills = [{ type: 'SOLID', color: { r: 0.06, g: 0.08, b: 0.12 } }];
+  f.appendChild(tx);
+  board.appendChild(f);
+}
+ev(16, 26, 118, { r: 0.88, g: 0.94, b: 1 }, 'Design critique');
+ev(148, 26, 100, { r: 0.92, g: 0.96, b: 0.9 }, 'Sprint plan');
+ev(320, 34, 108, { r: 0.96, g: 0.9, b: 1 }, '1:1 w/ PM');
+ev(96, 78, 132, { r: 1, g: 0.93, b: 0.86 }, 'Customer calls');
+ev(248, 110, 124, { r: 0.93, g: 0.93, b: 1 }, 'Spec review');
+cal.appendChild(board);
+root.appendChild(cal);
+`,
+  },
+  {
+    id: '106-mail-split-inbox',
+    title: 'Mail split inbox',
+    order: 106,
+    tier: 'advanced',
+    tags: ['composite', 'mail', 'autoLayout'],
+    needsFont: true,
+    description:
+      'Mailbox UI: left stacked message list with unread affordances and a rich reading pane with metadata and body copy.\n\nExpected: clear split view with emphasis on selected thread.',
+    body: `
+const split = createAutoLayout('HORIZONTAL');
+split.resize(440, 312);
+split.x = 20;
+split.y = 24;
+split.itemSpacing = 0;
+const list = createAutoLayout('VERTICAL');
+list.resize(188, 312);
+list.paddingTop = 12;
+list.paddingLeft = 10;
+list.paddingRight = 10;
+list.paddingBottom = 12;
+list.itemSpacing = 8;
+list.cornerRadius = 14;
+list.fills = [{ type: 'SOLID', color: { r: 0.97, g: 0.98, b: 1 } }];
+list.strokes = [{ type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.93 } }];
+list.strokeWeight = 1;
+function thread(sel, unread, who, sub, prev) {
+  const row = createAutoLayout('HORIZONTAL');
+  row.resize(168, 56);
+  row.paddingLeft = 8;
+  row.paddingRight = 8;
+  row.paddingTop = 8;
+  row.paddingBottom = 8;
+  row.itemSpacing = 8;
+  row.cornerRadius = 12;
+  row.counterAxisAlignItems = 'CENTER';
+  row.fills = sel ? [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }] : [];
+  row.effects = sel ? [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.08 }, offset: { x: 0, y: 4 }, radius: 10, blendMode: 'NORMAL', visible: true }] : [];
+  if (sel) {
+    row.strokes = [{ type: 'SOLID', color: { r: 0.2, g: 0.45, b: 0.95 } }];
+    row.strokeWeight = 1;
+  }
+  const av = figma.createEllipse();
+  av.resize(36, 36);
+  av.fills = [{ type: 'SOLID', color: { r: 0.75, g: 0.82, b: 0.94 } }];
+  const mid = createAutoLayout('VERTICAL');
+  mid.resize(96, 40);
+  mid.itemSpacing = 3;
+  const w = figma.createText();
+  w.characters = who;
+  w.fontSize = 11;
+  w.fills = [{ type: 'SOLID', color: { r: 0.12, g: 0.14, b: 0.2 } }];
+  const s = figma.createText();
+  s.characters = sub;
+  s.fontSize = 10;
+  s.fills = [{ type: 'SOLID', color: { r: 0.35, g: 0.38, b: 0.45 } }];
+  const p = figma.createText();
+  p.characters = prev;
+  p.fontSize = 9;
+  p.fills = [{ type: 'SOLID', color: { r: 0.55, g: 0.56, b: 0.62 } }];
+  mid.appendChild(w);
+  mid.appendChild(s);
+  mid.appendChild(p);
+  row.appendChild(av);
+  row.appendChild(mid);
+  if (unread) {
+    const dot = figma.createEllipse();
+    dot.resize(8, 8);
+    dot.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.45, b: 0.98 } }];
+    row.appendChild(dot);
+  }
+  return row;
+}
+list.appendChild(thread(true, false, 'Sasha', 'Re: Launch checklist', 'Let us lock assets by Friday'));
+list.appendChild(thread(false, true, 'Finance bot', 'Invoice #4421', 'Payment scheduled'));
+list.appendChild(thread(false, true, 'Ops', 'Latency report', 'p95 down to 180ms'));
+split.appendChild(list);
+const reader = createAutoLayout('VERTICAL');
+reader.resize(252, 312);
+reader.paddingTop = 16;
+reader.paddingLeft = 16;
+reader.paddingRight = 16;
+reader.paddingBottom = 16;
+reader.itemSpacing = 12;
+reader.cornerRadius = 14;
+reader.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+reader.strokes = [{ type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.93 } }];
+reader.strokeWeight = 1;
+const meta = createAutoLayout('HORIZONTAL');
+meta.resize(220, 40);
+meta.primaryAxisAlignItems = 'SPACE_BETWEEN';
+meta.counterAxisAlignItems = 'CENTER';
+const who2 = figma.createText();
+who2.characters = 'Sasha Ibrahim';
+who2.fontSize = 14;
+who2.fills = [{ type: 'SOLID', color: { r: 0.08, g: 0.09, b: 0.14 } }];
+const when = figma.createText();
+when.characters = 'Today · 9:42 AM';
+when.fontSize = 10;
+when.fills = [{ type: 'SOLID', color: { r: 0.48, g: 0.5, b: 0.56 } }];
+meta.appendChild(who2);
+meta.appendChild(when);
+reader.appendChild(meta);
+const subj = figma.createText();
+subj.characters = 'Re: Launch checklist — assets + QA';
+subj.fontSize = 15;
+subj.fills = [{ type: 'SOLID', color: { r: 0.12, g: 0.14, b: 0.2 } }];
+reader.appendChild(subj);
+const p1 = figma.createText();
+p1.characters = 'Hey team — pushing the hero swaps tonight. Need sign-off on tokens before we cut RC2.';
+p1.fontSize = 11;
+p1.fills = [{ type: 'SOLID', color: { r: 0.28, g: 0.3, b: 0.36 } }];
+const p2 = figma.createText();
+p2.characters = 'Can someone snapshot the dashboard dark mode regression pack? I will attach figures in thread.';
+p2.fontSize = 11;
+p2.fills = [{ type: 'SOLID', color: { r: 0.28, g: 0.3, b: 0.36 } }];
+reader.appendChild(p1);
+reader.appendChild(p2);
+const actions = createAutoLayout('HORIZONTAL');
+actions.itemSpacing = 10;
+const reply = figma.createRectangle();
+reply.resize(76, 30);
+reply.cornerRadius = 8;
+reply.fills = [{ type: 'SOLID', color: { r: 0.14, g: 0.38, b: 0.95 } }];
+const fwd = figma.createRectangle();
+fwd.resize(76, 30);
+fwd.cornerRadius = 8;
+fwd.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 } }];
+fwd.strokes = [{ type: 'SOLID', color: { r: 0.86, g: 0.88, b: 0.92 } }];
+fwd.strokeWeight = 1;
+actions.appendChild(reply);
+actions.appendChild(fwd);
+reader.appendChild(actions);
+split.appendChild(reader);
+root.appendChild(split);
+`,
+  },
+  {
+    id: '107-pricing-tier-cards',
+    title: 'Pricing tier cards',
+    order: 107,
+    tier: 'advanced',
+    tags: ['composite', 'pricing', 'autoLayout'],
+    needsFont: true,
+    description:
+      'Three-column pricing: starter and growth flanking a visually lifted Pro tier with richer shadow, plus feature bullets as icon rows.\n\nExpected: middle column reads as featured plan.',
+    body: `
+const deck = createAutoLayout('HORIZONTAL');
+deck.resize(448, 310);
+deck.x = 16;
+deck.y = 26;
+deck.itemSpacing = 10;
+deck.counterAxisAlignItems = 'MAX';
+function tier(name, price, blurb, feat, featured) {
+  const col = createAutoLayout('VERTICAL');
+  col.resize(142, featured ? 310 : 286);
+  col.paddingTop = 16;
+  col.paddingLeft = 12;
+  col.paddingRight = 12;
+  col.paddingBottom = 16;
+  col.itemSpacing = 10;
+  col.cornerRadius = 16;
+  col.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  col.strokes = [{ type: 'SOLID', color: featured ? { r: 0.18, g: 0.48, b: 1 } : { r: 0.9, g: 0.91, b: 0.95 } }];
+  col.strokeWeight = featured ? 2 : 1;
+  col.effects = featured
+    ? [{ type: 'DROP_SHADOW', color: { r: 0.1, g: 0.2, b: 0.45, a: 0.22 }, offset: { x: 0, y: 14 }, radius: 28, blendMode: 'NORMAL', visible: true }]
+    : [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.06 }, offset: { x: 0, y: 6 }, radius: 14, blendMode: 'NORMAL', visible: true }];
+  const star = figma.createText();
+  star.characters = name;
+  star.fontSize = 13;
+  star.fills = [{ type: 'SOLID', color: featured ? { r: 0.14, g: 0.42, b: 0.98 } : { r: 0.2, g: 0.22, b: 0.28 } }];
+  const money = figma.createText();
+  money.characters = price;
+  money.fontSize = 22;
+  money.fills = [{ type: 'SOLID', color: { r: 0.07, g: 0.09, b: 0.14 } }];
+  const bd = figma.createText();
+  bd.characters = blurb;
+  bd.fontSize = 10;
+  bd.fills = [{ type: 'SOLID', color: { r: 0.48, g: 0.5, b: 0.56 } }];
+  col.appendChild(star);
+  col.appendChild(money);
+  col.appendChild(bd);
+  const rule = figma.createRectangle();
+  rule.resize(118, 1);
+  rule.fills = [{ type: 'SOLID', color: { r: 0.92, g: 0.93, b: 0.96 } }];
+  col.appendChild(rule);
+  for (const line of feat) {
+    const row = createAutoLayout('HORIZONTAL');
+    row.itemSpacing = 8;
+    row.counterAxisAlignItems = 'CENTER';
+    const ic = figma.createRectangle();
+    ic.resize(14, 14);
+    ic.cornerRadius = 7;
+    ic.fills = [{ type: 'SOLID', color: { r: 0.78, g: 0.95, b: 0.85 } }];
+    const tx = figma.createText();
+    tx.characters = line;
+    tx.fontSize = 10;
+    tx.fills = [{ type: 'SOLID', color: { r: 0.25, g: 0.27, b: 0.34 } }];
+    row.appendChild(ic);
+    row.appendChild(tx);
+    col.appendChild(row);
+  }
+  const cta = figma.createRectangle();
+  cta.resize(118, 34);
+  cta.cornerRadius = 10;
+  cta.fills = [{ type: 'SOLID', color: featured ? { r: 0.14, g: 0.42, b: 0.98 } : { r: 0.96, g: 0.97, b: 1 } }];
+  if (!featured) {
+    cta.strokes = [{ type: 'SOLID', color: { r: 0.85, g: 0.87, b: 0.92 } }];
+    cta.strokeWeight = 1;
+  }
+  col.appendChild(cta);
+  return col;
+}
+deck.appendChild(tier('Starter', '$0', 'Prototype solo', ['Unlimited drafts', 'Email support'], false));
+deck.appendChild(tier('Pro', '$49', 'For shipping teams', ['Insights + SSO', 'Shared libraries'], true));
+deck.appendChild(tier('Scale', '$149', 'Compliance ready', ['Audit logs', 'SAML'], false));
+root.appendChild(deck);
+`,
+  },
+  {
+    id: '108-files-browser-panel',
+    title: 'Files browser panel',
+    order: 108,
+    tier: 'advanced',
+    tags: ['composite', 'files', 'autoLayout'],
+    needsFont: true,
+    description:
+      'Finder-style sheet: chrome toolbar with breadcrumbs, quick action chips, folder shortcuts, and dense file rows with type pills.\n\nExpected: navigational clarity with muted panel chrome.',
+    body: `
+const panel = createAutoLayout('VERTICAL');
+panel.resize(424, 322);
+panel.x = 28;
+panel.y = 18;
+panel.itemSpacing = 10;
+panel.cornerRadius = 16;
+panel.fills = [{ type: 'SOLID', color: { r: 0.98, g: 0.98, b: 0.995 } }];
+panel.strokes = [{ type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.93 } }];
+panel.strokeWeight = 1;
+panel.paddingTop = 12;
+panel.paddingLeft = 12;
+panel.paddingRight = 12;
+panel.paddingBottom = 12;
+const toolbar = createAutoLayout('HORIZONTAL');
+toolbar.resize(400, 40);
+toolbar.primaryAxisAlignItems = 'SPACE_BETWEEN';
+toolbar.counterAxisAlignItems = 'CENTER';
+const crumbs = figma.createText();
+crumbs.characters = 'Team drive  /  Product  /  Research';
+crumbs.fontSize = 12;
+crumbs.fills = [{ type: 'SOLID', color: { r: 0.18, g: 0.2, b: 0.26 } }];
+const icons = createAutoLayout('HORIZONTAL');
+icons.itemSpacing = 8;
+for (let i = 0; i < 3; i++) {
+  const sq = figma.createRectangle();
+  sq.resize(28, 28);
+  sq.cornerRadius = 8;
+  sq.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  sq.strokes = [{ type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.93 } }];
+  sq.strokeWeight = 1;
+  icons.appendChild(sq);
+}
+toolbar.appendChild(crumbs);
+toolbar.appendChild(icons);
+panel.appendChild(toolbar);
+const quick = createAutoLayout('HORIZONTAL');
+quick.itemSpacing = 8;
+function qchip(l) {
+  const c = createAutoLayout('HORIZONTAL');
+  c.paddingLeft = 10;
+  c.paddingRight = 10;
+  c.paddingTop = 6;
+  c.paddingBottom = 6;
+  c.cornerRadius = 12;
+  c.counterAxisAlignItems = 'CENTER';
+  c.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  const t = figma.createText();
+  t.characters = l;
+  t.fontSize = 10;
+  t.fills = [{ type: 'SOLID', color: { r: 0.35, g: 0.38, b: 0.46 } }];
+  c.appendChild(t);
+  return c;
+}
+quick.appendChild(qchip('Shared with me'));
+quick.appendChild(qchip('Recent'));
+quick.appendChild(qchip('Starred'));
+panel.appendChild(quick);
+const folderStrip = createAutoLayout('HORIZONTAL');
+folderStrip.itemSpacing = 10;
+for (let i = 0; i < 3; i++) {
+  const fd = createAutoLayout('VERTICAL');
+  fd.resize(80, 72);
+  fd.paddingTop = 8;
+  fd.primaryAxisAlignItems = 'CENTER';
+  fd.itemSpacing = 6;
+  fd.cornerRadius = 12;
+  fd.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  const icon = figma.createRectangle();
+  icon.resize(36, 28);
+  icon.cornerRadius = 6;
+  icon.fills = [{ type: 'SOLID', color: { r: 0.92, g: 0.78, b: 0.42, a: 1 } }];
+  const nm = figma.createText();
+  nm.characters = i === 0 ? 'Interviews' : i === 1 ? 'Insights' : 'Archive';
+  nm.fontSize = 9;
+  nm.fills = [{ type: 'SOLID', color: { r: 0.32, g: 0.34, b: 0.4 } }];
+  fd.appendChild(icon);
+  fd.appendChild(nm);
+  folderStrip.appendChild(fd);
+}
+panel.appendChild(folderStrip);
+const list = createAutoLayout('VERTICAL');
+list.resize(400, 152);
+list.itemSpacing = 6;
+list.cornerRadius = 12;
+list.paddingTop = 8;
+list.paddingLeft = 8;
+list.paddingRight = 8;
+list.paddingBottom = 8;
+list.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+function fileRow(nm, typ, tint) {
+  const r = createAutoLayout('HORIZONTAL');
+  r.resize(384, 36);
+  r.paddingLeft = 8;
+  r.paddingRight = 8;
+  r.cornerRadius = 9;
+  r.primaryAxisAlignItems = 'SPACE_BETWEEN';
+  r.counterAxisAlignItems = 'CENTER';
+  r.fills = [{ type: 'SOLID', color: { r: 0.99, g: 0.995, b: 1 } }];
+  const left = createAutoLayout('HORIZONTAL');
+  left.itemSpacing = 8;
+  left.counterAxisAlignItems = 'CENTER';
+  const ic = figma.createRectangle();
+  ic.resize(22, 22);
+  ic.cornerRadius = 6;
+  ic.fills = [{ type: 'SOLID', color: tint }];
+  const t = figma.createText();
+  t.characters = nm;
+  t.fontSize = 11;
+  t.fills = [{ type: 'SOLID', color: { r: 0.15, g: 0.16, b: 0.22 } }];
+  left.appendChild(ic);
+  left.appendChild(t);
+  const pill = createAutoLayout('HORIZONTAL');
+  pill.paddingLeft = 8;
+  pill.paddingRight = 8;
+  pill.paddingTop = 4;
+  pill.paddingBottom = 4;
+  pill.cornerRadius = 10;
+  pill.counterAxisAlignItems = 'CENTER';
+  pill.fills = [{ type: 'SOLID', color: { r: 0.94, g: 0.95, b: 0.99 } }];
+  const pt = figma.createText();
+  pt.characters = typ;
+  pt.fontSize = 9;
+  pt.fills = [{ type: 'SOLID', color: { r: 0.4, g: 0.42, b: 0.5 } }];
+  pill.appendChild(pt);
+  r.appendChild(left);
+  r.appendChild(pill);
+  return r;
+}
+list.appendChild(fileRow('Vision deck.fig', 'Design', { r: 0.85, g: 0.9, b: 1 }));
+list.appendChild(fileRow('Research-rollups.csv', 'Sheet', { r: 0.88, g: 0.96, b: 0.9 }));
+list.appendChild(fileRow('Playback-notes.md', 'Doc', { r: 0.94, g: 0.92, b: 1 }));
+panel.appendChild(list);
+root.appendChild(panel);
+`,
+  },
+  {
+    id: '109-onboarding-step-wizard',
+    title: 'Onboarding step wizard',
+    order: 109,
+    tier: 'advanced',
+    tags: ['composite', 'onboarding', 'autoLayout'],
+    needsFont: true,
+    description:
+      'Three-step onboarding: numbered stepper, illustration tile, value props, and dual CTA row (primary + quiet).\n\nExpected: guided flow focal point on step 2 of 3.',
+    body: `
+const flow = createAutoLayout('VERTICAL');
+flow.resize(400, 318);
+flow.x = 40;
+flow.y = 20;
+flow.itemSpacing = 18;
+flow.primaryAxisAlignItems = 'CENTER';
+flow.counterAxisAlignItems = 'CENTER';
+const stepper = createAutoLayout('HORIZONTAL');
+stepper.itemSpacing = 16;
+stepper.counterAxisAlignItems = 'CENTER';
+function step(n, label, active, done) {
+  const col = createAutoLayout('VERTICAL');
+  col.itemSpacing = 6;
+  col.primaryAxisAlignItems = 'CENTER';
+  const disc = createAutoLayout('VERTICAL');
+  disc.resize(36, 36);
+  disc.cornerRadius = 18;
+  disc.primaryAxisAlignItems = 'CENTER';
+  disc.counterAxisAlignItems = 'CENTER';
+  disc.fills = [{ type: 'SOLID', color: active ? { r: 0.14, g: 0.42, b: 0.98 } : done ? { r: 0.22, g: 0.72, b: 0.48 } : { r: 0.9, g: 0.91, b: 0.94 } }];
+  const txt = figma.createText();
+  txt.characters = String(n);
+  txt.fontSize = 14;
+  txt.fills = [{ type: 'SOLID', color: active || done ? { r: 1, g: 1, b: 1 } : { r: 0.45, g: 0.46, b: 0.52 } }];
+  disc.appendChild(txt);
+  const lb = figma.createText();
+  lb.characters = label;
+  lb.fontSize = 9;
+  lb.fills = [{ type: 'SOLID', color: { r: 0.4, g: 0.42, b: 0.5 } }];
+  col.appendChild(disc);
+  col.appendChild(lb);
+  return col;
+}
+stepper.appendChild(step(1, 'Workspace', false, true));
+stepper.appendChild(step(2, 'Invite', true, false));
+stepper.appendChild(step(3, 'Ship', false, false));
+flow.appendChild(stepper);
+const illo = figma.createFrame();
+illo.resize(360, 140);
+illo.cornerRadius = 18;
+illo.fills = [{ type: 'GRADIENT_LINEAR', gradientStops: [{ position: 0, color: { r: 0.93, g: 0.95, b: 1, a: 1 } }, { position: 1, color: { r: 0.88, g: 0.9, b: 1, a: 1 } }], gradientTransform: [[1, 0, 0], [0, 1, 0]] }];
+illo.strokes = [{ type: 'SOLID', color: { r: 0.86, g: 0.88, b: 0.93 } }];
+illo.strokeWeight = 1;
+const deco1 = figma.createRectangle();
+deco1.resize(120, 12);
+deco1.x = 40;
+deco1.y = 40;
+deco1.cornerRadius = 6;
+deco1.fills = [{ type: 'SOLID', color: { r: 0.78, g: 0.84, b: 0.98 } }];
+const deco2 = figma.createRectangle();
+deco2.resize(180, 12);
+deco2.x = 40;
+deco2.y = 62;
+deco2.cornerRadius = 6;
+deco2.fills = [{ type: 'SOLID', color: { r: 0.86, g: 0.9, b: 0.99 } }];
+const deco3 = figma.createRectangle();
+deco3.resize(90, 90);
+deco3.x = 230;
+deco3.y = 34;
+deco3.cornerRadius = 22;
+deco3.fills = [{ type: 'SOLID', color: { r: 0.72, g: 0.82, b: 1, a: 0.55 } }];
+illo.appendChild(deco1);
+illo.appendChild(deco2);
+illo.appendChild(deco3);
+flow.appendChild(illo);
+const title = figma.createText();
+title.characters = 'Bring your collaborators';
+title.fontSize = 20;
+title.fills = [{ type: 'SOLID', color: { r: 0.07, g: 0.08, b: 0.12 } }];
+flow.appendChild(title);
+const bullets = createAutoLayout('VERTICAL');
+bullets.itemSpacing = 8;
+for (const line of ['Guests preview without seats', 'Granular library permissions', 'Activity log in Scale tier']) {
+  const row = createAutoLayout('HORIZONTAL');
+  row.itemSpacing = 8;
+  row.counterAxisAlignItems = 'CENTER';
+  const dot = figma.createRectangle();
+  dot.resize(6, 6);
+  dot.cornerRadius = 3;
+  dot.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.45, b: 0.98 } }];
+  const t = figma.createText();
+  t.characters = line;
+  t.fontSize = 11;
+  t.fills = [{ type: 'SOLID', color: { r: 0.3, g: 0.32, b: 0.38 } }];
+  row.appendChild(dot);
+  row.appendChild(t);
+  bullets.appendChild(row);
+}
+flow.appendChild(bullets);
+const ctas = createAutoLayout('HORIZONTAL');
+ctas.itemSpacing = 12;
+const prim = figma.createRectangle();
+prim.resize(140, 40);
+prim.cornerRadius = 12;
+prim.fills = [{ type: 'SOLID', color: { r: 0.14, g: 0.42, b: 0.98 } }];
+const sec = figma.createRectangle();
+sec.resize(120, 40);
+sec.cornerRadius = 12;
+sec.fills = [{ type: 'SOLID', color: { r: 0.96, g: 0.97, b: 1 } }];
+sec.strokes = [{ type: 'SOLID', color: { r: 0.85, g: 0.87, b: 0.92 } }];
+sec.strokeWeight = 1;
+ctas.appendChild(prim);
+ctas.appendChild(sec);
+flow.appendChild(ctas);
+root.appendChild(flow);
+`,
+  },
+  {
+    id: '110-roadmap-timeline-rail',
+    title: 'Roadmap timeline rail',
+    order: 110,
+    tier: 'advanced',
+    tags: ['composite', 'roadmap', 'layout'],
+    needsFont: true,
+    description:
+      'Product roadmap: horizontal baseline with milestone nodes, dated captions, and stacked initiative cards with owners.\n\nExpected: timeline reads left-to-right with anchored nodes.',
+    body: `
+const canvas = figma.createFrame();
+canvas.resize(440, 292);
+canvas.x = 20;
+canvas.y = 34;
+canvas.fills = [];
+const heading = figma.createText();
+heading.characters = 'FY26 delivery preview';
+heading.fontSize = 16;
+heading.x = 20;
+heading.y = 0;
+heading.fills = [{ type: 'SOLID', color: { r: 0.08, g: 0.1, b: 0.15 } }];
+canvas.appendChild(heading);
+const rail = figma.createRectangle();
+rail.resize(400, 4);
+rail.x = 20;
+rail.y = 46;
+rail.cornerRadius = 2;
+rail.fills = [{ type: 'SOLID', color: { r: 0.86, g: 0.88, b: 0.94 } }];
+canvas.appendChild(rail);
+function milestone(x, label, caption, cardTitle, owner, tint) {
+  const node = figma.createEllipse();
+  node.resize(18, 18);
+  node.x = x;
+  node.y = 39;
+  node.fills = [{ type: 'SOLID', color: { r: 0.14, g: 0.42, b: 0.98 } }];
+  node.strokes = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  node.strokeWeight = 3;
+  canvas.appendChild(node);
+  const lb = figma.createText();
+  lb.characters = label;
+  lb.fontSize = 10;
+  lb.fills = [{ type: 'SOLID', color: { r: 0.32, g: 0.34, b: 0.42 } }];
+  lb.x = x - 18;
+  lb.y = 12;
+  canvas.appendChild(lb);
+  const cap = figma.createText();
+  cap.characters = caption;
+  cap.fontSize = 11;
+  cap.fills = [{ type: 'SOLID', color: { r: 0.12, g: 0.14, b: 0.2 } }];
+  cap.x = x - 28;
+  cap.y = 70;
+  canvas.appendChild(cap);
+  const card = figma.createFrame();
+  card.resize(128, 88);
+  card.x = x - 54;
+  card.y = 96;
+  card.cornerRadius = 12;
+  card.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  card.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.1 }, offset: { x: 0, y: 6 }, radius: 14, blendMode: 'NORMAL', visible: true }];
+  card.strokes = [{ type: 'SOLID', color: { r: 0.9, g: 0.91, b: 0.95 } }];
+  card.strokeWeight = 1;
+  const band = figma.createRectangle();
+  band.resize(128, 6);
+  band.cornerRadius = 12;
+  band.fills = [{ type: 'SOLID', color: tint }];
+  card.appendChild(band);
+  const ct = figma.createText();
+  ct.characters = cardTitle;
+  ct.fontSize = 11;
+  ct.x = 10;
+  ct.y = 16;
+  ct.fills = [{ type: 'SOLID', color: { r: 0.1, g: 0.11, b: 0.14 } }];
+  const ow = figma.createText();
+  ow.characters = owner;
+  ow.fontSize = 9;
+  ow.x = 10;
+  ow.y = 52;
+  ow.fills = [{ type: 'SOLID', color: { r: 0.45, g: 0.47, b: 0.54 } }];
+  card.appendChild(ct);
+  card.appendChild(ow);
+  canvas.appendChild(card);
+}
+milestone(64, 'Q1', 'Feb', 'Design parity', 'Team Tokens', { r: 0.78, g: 0.88, b: 1 });
+milestone(198, 'Q2', 'May', 'API hardening', 'Platform', { r: 0.88, g: 0.95, b: 0.86 });
+milestone(332, 'Q3', 'Aug', 'Enterprise GA', 'GTM', { r: 0.95, g: 0.88, b: 1 });
+root.appendChild(canvas);
+`,
+  },
 ];
 
 /** MCP-only on Figma Desktop; shim uses createFrame + layoutMode for local-figma-mcp. */

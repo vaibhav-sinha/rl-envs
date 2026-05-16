@@ -1,4 +1,5 @@
 import type {
+  FileEnvelope,
   FrameNode,
   LayoutSizing,
   SceneNode,
@@ -6,9 +7,69 @@ import type {
   TextNode,
   TransformGroupNode,
 } from '../model/types.js';
+import { resolveVariableToFloat, resolveVariableToStringValue } from '../variables/resolution.js';
 
 /** Matches Figma default dimensions for `createFrame` / `createAutoLayout` before explicit resize. */
 const FIGMA_DEFAULT_FRAME_MIN_SIDE = 100;
+
+/** Loose Inter-like advance estimate for Latin UI text (0.52 was too tight vs browser line metrics → false wraps). */
+const TEXT_WIDTH_CHAR_FACTOR = 0.58;
+
+/** Match {@link DesignCompiler} `effectiveTextBase` font-size resolution for intrinsic width/height. */
+function effectiveTextFontSizePx(t: TextNode, env: FileEnvelope | undefined): number {
+  let fontSize = t.fontSize ?? 12;
+  if (env && t.boundVariables?.fontSize) {
+    const v = resolveVariableToFloat(env, t.boundVariables.fontSize);
+    if (v !== null) fontSize = v;
+  }
+  if (env && t.textStyleId) {
+    const st = env.textStyles?.find((s) => s.id === t.textStyleId);
+    if (st?.fontSize !== undefined) fontSize = st.fontSize;
+  }
+  return fontSize;
+}
+
+function approximateTextWidthPx(chars: string, fontSize: number): number {
+  const raw = chars.length * fontSize * TEXT_WIDTH_CHAR_FACTOR;
+  return Math.max(0, Math.ceil(raw));
+}
+
+export function textCharactersForIntrinsicSizing(t: TextNode, env: FileEnvelope | undefined): string {
+  const vid = t.boundVariables?.characters;
+  if (env && vid) {
+    const s = resolveVariableToStringValue(env, vid);
+    if (s !== null) return s;
+  }
+  return t.characters ?? '';
+}
+
+function textIntrinsicWidthForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
+  const fs = effectiveTextFontSizePx(t, env);
+  if (t.layoutSizingHorizontal === 'FIXED') {
+    return Math.max(0, t.width);
+  }
+  if (t.layoutSizingHorizontal === 'HUG' || t.layoutSizingHorizontal === 'FILL') {
+    return approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+  }
+  if (typeof t.width === 'number' && t.width > 0) {
+    return Math.max(0, t.width);
+  }
+  return approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+}
+
+function textIntrinsicHeightForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
+  const fs = effectiveTextFontSizePx(t, env);
+  if (t.layoutSizingVertical === 'FIXED') {
+    return Math.max(0, t.height);
+  }
+  if (t.layoutSizingVertical === 'HUG' || t.layoutSizingVertical === 'FILL') {
+    return Math.max(0, fs);
+  }
+  if (typeof t.height === 'number' && t.height > 0) {
+    return Math.max(0, t.height);
+  }
+  return Math.max(0, fs);
+}
 
 function padX(f: FrameNode): number {
   return (f.paddingLeft ?? 0) + (f.paddingRight ?? 0);
@@ -40,7 +101,7 @@ function counterAxisNeedsIntrinsic(mode: LayoutSizing | undefined): boolean {
  * Largest horizontal span under a VERTICAL stacking parent — max child widths.
  * For RECTANGLE/etc: width. For FLEX frame: recurse only if subtree already resolved width.
  */
-function maxCrossWidthVertStack(n: SceneNode): number {
+function maxCrossWidthVertStack(n: SceneNode, env: FileEnvelope | undefined): number {
   switch (n.type) {
     case 'RECTANGLE':
     case 'ELLIPSE':
@@ -52,9 +113,7 @@ function maxCrossWidthVertStack(n: SceneNode): number {
       return Math.max(0, n.width);
     case 'TEXT': {
       const t = n as TextNode;
-      const w =
-        typeof t.width === 'number' ? t.width : Math.max(0, (t.characters?.length ?? 0) * (t.fontSize ?? 13) * 0.52);
-      return Math.max(0, w);
+      return textIntrinsicWidthForAutoLayout(t, env);
     }
     case 'VECTOR': {
       return Math.max(0, n.width);
@@ -70,13 +129,15 @@ function maxCrossWidthVertStack(n: SceneNode): number {
       const tg = n as TransformGroupNode;
       if (!tg.children?.length) return Math.max(0, tg.width);
       let mx = 0;
-      for (const c of tg.children) mx = Math.max(mx, Math.max(0, c.x) + maxCrossWidthVertStack(c as SceneNode));
+      for (const c of tg.children) {
+        mx = Math.max(mx, Math.max(0, c.x) + maxCrossWidthVertStack(c as SceneNode, env));
+      }
       return mx;
     }
     case 'GROUP': {
       if (!n.children?.length) return Math.max(0, n.width);
       let mx = 0;
-      for (const c of n.children) mx = Math.max(mx, Math.max(0, c.x) + maxCrossWidthVertStack(c));
+      for (const c of n.children) mx = Math.max(mx, Math.max(0, c.x) + maxCrossWidthVertStack(c, env));
       return mx;
     }
     case 'FRAME': {
@@ -84,7 +145,7 @@ function maxCrossWidthVertStack(n: SceneNode): number {
       if (isFlexFrame(f)) return Math.max(0, f.width);
       if (!f.children?.length) return Math.max(0, f.width);
       let mx = 0;
-      for (const c of f.children) mx = Math.max(mx, Math.max(0, c.x) + maxCrossWidthVertStack(c));
+      for (const c of f.children) mx = Math.max(mx, Math.max(0, c.x) + maxCrossWidthVertStack(c, env));
       return mx;
     }
     default:
@@ -93,7 +154,7 @@ function maxCrossWidthVertStack(n: SceneNode): number {
 }
 
 /** Tallest vertical span under a HORIZONTAL row — max child heights. */
-function maxCrossHeightHorizRow(n: SceneNode): number {
+function maxCrossHeightHorizRow(n: SceneNode, env: FileEnvelope | undefined): number {
   switch (n.type) {
     case 'RECTANGLE':
     case 'ELLIPSE':
@@ -105,7 +166,7 @@ function maxCrossHeightHorizRow(n: SceneNode): number {
       return Math.max(0, n.height);
     case 'TEXT': {
       const t = n as TextNode;
-      return Math.max(0, typeof t.height === 'number' ? t.height : t.fontSize ?? 13);
+      return textIntrinsicHeightForAutoLayout(t, env);
     }
     case 'VECTOR':
     case 'BOOLEAN_OPERATION':
@@ -119,13 +180,13 @@ function maxCrossHeightHorizRow(n: SceneNode): number {
       const tg = n as TransformGroupNode;
       if (!tg.children?.length) return Math.max(0, tg.height);
       let mx = 0;
-      for (const c of tg.children) mx = Math.max(mx, Math.max(0, c.y) + maxCrossHeightHorizRow(c as SceneNode));
+      for (const c of tg.children) mx = Math.max(mx, Math.max(0, c.y) + maxCrossHeightHorizRow(c as SceneNode, env));
       return mx;
     }
     case 'GROUP': {
       if (!n.children?.length) return Math.max(0, n.height);
       let mx = 0;
-      for (const c of n.children) mx = Math.max(mx, Math.max(0, c.y) + maxCrossHeightHorizRow(c));
+      for (const c of n.children) mx = Math.max(mx, Math.max(0, c.y) + maxCrossHeightHorizRow(c, env));
       return mx;
     }
     case 'FRAME': {
@@ -133,7 +194,7 @@ function maxCrossHeightHorizRow(n: SceneNode): number {
       if (isFlexFrame(f)) return Math.max(0, f.height);
       if (!f.children?.length) return Math.max(0, f.height);
       let mx = 0;
-      for (const c of f.children) mx = Math.max(mx, Math.max(0, c.y) + maxCrossHeightHorizRow(c));
+      for (const c of f.children) mx = Math.max(mx, Math.max(0, c.y) + maxCrossHeightHorizRow(c, env));
       return mx;
     }
     default:
@@ -144,39 +205,39 @@ function maxCrossHeightHorizRow(n: SceneNode): number {
 /**
  * Vertical stack intrinsic height along primary axis non-wrap.
  */
-function sumPrimaryHeightsVert(f: FrameNode): number {
+function sumPrimaryHeightsVert(f: FrameNode, env: FileEnvelope | undefined): number {
   const kids = f.children;
   if (kids.length === 0) return 0;
   const gap = f.itemSpacing ?? 0;
   let s = 0;
   for (let i = 0; i < kids.length; i++) {
     const c = kids[i]!;
-    s += intrinsicMainSizeAsFlexChildVert(c);
+    s += intrinsicMainSizeAsFlexChildVert(c, env);
     if (i < kids.length - 1) s += gap;
   }
   return s;
 }
 
 /** Main-axis size contributed by child when parent is VERTICAL AL. */
-function intrinsicMainSizeAsFlexChildVert(n: SceneNode): number {
-  return isFlexFrame(n as FrameNode) ? (n as FrameNode).height : maxCrossHeightHorizRow(n);
+function intrinsicMainSizeAsFlexChildVert(n: SceneNode, env: FileEnvelope | undefined): number {
+  return isFlexFrame(n as FrameNode) ? (n as FrameNode).height : maxCrossHeightHorizRow(n, env);
 }
 
-function sumPrimaryWidthsHoriz(f: FrameNode): number {
+function sumPrimaryWidthsHoriz(f: FrameNode, env: FileEnvelope | undefined): number {
   const kids = f.children;
   if (kids.length === 0) return 0;
   const gap = f.itemSpacing ?? 0;
   let s = 0;
   for (let i = 0; i < kids.length; i++) {
     const c = kids[i]!;
-    s += intrinsicMainSizeAsFlexChildHoriz(f, c);
+    s += intrinsicMainSizeAsFlexChildHoriz(c, env);
     if (i < kids.length - 1) s += gap;
   }
   return s;
 }
 
-function intrinsicMainSizeAsFlexChildHoriz(_parent: FrameNode, n: SceneNode): number {
-  return isFlexFrame(n as FrameNode) ? (n as FrameNode).width : maxCrossWidthVertStack(n);
+function intrinsicMainSizeAsFlexChildHoriz(n: SceneNode, env: FileEnvelope | undefined): number {
+  return isFlexFrame(n as FrameNode) ? (n as FrameNode).width : maxCrossWidthVertStack(n, env);
 }
 
 /**
@@ -206,21 +267,57 @@ export function syncFrameLayoutSizingForAutoLayoutParents(f: FrameNode): void {
 }
 
 /**
- * Recursively resolve intrinsic width/height for auto-layout frames that are not FIXED on both axes,
- * approximate Figma "hug contents" sizing before CSS compile.
- *
- * Mutates the tree (expected to run on structuredClone subtree).
+ * After intrinsic frame sizing, materialize hugging TEXT width/height for bounds measurement and CSS.
  */
-export function applyAutoLayoutIntrinsicSizingDeep(n: SceneNode): void {
+export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): void {
   if (n.type === 'BOOLEAN_OPERATION' && 'children' in n && Array.isArray(n.children)) {
-    for (const c of n.children as unknown as SceneNode[]) applyAutoLayoutIntrinsicSizingDeep(c);
+    for (const c of n.children as unknown as SceneNode[]) syncHugTextLayoutMetricsDeep(c, env);
   } else if (
     (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP') &&
     'children' in n &&
     Array.isArray(n.children)
   ) {
     const list = (n as { children: SceneNode[] }).children;
-    for (const c of list) applyAutoLayoutIntrinsicSizingDeep(c);
+    for (const c of list) syncHugTextLayoutMetricsDeep(c, env);
+  }
+
+  if (n.type !== 'TEXT') return;
+  const t = n as TextNode;
+  if (t.textOnPath) return;
+  /** HUG/FILL, or legacy absolute text (no layout sizing + 0×0 defaults) — HTML needs a non-zero box. */
+  const needsIntrinsicW =
+    t.layoutSizingHorizontal === 'HUG' ||
+    t.layoutSizingHorizontal === 'FILL' ||
+    (t.layoutSizingHorizontal !== 'FIXED' && (t.width ?? 0) <= 0);
+  const needsIntrinsicH =
+    t.layoutSizingVertical === 'HUG' ||
+    t.layoutSizingVertical === 'FILL' ||
+    (t.layoutSizingVertical !== 'FIXED' && (t.height ?? 0) <= 0);
+  if (needsIntrinsicW) {
+    const fs = effectiveTextFontSizePx(t, env);
+    t.width = approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+  }
+  if (needsIntrinsicH) {
+    t.height = Math.max(0, effectiveTextFontSizePx(t, env));
+  }
+}
+
+/**
+ * Recursively resolve intrinsic width/height for auto-layout frames that are not FIXED on both axes,
+ * approximate Figma "hug contents" sizing before CSS compile.
+ *
+ * Mutates the tree (expected to run on structuredClone subtree).
+ */
+export function applyAutoLayoutIntrinsicSizingDeep(n: SceneNode, env?: FileEnvelope): void {
+  if (n.type === 'BOOLEAN_OPERATION' && 'children' in n && Array.isArray(n.children)) {
+    for (const c of n.children as unknown as SceneNode[]) applyAutoLayoutIntrinsicSizingDeep(c, env);
+  } else if (
+    (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP') &&
+    'children' in n &&
+    Array.isArray(n.children)
+  ) {
+    const list = (n as { children: SceneNode[] }).children;
+    for (const c of list) applyAutoLayoutIntrinsicSizingDeep(c, env);
   }
 
   if (n.type !== 'FRAME') return;
@@ -236,22 +333,22 @@ export function applyAutoLayoutIntrinsicSizingDeep(n: SceneNode): void {
   if (f.layoutMode === 'VERTICAL') {
     if (counterIntrinsic) {
       let cross = 0;
-      for (const c of f.children) cross = Math.max(cross, maxCrossWidthVertStack(c));
+      for (const c of f.children) cross = Math.max(cross, maxCrossWidthVertStack(c, env));
       const target = cross + padX(f);
       newW = f.counterAxisSizingMode === 'HUG' || f.counterAxisSizingMode === 'FILL' ? target : Math.max(f.width, target);
     }
     if (primaryIntrinsic) {
-      const target = sumPrimaryHeightsVert(f) + padY(f);
+      const target = sumPrimaryHeightsVert(f, env) + padY(f);
       newH = f.primaryAxisSizingMode === 'HUG' || f.primaryAxisSizingMode === 'FILL' ? target : Math.max(f.height, target);
     }
   } else {
     if (primaryIntrinsic) {
-      const target = sumPrimaryWidthsHoriz(f) + padX(f);
+      const target = sumPrimaryWidthsHoriz(f, env) + padX(f);
       newW = f.primaryAxisSizingMode === 'HUG' || f.primaryAxisSizingMode === 'FILL' ? target : Math.max(f.width, target);
     }
     if (counterIntrinsic) {
       let cross = 0;
-      for (const c of f.children) cross = Math.max(cross, maxCrossHeightHorizRow(c));
+      for (const c of f.children) cross = Math.max(cross, maxCrossHeightHorizRow(c, env));
       const target = cross + padY(f);
       newH = f.counterAxisSizingMode === 'HUG' || f.counterAxisSizingMode === 'FILL' ? target : Math.max(f.height, target);
     }
@@ -268,14 +365,27 @@ export function applyAutoLayoutIntrinsicSizingDeep(n: SceneNode): void {
   }
 
   /**
-   * Empty auto-layout frames with both axes hugging content:
-   * - Use a square so asymmetric padding does not squash one axis.
-   * - Figma keeps at least the standard new-frame minimum (~100×100), not padding-only size.
+   * Empty auto-layout: Figma keeps at least ~100 on any intrinsic axis so padding-only
+   * does not define the whole box; when both axes hug, use a square like createFrame defaults.
    */
-  if (f.children.length === 0 && primaryIntrinsic && counterIntrinsic) {
-    const s = Math.max(newW, newH, FIGMA_DEFAULT_FRAME_MIN_SIDE);
-    newW = s;
-    newH = s;
+  if (f.children.length === 0) {
+    if (primaryIntrinsic && counterIntrinsic) {
+      const s = Math.max(newW, newH, FIGMA_DEFAULT_FRAME_MIN_SIDE);
+      newW = s;
+      newH = s;
+    } else if (primaryIntrinsic) {
+      if (f.layoutMode === 'VERTICAL') {
+        newH = Math.max(newH, FIGMA_DEFAULT_FRAME_MIN_SIDE);
+      } else {
+        newW = Math.max(newW, FIGMA_DEFAULT_FRAME_MIN_SIDE);
+      }
+    } else if (counterIntrinsic) {
+      if (f.layoutMode === 'VERTICAL') {
+        newW = Math.max(newW, FIGMA_DEFAULT_FRAME_MIN_SIDE);
+      } else {
+        newH = Math.max(newH, FIGMA_DEFAULT_FRAME_MIN_SIDE);
+      }
+    }
   }
 
   f.width = newW;

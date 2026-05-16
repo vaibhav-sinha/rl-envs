@@ -1,5 +1,14 @@
-import { applyAutoLayoutIntrinsicSizingDeep } from './autoLayoutIntrinsicSizing.js';
-import { booleanOperandPathD, computeBooleanPathData, rectCornerRadii, resolveBooleanDisplayFill } from './booleanPaths.js';
+import {
+  applyAutoLayoutIntrinsicSizingDeep,
+  syncHugTextLayoutMetricsDeep,
+} from './autoLayoutIntrinsicSizing.js';
+import {
+  booleanOperandPathD,
+  clampRectCornerRadiiToBox,
+  computeBooleanPathData,
+  rectCornerRadii,
+  resolveBooleanDisplayFill,
+} from './booleanPaths.js';
 import { ellipseArcPathD, ellipsePathD, isPlainFullEllipse } from './shapePaths.js';
 import { linearGradientCss, radialGradientCss, svgLinearGradientEndpoints, svgRadialGradientAttrs } from './gradientCss.js';
 import {
@@ -660,7 +669,10 @@ function frameEffectiveClipsContent(f: FrameNode): boolean {
 }
 
 function frameCornerRadiusCss(f: FrameNode): string {
-  const [tl, tr, br, bl] = rectCornerRadii(f as unknown as RectangleNode);
+  const w = f.width;
+  const h = f.height;
+  const [tl0, tr0, br0, bl0] = rectCornerRadii(f as unknown as RectangleNode);
+  const [tl, tr, br, bl] = clampRectCornerRadiiToBox(w, h, tl0, tr0, br0, bl0);
   if (tl <= 0 && tr <= 0 && br <= 0 && bl <= 0) return '';
   return tl === tr && tr === br && br === bl
     ? `border-radius:${String(tl)}px;`
@@ -1353,6 +1365,12 @@ function cloneComponentRootForInstance(root: FrameNode): FrameNode {
   return cloned;
 }
 
+/** Instance/component clones are not in compile roots; run the same intrinsic pass as {@link compileRootScenes}. */
+function prepareClonedComponentSubtreeForEmit(root: SceneNode, env: FileEnvelope): void {
+  applyAutoLayoutIntrinsicSizingDeep(root, env);
+  syncHugTextLayoutMetricsDeep(root, env);
+}
+
 function applyComponentOverrides(root: FrameNode, overrides: ComponentInstanceNode['overrides']): void {
   if (!overrides) return;
   const stack: SceneNode[] = [...root.children];
@@ -1406,6 +1424,7 @@ function emitComponentInstance(
     warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
   }
   applyComponentOverrides(root, inst.overrides);
+  prepareClonedComponentSubtreeForEmit(root, env);
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(inst.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
@@ -1506,6 +1525,7 @@ function emitInstance(
     if (main) {
       const root = cloneComponentRootForInstance(main.root);
       applyComponentOverrides(root, inst.overrides as any);
+      prepareClonedComponentSubtreeForEmit(root, env);
       const pos = insideFlex
         ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
             inst.layoutGrow ?? 0
@@ -1584,6 +1604,7 @@ function emitInstance(
   if (root.x !== 0 || root.y !== 0) warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
 
   applyComponentOverrides(root, appliedOverrides as any);
+  prepareClonedComponentSubtreeForEmit(root, env);
 
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
@@ -1646,7 +1667,8 @@ function emitRectangle(
     !gradientStroke && stroke && stroke.type === 'SOLID' && sw > 0 && !(r.dashPattern && r.dashPattern.length)
       ? `${String(sw)}px solid ${rgbaFromSolid(stroke)}`
       : 'none';
-  const [tl, tr, br, bl] = rectCornerRadii(r);
+  const [tl0, tr0, br0, bl0] = rectCornerRadii(r);
+  const [tl, tr, br, bl] = clampRectCornerRadiiToBox(r.width, r.height, tl0, tr0, br0, bl0);
   const radius =
     tl > 0 || tr > 0 || br > 0 || bl > 0
       ? tl === tr && tr === br && br === bl
@@ -2030,7 +2052,8 @@ function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions, enve
   }
   /** Figma hugs auto-layout frame dimensions before render; mutate compile-time clone only. */
   for (const root of roots) {
-    applyAutoLayoutIntrinsicSizingDeep(root);
+    applyAutoLayoutIntrinsicSizingDeep(root, envelope);
+    syncHugTextLayoutMetricsDeep(root, envelope);
   }
   const warnings: string[] = [];
   let b: Bounds | undefined;

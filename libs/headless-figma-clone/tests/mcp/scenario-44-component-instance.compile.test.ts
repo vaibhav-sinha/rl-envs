@@ -39,5 +39,17 @@ describe('scenario 44 component instance compile', () => {
     expect(out.html).toContain('Button');
     expect(out.html).toMatch(/rgba\(38,\s*115,\s*242/);
     expect(out.html.split('hfc-component-instance')[1] ?? '').not.toContain('display:none');
+    /** Cloned component subtree must get intrinsic text metrics (was 0×0 → wrapped label). */
+    const before = out.html.slice(0, out.html.indexOf('>Button<'));
+    const id = before.match(/class="(hfc-node-I[0-9]+)"[^>]*>\s*<div class="hfc-text-inner"/)?.[1];
+    expect(id).toBeTruthy();
+    const dotClass = `.${id}`;
+    const open = out.html.indexOf(`${dotClass}{`);
+    expect(open).toBeGreaterThanOrEqual(0);
+    const close = out.html.indexOf('}', open);
+    const rule = out.html.slice(open, close + 1);
+    expect(rule).toMatch(/width:([1-9][0-9]+)px/);
+    expect(rule).toMatch(/height:14px/);
+    expect(rule).not.toContain('width:0px');
   });
 });

@@ -1,0 +1,3 @@
+Profile hero: soft gradient header, avatar with ring, handle block, stat trio, and tag chips over a white body card.
+
+Expected: layered portrait card with clear focus on name and stats.

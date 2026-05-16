@@ -1,0 +1,3 @@
+Settings screen: variable-bound surfaces, left nav rail, General copy block, toggle capsule, select row with chevron, and dividers.
+
+Expected: two-column shell with highlighted nav item and interactive-looking controls.

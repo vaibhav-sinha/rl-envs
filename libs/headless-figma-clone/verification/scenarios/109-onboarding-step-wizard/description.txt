@@ -1,0 +1,3 @@
+Three-step onboarding: numbered stepper, illustration tile, value props, and dual CTA row (primary + quiet).
+
+Expected: guided flow focal point on step 2 of 3.

@@ -142,7 +142,7 @@ Visual parity scenarios live under `verification/`. Each scenario is a subdirect
 | `figma.png` | Screenshot from Figma (written by your runner) |
 | `clone.png` | Screenshot from the clone (written by your runner) |
 
-`verification/manifest.json` lists all 100 scenarios in order (foundational 01–50, advanced 51–100).
+`verification/manifest.json` lists all 110 scenarios in order (foundational 01–50, advanced 51–110).
 
 ### View results (slideshow)
 

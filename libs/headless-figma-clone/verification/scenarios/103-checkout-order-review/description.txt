@@ -1,0 +1,3 @@
+Checkout panel: hero bag summary, line items with thumbnails, promo field, totals ladder, and primary Pay CTA strip.
+
+Expected: readable commerce hierarchy with aligned prices.

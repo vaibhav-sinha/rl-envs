@@ -1,0 +1,3 @@
+Product roadmap: horizontal baseline with milestone nodes, dated captions, and stacked initiative cards with owners.
+
+Expected: timeline reads left-to-right with anchored nodes.
