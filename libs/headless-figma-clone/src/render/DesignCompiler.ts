@@ -1882,6 +1882,104 @@ function cloneComponentRootForInstance(root: FrameNode): FrameNode {
   return cloned;
 }
 
+function scaleCornerRadii(
+  n: {
+    cornerRadius?: number;
+    topLeftRadius?: number;
+    topRightRadius?: number;
+    bottomRightRadius?: number;
+    bottomLeftRadius?: number;
+  },
+  scale: number
+): void {
+  if (n.cornerRadius !== undefined) n.cornerRadius *= scale;
+  if (n.topLeftRadius !== undefined) n.topLeftRadius *= scale;
+  if (n.topRightRadius !== undefined) n.topRightRadius *= scale;
+  if (n.bottomRightRadius !== undefined) n.bottomRightRadius *= scale;
+  if (n.bottomLeftRadius !== undefined) n.bottomLeftRadius *= scale;
+}
+
+/** Scale cloned master geometry to match instance bounds (Figma stretches scaled instances). */
+function scaleSceneNodeGeometry(n: SceneNode, sx: number, sy: number): void {
+  n.x *= sx;
+  n.y *= sy;
+  const avg = (sx + sy) / 2;
+
+  if (
+    n.type === 'FRAME' ||
+    n.type === 'RECTANGLE' ||
+    n.type === 'ELLIPSE' ||
+    n.type === 'LINE' ||
+    n.type === 'POLYGON' ||
+    n.type === 'STAR' ||
+    n.type === 'VECTOR' ||
+    n.type === 'BOOLEAN_OPERATION' ||
+    n.type === 'TRANSFORM_GROUP' ||
+    n.type === 'GROUP' ||
+    n.type === 'SECTION' ||
+    n.type === 'SLICE' ||
+    n.type === 'TABLE'
+  ) {
+    n.width *= sx;
+    n.height *= sy;
+  }
+
+  if (n.type === 'TEXT') {
+    n.width *= sx;
+    n.height *= sy;
+    if (n.fontSize !== undefined) n.fontSize *= avg;
+    if (n.letterSpacing?.unit === 'PIXELS' && n.letterSpacing.value !== undefined) {
+      n.letterSpacing = { ...n.letterSpacing, value: n.letterSpacing.value * sx };
+    }
+    if (n.lineHeight?.unit === 'PIXELS' && n.lineHeight.value !== undefined) {
+      n.lineHeight = { ...n.lineHeight, value: n.lineHeight.value * sy };
+    }
+  }
+
+  if (n.type === 'RECTANGLE' || n.type === 'FRAME') {
+    scaleCornerRadii(n, avg);
+  }
+
+  if (
+    (n.type === 'RECTANGLE' ||
+      n.type === 'FRAME' ||
+      n.type === 'ELLIPSE' ||
+      n.type === 'LINE' ||
+      n.type === 'POLYGON' ||
+      n.type === 'STAR' ||
+      n.type === 'VECTOR' ||
+      n.type === 'TEXT') &&
+    n.strokeWeight !== undefined
+  ) {
+    n.strokeWeight *= avg;
+  }
+
+  if (n.type === 'FRAME' || n.type === 'GROUP' || n.type === 'TRANSFORM_GROUP' || n.type === 'SECTION') {
+    for (const ch of n.children) scaleSceneNodeGeometry(ch, sx, sy);
+  } else if (n.type === 'BOOLEAN_OPERATION') {
+    for (const ch of n.children) scaleSceneNodeGeometry(ch as SceneNode, sx, sy);
+  }
+}
+
+function scaleComponentRootToInstance(root: FrameNode, targetWidth: number, targetHeight: number): void {
+  if (root.width <= 0 || root.height <= 0 || targetWidth <= 0 || targetHeight <= 0) return;
+  const sx = targetWidth / root.width;
+  const sy = targetHeight / root.height;
+  if (Math.abs(sx - 1) < 1e-6 && Math.abs(sy - 1) < 1e-6) return;
+  scaleSceneNodeGeometry(root, sx, sy);
+}
+
+function prepareInstanceComponentRoot(
+  root: FrameNode,
+  instSize: { width: number; height: number },
+  env: FileEnvelope,
+  overrides?: ComponentInstanceNode['overrides']
+): void {
+  applyComponentOverrides(root, overrides);
+  scaleComponentRootToInstance(root, instSize.width, instSize.height);
+  prepareClonedComponentSubtreeForEmit(root, env);
+}
+
 /** Instance/component clones are not in compile roots; run the same intrinsic pass as {@link compileRootScenes}. */
 function prepareClonedComponentSubtreeForEmit(root: SceneNode, env: FileEnvelope): void {
   applyAutoLayoutIntrinsicSizingDeep(root, env);
@@ -2011,8 +2109,7 @@ function emitComponentInstance(
   if (root.x !== 0 || root.y !== 0) {
     warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
   }
-  applyComponentOverrides(root, inst.overrides);
-  prepareClonedComponentSubtreeForEmit(root, env);
+  prepareInstanceComponentRoot(root, inst, env, inst.overrides);
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(inst.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
@@ -2232,8 +2329,7 @@ function emitInstance(
     const main = env.components?.find((c) => c.id === inst.mainComponentId);
     if (main) {
       const root = cloneComponentRootForInstance(main.root);
-      applyComponentOverrides(root, inst.overrides as any);
-      prepareClonedComponentSubtreeForEmit(root, env);
+      prepareInstanceComponentRoot(root, inst, env, inst.overrides as ComponentInstanceNode['overrides']);
       const pos = insideFlex
         ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
             inst.layoutGrow ?? 0
@@ -2334,8 +2430,7 @@ function emitInstance(
 
   if (root.x !== 0 || root.y !== 0) warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
 
-  applyComponentOverrides(root, appliedOverrides as any);
-  prepareClonedComponentSubtreeForEmit(root, env);
+  prepareInstanceComponentRoot(root, inst, env, appliedOverrides as ComponentInstanceNode['overrides']);
 
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(

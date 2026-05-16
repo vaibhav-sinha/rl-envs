@@ -138,6 +138,8 @@ export const HANDLED_SNAPSHOT_KEYS = new Set([
   'innerRadius',
   'arcData',
   'mainComponent',
+  'mainComponentId',
+  'componentKey',
   'componentProperties',
   'overrides',
   'exportSettings',

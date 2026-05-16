@@ -52,6 +52,28 @@ function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Reco
     props.absoluteRenderBounds = serializeValue(node.absoluteRenderBounds, visited);
   }
 
+  // Stable string ids — `mainComponent` object graphs can truncate to `{ __ref: 'cycle' }`.
+  if (node.type === 'INSTANCE') {
+    try {
+      const mc = (node as InstanceNode).mainComponent;
+      if (mc && typeof mc.id === 'string') {
+        props.mainComponentId = mc.id;
+      }
+    } catch {
+      /* detached or unreadable */
+    }
+  }
+  if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
+    try {
+      const key = (node as ComponentNode).key;
+      if (typeof key === 'string' && key.length > 0) {
+        props.componentKey = key;
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
   return props;
 }
 
@@ -146,6 +168,7 @@ async function buildAssets(): Promise<SerializedAsset[]> {
   for (const hash of IMAGE_HASHES) {
     try {
       const img = figma.getImageByHash(hash);
+      if (!img) continue;
       const bytes = await img.getBytesAsync();
       const mime = sniffMime(bytes);
       assets.push({
