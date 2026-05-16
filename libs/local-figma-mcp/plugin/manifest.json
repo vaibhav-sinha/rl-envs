@@ -10,7 +10,8 @@
     "allowedDomains": ["none"],
     "devAllowedDomains": [
       "http://localhost:3855",
-      "ws://localhost:3855"
+      "ws://localhost:3855",
+      "https://upload.wikimedia.org"
     ],
     "reasoning": "Connect to the local-figma-mcp server on the developer machine."
   }

@@ -1,4 +1,5 @@
 import type {
+  DocumentNode,
   FontName,
   LayoutConstraints,
   LayoutPositioning,
@@ -6,6 +7,12 @@ import type {
   LayoutSizing,
 } from '../model/types.js';
 import { ValidationErr } from '../util/errors.js';
+import {
+  assertGridChildLayoutField,
+  GRID_CHILD_LAYOUT_FIELDS,
+  validateGridAnchorValue,
+  validateGridSpanValue,
+} from './gridChildValidate.js';
 import { normalizeLayoutConstraints } from './figmaInterop.js';
 
 const LAYOUT_SIZING = new Set<LayoutSizing>(['FIXED', 'HUG', 'FILL']);
@@ -59,6 +66,9 @@ const LAYOUT_SELF_SPEC_KEYS = [
   'layoutSizingVertical',
   'layoutPositioning',
   'constraints',
+  ...GRID_CHILD_LAYOUT_FIELDS,
+  'gridChildHorizontalAlign',
+  'gridChildVerticalAlign',
 ] as const;
 
 /** Copy layout-self fields from a create-node spec onto a new scene node. */
@@ -70,8 +80,14 @@ export function applyLayoutSelfFromSpec(target: LayoutSelfFields, spec: Record<s
   if (Object.keys(patch).length > 0) applyLayoutSelfPatch(target, patch);
 }
 
+export type LayoutSelfPatchContext = { document: DocumentNode; nodeId: string };
+
 /** Apply Phase 7 layout-self patch keys onto any node carrying {@link LayoutSelfFields}. */
-export function applyLayoutSelfPatch(target: LayoutSelfFields, patch: Record<string, unknown>): void {
+export function applyLayoutSelfPatch(
+  target: LayoutSelfFields,
+  patch: Record<string, unknown>,
+  ctx?: LayoutSelfPatchContext
+): void {
   if ('layoutAlign' in patch) {
     const la = patch.layoutAlign;
     if (
@@ -127,5 +143,42 @@ export function applyLayoutSelfPatch(target: LayoutSelfFields, patch: Record<str
     const c = patch.constraints;
     if (c === undefined || c === null) delete target.constraints;
     else target.constraints = validateLayoutConstraints(c, 'constraints');
+  }
+  for (const field of GRID_CHILD_LAYOUT_FIELDS) {
+    if (!(field in patch)) continue;
+    if (ctx) assertGridChildLayoutField(ctx.document, ctx.nodeId, field);
+    const v = patch[field];
+    if (v === undefined || v === null) {
+      delete target[field];
+      continue;
+    }
+    if (field === 'gridRowSpan' || field === 'gridColumnSpan') {
+      target[field] = validateGridSpanValue(field, v);
+    } else {
+      target[field] = validateGridAnchorValue(field, v);
+    }
+  }
+  for (const field of ['gridChildHorizontalAlign', 'gridChildVerticalAlign'] as const) {
+    if (!(field in patch)) continue;
+    if (ctx) assertGridChildLayoutField(ctx.document, ctx.nodeId, field);
+    const v = patch[field];
+    if (v === undefined || v === null) delete target[field];
+    else if (v === 'MIN' || v === 'CENTER' || v === 'MAX' || v === 'AUTO') target[field] = v;
+    else throw new ValidationErr('VALIDATION_ERROR', `${field} invalid`);
+  }
+}
+
+export function assertGridChildFieldsInCreateSpec(
+  parentType: string,
+  parentLayoutMode: string | undefined,
+  spec: Record<string, unknown>
+): void {
+  const field = GRID_CHILD_LAYOUT_FIELDS.find((f) => spec[f] !== undefined);
+  if (!field) return;
+  if (parentType !== 'FRAME' || parentLayoutMode !== 'GRID') {
+    throw new ValidationErr(
+      'VALIDATION_ERROR',
+      `in set_${field}: Node must be a grid child to set ${field === 'gridRowSpan' ? 'row span' : field === 'gridColumnSpan' ? 'column span' : field}`
+    );
   }
 }

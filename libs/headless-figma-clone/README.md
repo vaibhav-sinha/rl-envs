@@ -193,4 +193,12 @@ npm run verify:run:dev
 
 Options: `--figma-url`, `--clone-url`, `--from N`, `--to N`, `--only figma|clone|both`, `--fail-fast`.
 
+Scenarios **121–123** load real photos from Wikimedia Commons via `createImageAsync`. For the clone server, enable network fetches:
+
+```bash
+npm start -- --allow-network
+```
+
+Or set `HFC_ALLOW_NETWORK=1` in the environment before starting the server.
+
 Writes `figma.png` and `clone.png` into each `verification/scenarios/<id>/` directory (via `use_figma` then `get_screenshot` image content blocks).

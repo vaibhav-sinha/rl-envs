@@ -46,6 +46,10 @@ export const playwrightScreenshotService: PlaywrightScreenshotService = {
         waitUntil: 'load',
         timeout: params.timeoutMs,
       });
+      await page.addStyleTag({
+        url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+      });
+      await page.evaluate('document.fonts.ready');
       if (params.background === 'white') {
         await page.addStyleTag({ content: 'body { background: #fff !important; }' });
       }

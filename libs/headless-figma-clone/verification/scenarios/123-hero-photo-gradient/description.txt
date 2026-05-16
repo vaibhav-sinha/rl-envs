@@ -1,0 +1,5 @@
+Large hero rectangle with a remote JPEG fill and a linear gradient overlay (image under gradient).
+
+Expected: seagull portrait with a blue bottom fade.
+
+Clone verification requires HFC_ALLOW_NETWORK=1 on the MCP server.

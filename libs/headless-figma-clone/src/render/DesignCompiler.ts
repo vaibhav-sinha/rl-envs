@@ -1,4 +1,8 @@
-import { applyAutoLayoutIntrinsicSizingDeep, syncHugTextLayoutMetricsDeep } from './autoLayoutIntrinsicSizing.js';
+import {
+  applyAutoLayoutIntrinsicSizingDeep,
+  effectiveVerticalItemSpacingPx,
+  syncHugTextLayoutMetricsDeep,
+} from './autoLayoutIntrinsicSizing.js';
 import {
   booleanOperandPathD,
   clampRectCornerRadiiToBox,
@@ -21,6 +25,8 @@ import { allEffectsCss, type EffectResolveContext } from './effectsCss.js';
 import {
   fontFamilyCssFromName,
   hugTextLineHeightPxFromTypography,
+  leadingTrimCss,
+  listContainerCss,
   mergeTypographyFromText,
   openTypeFeaturesCss,
   paragraphTypographyCss,
@@ -278,8 +284,8 @@ function textInnerHorizontalCss(t: TextNode): string {
   return 'text-align:left;';
 }
 
-/** Figma: fixed width + `HEIGHT` auto-resize grows vertically (wrap); single-line box height truncates horizontally. */
-function textUsesSingleLineEllipsis(t: TextNode, env: FileEnvelope): boolean {
+/** Figma: `HEIGHT` auto-resize wraps; a single-line hug box clips horizontally instead of wrapping. */
+function textIsSingleLineBox(t: TextNode, env: FileEnvelope): boolean {
   if (t.textOnPath) return false;
   if (t.characters.includes('\n')) return false;
   if (t.textTruncation === 'DISABLED') return false;
@@ -290,23 +296,18 @@ function textUsesSingleLineEllipsis(t: TextNode, env: FileEnvelope): boolean {
   const fs = effectiveTextBase(t, env).fontSize;
   const lineH = hugTextLineHeightPxFromTypography(fs, t.lineHeight);
   const cap = Math.ceil(lineH * 1.14);
-  /** Designers often pad label boxes a few px above one line (e.g. 12px type in 20px chip). */
+  /** Designers often pad label boxes a few px above one line (e.g. 12px type in a 20px chip). */
   const heightSlack = Math.min(4, Math.max(2, Math.ceil(fs * 0.25)));
-  if (!(t.height > 0 && t.height <= cap + heightSlack)) return false;
-  /**
-   * Implicit single-line ellipsis is for short UI labels (constrained flex titles). Long one-line copy
-   * (chart axis labels, spaced columns, etc.) must stay `pre-wrap` or most of the string disappears.
-   */
-  const chars = effectiveTextCharacters(t, env);
-  if (chars.length > 48) return false;
-  /** Captions / axis labels use smaller type; implicit ellipsis + overflow clips descenders in stacked rows. */
-  if (fs < 12) return false;
-  return true;
+  return t.height > 0 && t.height <= cap + heightSlack;
 }
 
 function textFlowCss(t: TextNode, env: FileEnvelope): string {
-  if (textUsesSingleLineEllipsis(t, env)) {
-    return 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal;overflow-wrap:normal;';
+  if (textIsSingleLineBox(t, env)) {
+    const wantsEllipsis =
+      t.textAutoResize === 'TRUNCATE' ||
+      (t.textTruncation === 'ENDING' && (t.maxLines === 1 || t.maxLines == null));
+    const tail = wantsEllipsis ? 'text-overflow:ellipsis;' : 'text-overflow:clip;';
+    return `white-space:nowrap;overflow:hidden;${tail}word-break:normal;overflow-wrap:normal;`;
   }
   if (t.textTruncation === 'ENDING' && t.maxLines != null && t.maxLines > 1) {
     return `display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:${String(t.maxLines)};overflow:hidden;white-space:pre-wrap;word-break:break-word;`;
@@ -663,7 +664,23 @@ function svgStrokeGradientDefs(stroke: Paint, gradId: string, w: number, h: numb
   return null;
 }
 
-function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): string {
+function listTypeForRange(
+  t: TextNode,
+  segs: StyledSegment[],
+  start: number,
+  end: number
+): 'ORDERED' | 'UNORDERED' | null {
+  for (const seg of segs) {
+    if (seg.end <= start || seg.start >= end) continue;
+    const type = seg.style.listOptions?.type;
+    if (type === 'ORDERED' || type === 'UNORDERED') return type;
+  }
+  const nodeType = t.listOptions?.type;
+  if (nodeType === 'ORDERED' || nodeType === 'UNORDERED') return nodeType;
+  return null;
+}
+
+function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[], singleLine: boolean): string {
   const base = effectiveTextBase(t, env);
   const text = effectiveTextCharacters(t, env);
   const len = text.length;
@@ -672,7 +689,7 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): 
   const defaultFsCss = base.fontSizeCss;
   const defaultFw = base.fontWeight;
 
-  function spanStyle(style: StyledSegment['style']): string {
+  function spanStyle(style: StyledSegment['style'], excludeListLayout = false): string {
     const fs = style.fontSize ?? base.fontSize;
     const fsCss = style.fontSize !== undefined ? `${String(style.fontSize)}px` : defaultFsCss;
     const fw = style.fontWeight ?? defaultFw;
@@ -683,7 +700,11 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): 
       `font-weight:${String(fw)}`,
       `color:${color}`,
       fontFamilyCssFromName(style.fontName ?? t.fontName, style.boundVariables?.fontFamily ?? t.boundVariables?.fontFamily, env).replace(/;$/, ''),
-      paragraphTypographyCss(typo, fs, env).replace(/;$/g, '').split(';').filter(Boolean).join(';'),
+      paragraphTypographyCss(typo, fs, env, { tightAutoLineHeight: singleLine, excludeListLayout })
+        .replace(/;$/g, '')
+        .split(';')
+        .filter(Boolean)
+        .join(';'),
       openTypeFeaturesCss(style.openTypeFeatures),
     ]
       .filter(Boolean)
@@ -691,35 +712,64 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): 
       .concat(';');
   }
 
-  let i = 0;
-  const chunks: string[] = [];
-  let linkIdx = 0;
-  for (const seg of segs) {
-    if (seg.start > i) {
-      const slice = text.slice(i, seg.start);
-      chunks.push(`<span style="${spanStyle({})}">${escapeHtmlText(slice)}</span>`);
+  function emitSpanRange(start: number, end: number): string {
+    let i = start;
+    const chunks: string[] = [];
+    let linkIdx = 0;
+    for (const seg of segs) {
+      if (seg.end <= start || seg.start >= end) continue;
+      const segStart = Math.max(seg.start, start);
+      const segEnd = Math.min(seg.end, end);
+      if (segStart > i) {
+        chunks.push(`<span style="${spanStyle({}, true)}">${escapeHtmlText(text.slice(i, segStart))}</span>`);
+      }
+      const slice = text.slice(segStart, segEnd);
+      const inner = escapeHtmlText(slice);
+      if (seg.style.hyperlink?.type === 'URL') {
+        const link = seg.style.hyperlink as { type: 'URL'; url?: string; value?: string };
+        const href = escapeAttr(link.url ?? link.value ?? '');
+        chunks.push(
+          `<a class="hfc-hyperlink hfc-hyperlink-${String(linkIdx)}" href="${href}" style="${spanStyle(seg.style, true)}">${inner}</a>`
+        );
+        linkIdx += 1;
+      } else {
+        chunks.push(`<span style="${spanStyle(seg.style, true)}">${inner}</span>`);
+      }
+      i = segEnd;
     }
-    const slice = text.slice(seg.start, seg.end);
-    const inner = escapeHtmlText(slice);
-    if (seg.style.hyperlink?.type === 'URL') {
-      const link = seg.style.hyperlink as { type: 'URL'; url?: string; value?: string };
-      const href = escapeAttr(link.url ?? link.value ?? '');
-      chunks.push(
-        `<a class="hfc-hyperlink hfc-hyperlink-${String(linkIdx)}" href="${href}" style="${spanStyle(seg.style)}">${inner}</a>`
-      );
-      linkIdx += 1;
-    } else {
-      chunks.push(`<span style="${spanStyle(seg.style)}">${inner}</span>`);
+    if (i < end) {
+      chunks.push(`<span style="${spanStyle({}, true)}">${escapeHtmlText(text.slice(i, end))}</span>`);
     }
-    i = seg.end;
+    if (chunks.length === 0) {
+      chunks.push(`<span style="${spanStyle({}, true)}">${escapeHtmlText(text.slice(start, end))}</span>`);
+    }
+    return chunks.join('');
   }
-  if (i < len) {
-    chunks.push(`<span style="${spanStyle({})}">${escapeHtmlText(text.slice(i))}</span>`);
+
+  const listType = !singleLine && text.includes('\n') ? listTypeForRange(t, segs, 0, len) : null;
+  if (listType) {
+    const lines = text.split('\n');
+    const listOpts = { type: listType } as const;
+    const listCss = listContainerCss(listOpts, t.hangingList);
+    const paraGap =
+      t.paragraphSpacing !== undefined && t.paragraphSpacing > 0
+        ? `margin-bottom:${String(t.paragraphSpacing)}px;`
+        : '';
+    const items: string[] = [];
+    let offset = 0;
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li]!;
+      const lineStart = offset;
+      const lineEnd = lineStart + line.length;
+      const itemGap = li < lines.length - 1 ? paraGap : '';
+      items.push(`<li class="hfc-list-item" style="display:list-item;${itemGap}">${emitSpanRange(lineStart, lineEnd)}</li>`);
+      offset = lineEnd + 1;
+    }
+    const tag = listType === 'ORDERED' ? 'ol' : 'ul';
+    return `<${tag} class="hfc-text-list" style="${listCss}">${items.join('')}</${tag}>`;
   }
-  if (chunks.length === 0) {
-    chunks.push(`<span style="${spanStyle({})}">${escapeHtmlText(text)}</span>`);
-  }
-  return chunks.join('');
+
+  return emitSpanRange(0, len);
 }
 
 function polygonPointsD(n: number, w: number, h: number): string {
@@ -801,7 +851,10 @@ function frameFlexAlignContentCss(f: FrameNode): string {
 
 function frameFlexGapCss(f: FrameNode, env: FileEnvelope): string {
   const modes = f.explicitVariableModes;
-  const item = f.itemSpacing ?? 0;
+  const item =
+    f.layoutMode === 'VERTICAL' && f.boundVariables?.itemSpacing === undefined
+      ? effectiveVerticalItemSpacingPx(f)
+      : (f.itemSpacing ?? 0);
   const itemCss = boundFloatCss(env, f.boundVariables?.itemSpacing, item, modes);
   if (f.layoutWrap !== 'WRAP') {
     return `gap:${itemCss};`;
@@ -1284,13 +1337,17 @@ function emitScene(
     const pos = insideFlex
       ? sceneChildPos(t, insideFlex, absX, absY, parentFrame)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
-    const ellip = textUsesSingleLineEllipsis(t, env);
-    const flexOuterAlign = textFlexContainerCss(t, ellip);
+    const singleLine = textIsSingleLineBox(t, env);
+    const flexOuterAlign = textFlexContainerCss(t, singleLine);
     const baseTypo = effectiveTextBase(t, env);
-    const flexTextMetrics = ellip
-      ? 'line-height:1.15;'
+    const lhPx = hugTextLineHeightPxFromTypography(baseTypo.fontSize, t.lineHeight);
+    const textColor = paintColorCss(baseTypo.fills?.[0], env, 'rgba(0,0,0,1)', warnings, `text:${t.id}`);
+    const flexTextMetrics = singleLine
+      ? `line-height:${String(lhPx)}px;${leadingTrimCss(t.leadingTrim)}`
       : paragraphTypographyCss(mergeTypographyFromText(t), baseTypo.fontSize, env);
-    const innerRule = `${textInnerHorizontalCss(t)}${ellip ? 'min-width:0;width:100%;display:block;' : ''}`;
+    const innerRule = `${textInnerHorizontalCss(t)}${
+      singleLine ? 'min-width:0;width:100%;display:block;box-sizing:border-box;' : ''
+    }`;
     const textStroke = t.strokes?.[0];
     const tsw = t.strokeWeight ?? 0;
     const textStrokeCss =
@@ -1299,10 +1356,10 @@ function emitScene(
         : '';
     htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${t.id}{${pos}box-sizing:border-box;${flexOuterAlign}${textFlowCss(t, env)}${flexTextMetrics}${fontFamilyCssFromName(t.fontName, t.boundVariables?.fontFamily, env)}${textStrokeCss}${opRot}${shadow}}`
+      `.hfc-node-${t.id}{${pos}box-sizing:border-box;color:${textColor};${flexOuterAlign}${textFlowCss(t, env)}${flexTextMetrics}${fontFamilyCssFromName(t.fontName, t.boundVariables?.fontFamily, env)}${textStrokeCss}${opRot}${shadow}}`
     );
     cssParts.push(`.hfc-node-${t.id} .hfc-text-inner{${innerRule}}`);
-    htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings)}</div></div>`);
+    htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings, singleLine)}</div></div>`);
     return;
   }
 

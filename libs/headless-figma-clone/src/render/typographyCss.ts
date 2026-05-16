@@ -1,5 +1,6 @@
 import type {
   FileEnvelope,
+  LeadingTrim,
   LetterSpacing,
   LineHeight,
   TextCase,
@@ -18,6 +19,7 @@ export interface TypographyInput {
   fontSize?: number;
   lineHeight?: LineHeight;
   letterSpacing?: LetterSpacing;
+  leadingTrim?: LeadingTrim;
   textCase?: TextCase;
   textDecoration?: TextDecoration;
   paragraphIndent?: number;
@@ -29,8 +31,20 @@ export interface TypographyInput {
   boundVariables?: Partial<Record<string, string>>;
 }
 
-/** Default line height multiplier when Figma uses AUTO. */
+/** Default line height multiplier for multi-line / non-hug text when Figma uses AUTO. */
 export const AUTO_LINE_HEIGHT_RATIO = 1.22;
+
+/**
+ * Figma hug-contents line box for AUTO: tighter than browser `normal`, with descender slack
+ * scaled by size (smaller type needs a bit more relative room for g/y/p descenders).
+ */
+export function hugLayoutLineHeightPx(lineHeight: LineHeight | undefined, fontSize: number): number {
+  if (!lineHeight || lineHeight.unit === 'AUTO') {
+    const slack = fontSize <= 9 ? 3 : 2;
+    return Math.ceil(fontSize + slack);
+  }
+  return lineHeightPx(lineHeight, fontSize);
+}
 
 export function lineHeightPx(lineHeight: LineHeight | undefined, fontSize: number): number {
   if (!lineHeight || lineHeight.unit === 'AUTO') {
@@ -51,7 +65,9 @@ export function lineHeightCss(
     const fb = v !== null ? v : lineHeightPx(lineHeight, fontSize);
     return `var(${cssVarNameForVariable(boundVarId)},${String(fb)}px)`;
   }
-  if (!lineHeight || lineHeight.unit === 'AUTO') return 'normal';
+  if (!lineHeight || lineHeight.unit === 'AUTO') {
+    return `${String(Math.round(lineHeightPx(lineHeight, fontSize) * 100) / 100)}px`;
+  }
   if (lineHeight.unit === 'PIXELS') return `${String(lineHeight.value)}px`;
   return `${String(lineHeight.value)}%`;
 }
@@ -104,11 +120,29 @@ export function textDecorationCss(dec: TextDecoration | undefined): string {
   return s;
 }
 
-export function paragraphTypographyCss(t: TypographyInput, fontSize: number, env?: FileEnvelope): string {
+export function listContainerCss(listOptions?: TextListOptions, hangingList?: boolean): string {
+  if (!listOptions?.type || listOptions.type === 'NONE') return '';
+  let s = 'margin:0;padding-left:1.5em;';
+  if (listOptions.type === 'ORDERED') s += 'list-style-type:decimal;';
+  if (listOptions.type === 'UNORDERED') s += 'list-style-type:disc;';
+  if (listOptions.indent !== undefined) s += `margin-left:${String(listOptions.indent)}px;`;
+  if (hangingList) s += 'list-style-position:outside;';
+  return s;
+}
+
+export function paragraphTypographyCss(
+  t: TypographyInput,
+  fontSize: number,
+  env?: FileEnvelope,
+  opts?: { tightAutoLineHeight?: boolean; excludeListLayout?: boolean }
+): string {
   let s = '';
-  const lh = lineHeightCss(t.lineHeight, fontSize, t.boundVariables?.lineHeight, env);
+  const lh = opts?.tightAutoLineHeight
+    ? `${String(hugLayoutLineHeightPx(t.lineHeight, fontSize))}px`
+    : lineHeightCss(t.lineHeight, fontSize, t.boundVariables?.lineHeight, env);
   if (lh) s += `line-height:${lh};`;
   else s += 'line-height:normal;';
+  s += leadingTrimCss(t.leadingTrim);
   s += letterSpacingCss(t.letterSpacing, fontSize, t.boundVariables?.letterSpacing, env);
   s += textCaseCss(t.textCase);
   s += textDecorationCss(t.textDecoration);
@@ -122,14 +156,16 @@ export function paragraphTypographyCss(t: TypographyInput, fontSize: number, env
     s += `margin-bottom:${String(t.paragraphSpacing)}px;`;
   }
   if (t.hangingPunctuation) s += 'hanging-punctuation:first last;';
-  if (t.listOptions?.type === 'ORDERED') s += 'list-style-type:decimal;';
-  if (t.listOptions?.type === 'UNORDERED') s += 'list-style-type:disc;';
-  if (t.listOptions?.type && t.listOptions.type !== 'NONE') {
-    s += 'display:list-item;';
-    if (t.listOptions.indent !== undefined) s += `margin-left:${String(t.listOptions.indent)}px;`;
+  if (!opts?.excludeListLayout) {
+    if (t.listOptions?.type === 'ORDERED') s += 'list-style-type:decimal;';
+    if (t.listOptions?.type === 'UNORDERED') s += 'list-style-type:disc;';
+    if (t.listOptions?.type && t.listOptions.type !== 'NONE') {
+      s += 'display:list-item;';
+      if (t.listOptions.indent !== undefined) s += `margin-left:${String(t.listOptions.indent)}px;`;
+    }
+    if (t.hangingList) s += 'list-style-position:outside;';
+    if (t.listSpacing !== undefined && t.listSpacing > 0) s += `margin-top:${String(t.listSpacing)}px;`;
   }
-  if (t.hangingList) s += 'list-style-position:outside;';
-  if (t.listSpacing !== undefined && t.listSpacing > 0) s += `margin-top:${String(t.listSpacing)}px;`;
   return s;
 }
 
@@ -137,6 +173,7 @@ export function mergeTypographyFromText(t: TextNode, style?: TextRangeStyle): Ty
   return {
     fontSize: style?.fontSize ?? t.fontSize,
     lineHeight: style?.lineHeight ?? t.lineHeight,
+    leadingTrim: t.leadingTrim,
     letterSpacing: style?.letterSpacing ?? t.letterSpacing,
     textCase: style?.textCase ?? undefined,
     textDecoration: style?.textDecoration,
@@ -174,5 +211,12 @@ export function openTypeFeaturesCss(features: Record<string, boolean> | undefine
 }
 
 export function hugTextLineHeightPxFromTypography(fontSize: number, lineHeight?: LineHeight): number {
-  return Math.ceil(lineHeightPx(lineHeight, fontSize));
+  return Math.ceil(hugLayoutLineHeightPx(lineHeight, fontSize));
+}
+
+export function leadingTrimCss(leadingTrim?: LeadingTrim): string {
+  if (leadingTrim === 'CAP_HEIGHT') {
+    return 'text-box-trim:trim-both;text-box-edge:cap alphabetic;';
+  }
+  return '';
 }

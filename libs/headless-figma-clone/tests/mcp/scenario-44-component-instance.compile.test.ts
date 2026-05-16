@@ -49,8 +49,8 @@ describe('scenario 44 component instance compile', () => {
     const close = out.html.indexOf('}', open);
     const rule = out.html.slice(open, close + 1);
     expect(rule).toMatch(/width:([1-9][0-9]+)px/);
-    /** Hugging TEXT height uses hugTextLineHeightPx (14px label → 20px with descender slack). */
-    expect(rule).toMatch(/height:20px/);
+    /** Hugging TEXT height: 14px type + 2px slack → 16px. */
+    expect(rule).toMatch(/height:16px/);
     expect(rule).not.toContain('width:0px');
   });
 });

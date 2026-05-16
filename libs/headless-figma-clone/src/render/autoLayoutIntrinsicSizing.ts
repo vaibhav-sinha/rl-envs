@@ -212,6 +212,31 @@ function maxCrossHeightHorizRow(n: SceneNode, env: FileEnvelope | undefined): nu
 /**
  * Vertical stack intrinsic height along primary axis non-wrap.
  */
+/**
+ * When a vertical auto-layout frame has a fixed height but hugging children need taller
+ * line boxes than Figma's nominal font sizes, shrink row gap so the stack still fits (Figma
+ * visually compresses inter-line rhythm before clipping descenders).
+ */
+export function effectiveVerticalItemSpacingPx(f: FrameNode): number {
+  const gap = f.itemSpacing ?? 0;
+  if (f.layoutMode !== 'VERTICAL' || gap <= 0) return gap;
+  const kids = f.children;
+  if (!kids?.length || kids.length < 2) return gap;
+  const pad = (f.paddingTop ?? 0) + (f.paddingBottom ?? 0);
+  const frameH = f.height ?? 0;
+  if (frameH <= 0) return gap;
+  let contentH = 0;
+  for (const c of kids) {
+    contentH += Math.max(0, (c as { height?: number }).height ?? 0);
+  }
+  const gaps = kids.length - 1;
+  const needed = contentH + gap * gaps;
+  const avail = frameH - pad;
+  if (needed <= avail) return gap;
+  const tightGap = (avail - contentH) / gaps;
+  return Math.max(0, Math.min(gap, tightGap));
+}
+
 function sumPrimaryHeightsVert(f: FrameNode, env: FileEnvelope | undefined): number {
   const kids = f.children;
   if (kids.length === 0) return 0;
