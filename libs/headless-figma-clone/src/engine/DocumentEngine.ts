@@ -2102,6 +2102,19 @@ export class DocumentEngine {
   }
 
   /** Lists `.hfc.json` envelopes in the given workspace directory (non-recursive). */
+  async exportFromFigmaSnapshot(
+    body: { hfcFileName: string; snapshot: unknown },
+    workspaceDir: string
+  ): Promise<{ filePath: string; fileKey: string; fileName: string }> {
+    const { handleExportHfc } = await import('../import/exportHandler.js');
+    const result = await handleExportHfc(body, {
+      workspaceDir,
+      persistence: this.deps.persistence,
+    });
+    await this.loadFromDisk({ absolutePath: result.filePath });
+    return result;
+  }
+
   async listHfcFilesInWorkspace(absoluteWorkspaceDir: string): Promise<
     Array<{
       filePath: string;

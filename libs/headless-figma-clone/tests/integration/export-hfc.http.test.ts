@@ -1,0 +1,72 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { loadConfig } from '../../src/config/loadConfig.js';
+import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
+import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
+import { createHttpServer } from '../../src/server/createHttpServer.js';
+import { createConsoleLogger } from '../../src/util/logger.js';
+
+describe('POST /export/hfc', () => {
+  let baseDir: string;
+  let closeHttp: (() => Promise<void>) | undefined;
+  let port: number;
+  let snapshot: unknown;
+
+  beforeAll(async () => {
+    baseDir = mkdtempSync(join(tmpdir(), 'hfc-export-http-'));
+    const ws = join(baseDir, 'ws');
+    process.env.HFC_WORKSPACE_DIR = ws;
+    process.env.HFC_HTTP_PORT = '0';
+    process.env.HFC_HTTP_HOST = '127.0.0.1';
+
+    snapshot = JSON.parse(
+      readFileSync(
+        join(dirname(fileURLToPath(import.meta.url)), '../fixtures/figma-export/minimal-frame.snapshot.json'),
+        'utf8'
+      )
+    );
+
+    const config = loadConfig({ version: 'test', cliInitialFile: null });
+    const logger = createConsoleLogger('error');
+    const engine = new DocumentEngine({
+      persistence: new JsonPersistence(),
+      logger,
+    });
+    const started = await createHttpServer({ config, engine, logger });
+    closeHttp = started.close;
+    port = started.port;
+  });
+
+  afterAll(async () => {
+    await closeHttp?.();
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  it('writes .hfc.json to workspace and returns filePath', async () => {
+    const res = await fetch(`http://127.0.0.1:${String(port)}/export/hfc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hfcFileName: 'From-Figma-Export', snapshot }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { filePath: string; fileKey: string; fileName: string };
+    expect(body.fileName).toBe('From-Figma-Export');
+    expect(body.filePath).toMatch(/From-Figma-Export\.hfc\.json$/);
+
+    const onDisk = JSON.parse(readFileSync(body.filePath, 'utf8')) as {
+      document: { children: { children: { name: string }[] }[] };
+    };
+    const page = onDisk.document.children[0]!;
+    const frame = page.children.find((n) => n.name === 'Card');
+    expect(frame).toBeDefined();
+  });
+
+  it('health advertises export endpoint', async () => {
+    const res = await fetch(`http://127.0.0.1:${String(port)}/health`);
+    const body = (await res.json()) as { exportEndpoint?: string };
+    expect(body.exportEndpoint).toBe('/export/hfc');
+  });
+});

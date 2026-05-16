@@ -11,16 +11,29 @@ import { designCompiler } from '../render/DesignCompiler.js';
 import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import type { Logger } from '../util/logger.js';
 import { createHeadlessMcpServer } from '../mcp/registerTools.js';
+import { ExportError } from '../import/exportHandler.js';
 
 type SessionEntry = {
   transport: StreamableHTTPServerTransport;
   server: ReturnType<typeof createHeadlessMcpServer>;
 };
 
-function readJsonBody(req: IncomingMessage): Promise<unknown> {
+const DEFAULT_JSON_BODY_LIMIT = 200 * 1024 * 1024;
+
+function readJsonBody(req: IncomingMessage, maxBytes = DEFAULT_JSON_BODY_LIMIT): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (c) => chunks.push(c as Buffer));
+    let total = 0;
+    req.on('data', (c) => {
+      const buf = c as Buffer;
+      total += buf.length;
+      if (total > maxBytes) {
+        reject(new Error('PAYLOAD_TOO_LARGE'));
+        req.destroy();
+        return;
+      }
+      chunks.push(buf);
+    });
     req.on('end', () => {
       try {
         const raw = Buffer.concat(chunks).toString('utf8');
@@ -159,7 +172,37 @@ export async function createHttpServer(params: {
         sendJson(res, 200, {
           status: 'ok',
           version: config.version,
+          exportEndpoint: '/export/hfc',
         });
+        return;
+      }
+
+      if (req.method === 'POST' && url === '/export/hfc') {
+        let body: unknown;
+        try {
+          body = await readJsonBody(req);
+        } catch (e) {
+          if (e instanceof Error && e.message === 'PAYLOAD_TOO_LARGE') {
+            sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds size limit');
+            return;
+          }
+          throw e;
+        }
+        const reqBody = body as { hfcFileName?: string; snapshot?: unknown };
+        try {
+          const result = await engine.exportFromFigmaSnapshot(
+            { hfcFileName: reqBody.hfcFileName ?? '', snapshot: reqBody.snapshot },
+            config.workspaceDir
+          );
+          sendJson(res, 200, result);
+        } catch (e) {
+          if (e instanceof ExportError) {
+            const status = e.code === 'BAD_REQUEST' ? 400 : 422;
+            sendError(res, status, e.code, e.message);
+            return;
+          }
+          throw e;
+        }
         return;
       }
 
