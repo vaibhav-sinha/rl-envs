@@ -53,18 +53,67 @@ export function hugTextLineHeightPx(fontSize: number, lineHeight?: TextNode['lin
   return hugTextLineHeightPxFromTypography(fontSize, lineHeight);
 }
 
-function textIntrinsicHeightForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
+/** Figma `textAutoResize: HEIGHT` wraps at fixed width; hugging AL must reserve multiple lines. */
+function textNeedsWrappedIntrinsicHeight(t: TextNode): boolean {
+  if (t.textAutoResize === 'HEIGHT') return true;
+  if (t.textAutoResize === 'NONE' && t.layoutSizingHorizontal === 'FIXED' && (t.width ?? 0) > 0) {
+    return true;
+  }
+  if (t.textTruncation === 'ENDING' && t.maxLines != null && t.maxLines > 1) return true;
+  return false;
+}
+
+function boxWidthForWrappedIntrinsicHeight(t: TextNode, env: FileEnvelope | undefined): number {
   const fs = effectiveTextMaxFontSizePx(t, env);
+  if (t.layoutSizingHorizontal === 'FIXED' || (t.width ?? 0) > 0) {
+    return Math.max(0, t.width ?? 0);
+  }
+  return approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+}
+
+function approximateWrappedLineCount(chars: string, boxWidthPx: number, fontSize: number): number {
+  if (!chars.length) return 1;
+  if (boxWidthPx <= 0) return Math.max(1, chars.split('\n').length);
+
+  const charW = fontSize * TEXT_WIDTH_CHAR_FACTOR;
+  const charsPerLine = Math.max(1, Math.floor(boxWidthPx / charW));
+  let total = 0;
+  for (const para of chars.split('\n')) {
+    total += Math.max(1, Math.ceil(para.length / charsPerLine));
+  }
+  return Math.max(1, total);
+}
+
+function approximateWrappedTextHeightPx(t: TextNode, env: FileEnvelope | undefined): number {
+  const fs = effectiveTextMaxFontSizePx(t, env);
+  const lineH = hugTextLineHeightPx(fs, t.lineHeight);
+  const chars = textCharactersForIntrinsicSizing(t, env);
+  const boxW = boxWidthForWrappedIntrinsicHeight(t, env);
+  const lineCount = approximateWrappedLineCount(chars, boxW, fs);
+  const paraCount = Math.max(1, chars.split('\n').length);
+  const paraGap = (t.paragraphSpacing ?? 0) * Math.max(0, paraCount - 1);
+  return Math.ceil(lineCount * lineH + paraGap);
+}
+
+function hugTextIntrinsicHeightPx(t: TextNode, env: FileEnvelope | undefined): number {
+  if (textNeedsWrappedIntrinsicHeight(t)) {
+    return approximateWrappedTextHeightPx(t, env);
+  }
+  const fs = effectiveTextMaxFontSizePx(t, env);
+  return hugTextLineHeightPx(fs, t.lineHeight);
+}
+
+function textIntrinsicHeightForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
   if (t.layoutSizingVertical === 'FIXED') {
     return Math.max(0, t.height);
   }
   if (t.layoutSizingVertical === 'HUG' || t.layoutSizingVertical === 'FILL') {
-    return hugTextLineHeightPx(fs, t.lineHeight);
+    return hugTextIntrinsicHeightPx(t, env);
   }
   if (typeof t.height === 'number' && t.height > 0) {
     return Math.max(0, t.height);
   }
-  return hugTextLineHeightPx(fs, t.lineHeight);
+  return hugTextIntrinsicHeightPx(t, env);
 }
 
 function padX(f: FrameNode): number {
@@ -304,8 +353,7 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
     t.width = approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
   }
   if (needsIntrinsicH) {
-    const fs = effectiveTextMaxFontSizePx(t, env);
-    t.height = hugTextLineHeightPx(fs, t.lineHeight);
+    t.height = hugTextIntrinsicHeightPx(t, env);
   }
 }
 
