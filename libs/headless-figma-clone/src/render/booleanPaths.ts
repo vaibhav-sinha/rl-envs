@@ -282,9 +282,7 @@ function operandPathInBooleanSpace(op: BooleanOperandNode, intersectMode: boolea
   path = translatePath(path, op.x, op.y);
   const rot = op.rotation ?? 0;
   if (rot !== 0) {
-    const cx = op.x + op.width / 2;
-    const cy = op.y + op.height / 2;
-    path = rotatePath(path, cx, cy, rot);
+    path = rotatePath(path, op.x, op.y, rot);
   }
   return path;
 }

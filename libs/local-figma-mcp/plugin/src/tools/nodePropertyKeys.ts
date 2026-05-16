@@ -24,6 +24,10 @@ const COMMON: readonly string[] = [
 
 const GEOMETRY: readonly string[] = [
   ...COMMON,
+  'x',
+  'y',
+  'width',
+  'height',
   'fills',
   'fillStyleId',
   'strokes',

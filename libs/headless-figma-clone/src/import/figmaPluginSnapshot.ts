@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { ulid } from 'ulid';
 import type {
+  ComponentDefinition,
   DocumentNode,
   FileEnvelope,
   FrameNode,
+  GroupNode,
   PageNode,
   SceneNode,
   VariableCollection,
@@ -31,6 +33,19 @@ import {
   prop,
   str,
 } from './propertyMappers.js';
+import {
+  mapArcData,
+  mapBoundVariables,
+  mapComponentProperties,
+  mapExplicitVariableModes,
+  mapFrameLayout,
+  mapIndividualStrokes,
+  mapInstanceOverrides,
+  mapLayoutExtras,
+  mapPaintsExtended,
+  mapTypography,
+  reportUnmappedProperties,
+} from './importNodeMappers.js';
 
 const SUPPORTED_SCENE_TYPES = new Set([
   'FRAME',
@@ -135,12 +150,23 @@ export function importFigmaPluginSnapshot(
     document.children.push(importPage(pageNode, ctx));
   }
 
+  const components: ComponentDefinition[] = [];
+  for (const [compId, root] of ctx.componentRootFrames) {
+    const compNode = findComponentNode(document, compId);
+    components.push({
+      id: compId,
+      name: compNode?.name ?? root.name,
+      root,
+    });
+  }
+
   const envelope: FileEnvelope = {
     schemaVersion: 1,
     fileKey: ulid(),
     fileName: params.fileName,
     nextInternalId: idMap.nextInternalId,
     document,
+    components: components.length > 0 ? components : undefined,
     variableCollections: variableCollections.length > 0 ? variableCollections : undefined,
     textStyles: textStyles.length > 0 ? textStyles : undefined,
     paintStyles: paintStyles.length > 0 ? paintStyles : undefined,
@@ -148,8 +174,13 @@ export function importFigmaPluginSnapshot(
     gridStyles: gridStyles.length > 0 ? gridStyles : undefined,
   };
 
-  if (importVerbose() && report.skippedNodes.length > 0) {
-    console.warn('[hfc-import] skipped nodes:', report.skippedNodes.length);
+  if (importVerbose()) {
+    if (report.skippedNodes.length > 0) {
+      console.warn('[hfc-import] skipped nodes:', report.skippedNodes.length);
+    }
+    if (report.skippedProperties.length > 0) {
+      console.warn('[hfc-import] unmapped properties:', report.skippedProperties.length);
+    }
   }
 
   return { envelope, assetBuffers, report };
@@ -182,11 +213,32 @@ function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
   return page;
 }
 
+/** Figma group children are group-relative; compiler expects frame-space when using coordLocalOrigin. */
+function normalizeGroupChildrenToFrameSpace(g: GroupNode): void {
+  for (const ch of g.children) {
+    ch.x += g.x;
+    ch.y += g.y;
+    if (ch.type === 'GROUP') {
+      normalizeGroupChildrenToFrameSpace(ch);
+    }
+  }
+}
+
+function findComponentNode(document: DocumentNode, compId: string): SceneNode | undefined {
+  for (const page of document.children) {
+    for (const ch of page.children) {
+      if (ch.id === compId && ch.type === 'COMPONENT') return ch;
+    }
+  }
+  return undefined;
+}
+
 function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOrigin?: ParentPageOrigin): SceneNode | null {
   const { idMap, imageRemap, report } = ctx;
 
   if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET' || node.type === 'TABLE') {
     const p = node.properties;
+    reportUnmappedProperties(node.id, p, report);
     const base = {
       id: idMap.allocate(node.id),
       name: node.name,
@@ -245,16 +297,20 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
   }
 
   const p = node.properties;
+  reportUnmappedProperties(node.id, p, report);
   const base = {
     id: idMap.allocate(node.id),
     name: node.name,
     ...mapBlendOpacity(p),
     ...mapLayoutSelf(p),
+    ...mapLayoutExtras(p),
+    ...(mapBoundVariables(p, idMap) ? { boundVariables: mapBoundVariables(p, idMap) } : {}),
+    ...(mapExplicitVariableModes(p, idMap) ? { explicitVariableModes: mapExplicitVariableModes(p, idMap) } : {}),
   };
   const b = boundsFromProps(p, parentPageOrigin);
   const nodePageOrigin = childPageOrigin(parentPageOrigin, b);
-  const fills = mapPaints(prop(p, 'fills'), imageRemap);
-  const strokes = mapPaints(prop(p, 'strokes'), imageRemap);
+  const fills = mapPaintsExtended(prop(p, 'fills'), imageRemap, idMap);
+  const strokes = mapPaintsExtended(prop(p, 'strokes'), imageRemap, idMap);
   const effects = mapEffects(prop(p, 'effects'));
   const strokeExtras = mapStrokeExtras(p);
   const corners = mapCornerRadii(p);
@@ -279,11 +335,13 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
         height: b.height,
         children: importChildren(),
         fills,
-        backgrounds: mapPaints(prop(p, 'backgrounds'), imageRemap),
+        backgrounds: mapPaintsExtended(prop(p, 'backgrounds'), imageRemap, idMap),
         strokes,
         effects,
         ...strokeExtras,
         ...corners,
+        ...mapIndividualStrokes(p),
+        ...mapFrameLayout(p, b.width),
         clipsContent: prop(p, 'clipsContent') === true,
         layoutMode: optStr(prop(p, 'layoutMode')) as 'NONE' | 'HORIZONTAL' | 'VERTICAL' | 'GRID' | undefined,
         paddingLeft: optNum(prop(p, 'paddingLeft')),
@@ -306,6 +364,7 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
         fillStyleId: optStr(prop(p, 'fillStyleId')),
         strokeStyleId: optStr(prop(p, 'strokeStyleId')),
         effectStyleId: optStr(prop(p, 'effectStyleId')),
+        gridStyleId: optStr(prop(p, 'gridStyleId')),
       } as SceneNode;
     }
     case 'TEXT': {
@@ -334,10 +393,10 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
         textAutoResize: optStr(prop(p, 'textAutoResize')) as 'NONE' | 'WIDTH_AND_HEIGHT' | 'HEIGHT' | 'TRUNCATE' | undefined,
         textStyleId: optStr(prop(p, 'textStyleId')),
         fillStyleId: optStr(prop(p, 'fillStyleId')),
+        ...mapTypography(p),
       } as SceneNode;
     }
     case 'RECTANGLE':
-    case 'ELLIPSE':
     case 'LINE':
     case 'POLYGON':
     case 'STAR': {
@@ -353,8 +412,30 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
         effects,
         ...strokeExtras,
         ...corners,
+        ...mapIndividualStrokes(p),
         fillStyleId: optStr(prop(p, 'fillStyleId')),
         strokeStyleId: optStr(prop(p, 'strokeStyleId')),
+        effectStyleId: optStr(prop(p, 'effectStyleId')),
+      } as SceneNode;
+    }
+    case 'ELLIPSE': {
+      return {
+        ...base,
+        type: 'ELLIPSE',
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        fills,
+        strokes,
+        effects,
+        ...strokeExtras,
+        ...corners,
+        ...mapIndividualStrokes(p),
+        ...mapArcData(p),
+        fillStyleId: optStr(prop(p, 'fillStyleId')),
+        strokeStyleId: optStr(prop(p, 'strokeStyleId')),
+        effectStyleId: optStr(prop(p, 'effectStyleId')),
       } as SceneNode;
     }
     case 'VECTOR': {
@@ -390,11 +471,23 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
         booleanOperation: (optStr(prop(p, 'booleanOperation')) ?? 'UNION') as 'UNION' | 'INTERSECT' | 'SUBTRACT' | 'EXCLUDE',
       } as SceneNode;
     }
-    case 'GROUP':
+    case 'GROUP': {
+      const group = {
+        ...base,
+        type: 'GROUP' as const,
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        children: importChildren(),
+      };
+      normalizeGroupChildrenToFrameSpace(group);
+      return group;
+    }
     case 'TRANSFORM_GROUP': {
       return {
         ...base,
-        type: node.type,
+        type: 'TRANSFORM_GROUP',
         x: b.x,
         y: b.y,
         width: b.width,
@@ -450,7 +543,9 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
         ...strokeExtras,
         ...corners,
         mainComponentId: mainComponentId ?? 'I0',
-        componentProperties: prop(p, 'componentProperties') as Record<string, unknown> | undefined,
+        componentProperties: mapComponentProperties(prop(p, 'componentProperties')),
+        overrides: mapInstanceOverrides(prop(p, 'overrides'), idMap, imageRemap),
+        effectStyleId: optStr(prop(p, 'effectStyleId')),
       } as SceneNode;
     }
     default:
@@ -467,7 +562,7 @@ function buildFrameFromSerialized(
 ): FrameNode {
   const p = node.properties;
   const b = boundsOverride ?? boundsFromProps(p);
-  const imageRemap = ctx.imageRemap;
+  const { imageRemap, idMap } = ctx;
   return {
     id: frameId,
     type: 'FRAME',
@@ -479,9 +574,10 @@ function buildFrameFromSerialized(
     children,
     ...mapBlendOpacity(p),
     ...mapLayoutSelf(p),
-    fills: mapPaints(prop(p, 'fills'), imageRemap),
-    backgrounds: mapPaints(prop(p, 'backgrounds'), imageRemap),
-    strokes: mapPaints(prop(p, 'strokes'), imageRemap),
+    ...mapLayoutExtras(p),
+    fills: mapPaintsExtended(prop(p, 'fills'), imageRemap, idMap),
+    backgrounds: mapPaintsExtended(prop(p, 'backgrounds'), imageRemap, idMap),
+    strokes: mapPaintsExtended(prop(p, 'strokes'), imageRemap, idMap),
     effects: mapEffects(prop(p, 'effects')),
     ...mapStrokeExtras(p),
     ...mapCornerRadii(p),
