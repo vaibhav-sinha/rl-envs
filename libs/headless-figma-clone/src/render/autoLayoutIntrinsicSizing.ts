@@ -25,6 +25,32 @@ function approximateTextWidthPx(chars: string, fontSize: number): number {
   return Math.max(0, Math.ceil(raw) + Math.ceil(fontSize * 0.35));
 }
 
+/**
+ * Prefer Figma-exported line width when it is present and not far below the heuristic
+ * (very small exports still use the heuristic to avoid false wraps in the browser).
+ */
+function reasonableExportedTextWidth(exported: number, approx: number): number {
+  if (exported <= 0) return approx;
+  if (approx <= 0) return exported;
+  return exported >= approx * 0.55 ? exported : approx;
+}
+
+/** Hug/FILL text width for layout sums and compile-time `width` materialization. */
+function hugTextIntrinsicWidthPx(t: TextNode, env: FileEnvelope | undefined): number {
+  const fs = effectiveTextMaxFontSizePx(t, env);
+  const approx = approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+  const exported = t.width ?? 0;
+  if (exported > 0) {
+    if (t.layoutSizingHorizontal === 'HUG' || t.layoutSizingHorizontal === 'FILL') {
+      return reasonableExportedTextWidth(exported, approx);
+    }
+    if (t.layoutSizingHorizontal !== 'FIXED') {
+      return exported;
+    }
+  }
+  return approx;
+}
+
 export function textCharactersForIntrinsicSizing(t: TextNode, env: FileEnvelope | undefined): string {
   const vid = t.boundVariables?.characters;
   if (env && vid) {
@@ -40,7 +66,7 @@ function textIntrinsicWidthForAutoLayout(t: TextNode, env: FileEnvelope | undefi
     return Math.max(0, t.width);
   }
   if (t.layoutSizingHorizontal === 'HUG' || t.layoutSizingHorizontal === 'FILL') {
-    return approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+    return hugTextIntrinsicWidthPx(t, env);
   }
   if (typeof t.width === 'number' && t.width > 0) {
     return Math.max(0, t.width);
@@ -122,6 +148,18 @@ function padX(f: FrameNode): number {
 
 function padY(f: FrameNode): number {
   return (f.paddingTop ?? 0) + (f.paddingBottom ?? 0);
+}
+
+/** Inner width available to children of a vertical auto-layout frame. */
+function parentInnerCrossWidthPx(parent: FrameNode): number {
+  if (parent.layoutMode !== 'VERTICAL') return 0;
+  return Math.max(0, parent.width - padX(parent));
+}
+
+/** Inner height available to children of a horizontal auto-layout frame. */
+function parentInnerCrossHeightPx(parent: FrameNode): number {
+  if (parent.layoutMode !== 'HORIZONTAL') return 0;
+  return Math.max(0, parent.height - padY(parent));
 }
 
 /** Whether this frame behaves as auto-layout container in our renderer. */
@@ -349,8 +387,7 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
     t.layoutSizingVertical === 'FILL' ||
     (t.layoutSizingVertical !== 'FIXED' && (t.height ?? 0) <= 0);
   if (needsIntrinsicW) {
-    const fs = effectiveTextMaxFontSizePx(t, env);
-    t.width = approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+    t.width = hugTextIntrinsicWidthPx(t, env);
   }
   if (needsIntrinsicH) {
     t.height = hugTextIntrinsicHeightPx(t, env);
@@ -363,16 +400,21 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
  *
  * Mutates the tree (expected to run on structuredClone subtree).
  */
-export function applyAutoLayoutIntrinsicSizingDeep(n: SceneNode, env?: FileEnvelope): void {
+export function applyAutoLayoutIntrinsicSizingDeep(
+  n: SceneNode,
+  env?: FileEnvelope,
+  parent?: FrameNode
+): void {
   if (n.type === 'BOOLEAN_OPERATION' && 'children' in n && Array.isArray(n.children)) {
-    for (const c of n.children as unknown as SceneNode[]) applyAutoLayoutIntrinsicSizingDeep(c, env);
+    for (const c of n.children as unknown as SceneNode[]) applyAutoLayoutIntrinsicSizingDeep(c, env, parent);
   } else if (
     (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP') &&
     'children' in n &&
     Array.isArray(n.children)
   ) {
     const list = (n as { children: SceneNode[] }).children;
-    for (const c of list) applyAutoLayoutIntrinsicSizingDeep(c, env);
+    const frameParent = n.type === 'FRAME' ? (n as FrameNode) : parent;
+    for (const c of list) applyAutoLayoutIntrinsicSizingDeep(c, env, frameParent);
   }
 
   if (n.type !== 'FRAME') return;
@@ -406,6 +448,27 @@ export function applyAutoLayoutIntrinsicSizingDeep(n: SceneNode, env?: FileEnvel
       for (const c of f.children) cross = Math.max(cross, maxCrossHeightHorizRow(c, env));
       const target = cross + padY(f);
       newH = f.counterAxisSizingMode === 'HUG' || f.counterAxisSizingMode === 'FILL' ? target : Math.max(f.height, target);
+    }
+  }
+
+  /** Row in a vertical stack must not outgrow the parent's inner width (exported fill/hug rows). */
+  if (f.layoutMode === 'HORIZONTAL' && parent?.layoutMode === 'VERTICAL' && primaryIntrinsic) {
+    const cap = parentInnerCrossWidthPx(parent);
+    if (cap > 0 && newW > cap) {
+      const cross = f.layoutSizingHorizontal;
+      if (cross === 'HUG' || cross === 'FILL' || f.width <= cap) {
+        newW = cap;
+      }
+    }
+  }
+  /** Column in a horizontal stack must not outgrow the parent's inner height. */
+  if (f.layoutMode === 'VERTICAL' && parent?.layoutMode === 'HORIZONTAL' && primaryIntrinsic) {
+    const cap = parentInnerCrossHeightPx(parent);
+    if (cap > 0 && newH > cap) {
+      const cross = f.layoutSizingVertical;
+      if (cross === 'HUG' || cross === 'FILL' || f.height <= cap) {
+        newH = cap;
+      }
     }
   }
 
