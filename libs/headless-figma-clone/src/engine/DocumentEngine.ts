@@ -2037,7 +2037,7 @@ export class DocumentEngine {
   private activeFile: FileEnvelope | null = null;
   private activeFilePath: string | null = null;
   private currentPageId: string | null = null;
-  private debugPreviewListener: ((envelope: FileEnvelope) => void) | null = null;
+  private previewListener: ((envelope: FileEnvelope) => void) | null = null;
 
   constructor(
     private readonly deps: {
@@ -2047,13 +2047,13 @@ export class DocumentEngine {
   ) {}
 
   /** When set, invoked after the active envelope is committed (load, create, successful transaction). */
-  attachDebugPreviewListener(listener: ((envelope: FileEnvelope) => void) | null): void {
-    this.debugPreviewListener = listener;
+  attachPreviewListener(listener: ((envelope: FileEnvelope) => void) | null): void {
+    this.previewListener = listener;
   }
 
-  private emitDebugPreview(): void {
-    if (this.debugPreviewListener && this.activeFile) {
-      this.debugPreviewListener(this.activeFile);
+  private emitPreview(): void {
+    if (this.previewListener && this.activeFile) {
+      this.previewListener(this.activeFile);
     }
   }
 
@@ -2098,7 +2098,7 @@ export class DocumentEngine {
     if (params.save) {
       await this.deps.persistence.save({ path: params.absolutePath, envelope: env });
     }
-    this.emitDebugPreview();
+    this.emitPreview();
   }
 
   /** Lists `.hfc.json` envelopes in the given workspace directory (non-recursive). */
@@ -2176,7 +2176,7 @@ export class DocumentEngine {
     this.syncCurrentPageToDocument(envelope.document);
     await this.deps.persistence.save({ path: filePath, envelope });
     this.deps.logger.info('created new file', { filePath, fileKey });
-    this.emitDebugPreview();
+    this.emitPreview();
     return { fileKey, filePath };
   }
 
@@ -2229,7 +2229,7 @@ export class DocumentEngine {
       const msg = e instanceof Error ? e.message : String(e);
       return { ok: false, errorCode: 'VALIDATION_ERROR', message: msg };
     }
-    this.emitDebugPreview();
+    this.emitPreview();
     return { ok: true, assetId: record.id, sha256: record.sha256, mimeType: record.mimeType };
   }
 
@@ -2372,7 +2372,7 @@ export class DocumentEngine {
     this.activeFile = working;
     this.syncCurrentPageToDocument(working.document);
     await this.deps.persistence.save({ path: this.activeFilePath, envelope: working });
-    this.emitDebugPreview();
+    this.emitPreview();
     return { success: true, touchedNodeIds: [...touched], warnings };
   }
 }

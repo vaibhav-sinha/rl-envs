@@ -47,12 +47,6 @@ Bind host and port (these set `HFC_HTTP_HOST` / `HFC_HTTP_PORT` for the process)
 node dist/cli.js --transport http --http-host 127.0.0.1 --http-port 3847
 ```
 
-Enable debug HTTP routes without setting an environment variable:
-
-```bash
-node dist/cli.js --transport http --http-port 3847 --debug
-```
-
 Load a file at startup (absolute or relative path is passed through; resolve to an absolute path if needed):
 
 ```bash
@@ -87,7 +81,6 @@ node dist/cli.js --transport stdio
 | `--http-host` | host string | HTTP listen host (HTTP only) |
 | `--http-port` | port number | HTTP listen port (HTTP only) |
 | `--file` | path | Initial `.hfc.json` to load after startup |
-| `--debug` | — | Enables debug mode (`HFC_ALLOW_DEBUG=1`): `/debug/*` HTTP routes and live preview refresh (same as the env var) |
 
 ### Environment variables
 
@@ -99,7 +92,6 @@ node dist/cli.js --transport stdio
 | `HFC_WORKSPACE_DIR` | `~/.headless-figma-clone/workspace` | Default workspace for new files |
 | `HFC_LOG_LEVEL` | `info` | `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` |
 | `HFC_SCREENSHOT_TIMEOUT_MS` | `30000` | Playwright timeout for screenshots |
-| `HFC_ALLOW_DEBUG` | off | Set to `1` to enable `/debug/*` routes (see design docs). Same effect as **`--debug`** on the CLI. |
 
 ### HTTP endpoints (transport `http`)
 
@@ -107,29 +99,22 @@ Replace the host and port with your listen address (for example `http://127.0.0.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | JSON: `status`, `version`, `exportEndpoint`. Always available. |
+| `GET` | `/health` | JSON: `status`, `version`, `exportEndpoint`, `previewEndpoint`. Always available. |
 | `POST` | `/export/hfc` | JSON body `{ "hfcFileName": "…", "snapshot": { … } }` — imports a Figma plugin export snapshot and writes `{slug}.hfc.json` under **`HFC_WORKSPACE_DIR`**. Response: `filePath`, `fileKey`, `fileName`. Used by the **local-figma-mcp** plugin UI (Figma Desktop → HFC, port **3847**). |
-| `GET` | `/files` | JSON: workspace `.hfc.json` files with metadata; each entry includes **`setActiveUrl`** pointing at `/files/active` for that file. Always available. |
-| `GET` | `/files/active?path=…` | Loads the given absolute path as the active document. Query **`path`** must be URL-encoded, resolve under **`HFC_WORKSPACE_DIR`**, and end with **`.hfc.json`**. JSON: `ok`, `fileKey`, `filePath`, `fileName`. Always available. |
+| `GET` | `/files` | HTML file browser listing workspace `.hfc.json` files. Each row has a **View** link that activates the file and opens the preview. Always available. |
+| `GET` | `/files/active?path=…` | Loads the given absolute path as the active document. Query **`path`** must be URL-encoded, resolve under **`HFC_WORKSPACE_DIR`**, and end with **`.hfc.json`**. Returns JSON (`ok`, `fileKey`, `filePath`, `fileName`) unless **`redirect`** is set (e.g. `redirect=/preview` → **302** to preview). Always available. |
+| `GET` | `/preview?pageId=…` | HTML design preview of the active file with a floating page selector toolbar. Optional **`pageId`** selects which page to render. Updates when the active document changes. Always available. |
 | `POST` | `/mcp` | MCP Streamable HTTP (JSON-RPC bodies, `mcp-session-id` header after initialize). Always available. |
 | `GET` | `/mcp` | Returns **405** with `Allow: POST` (MCP is POST-only). |
-
-With **`HFC_ALLOW_DEBUG=1`** or the **`--debug`** CLI flag:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/debug/load-file` | JSON body `{ "path": "<absolute path>" }` — loads any path as the active file (not restricted to the workspace). |
-| `GET` | `/debug/preview` | HTML snapshot of the first page of the active file (updates when the active document changes). |
 
 Example base URL: `http://127.0.0.1:3847`
 
 - Health: `http://127.0.0.1:3847/health`
 - Figma export import: `POST http://127.0.0.1:3847/export/hfc` (from the Local Figma MCP plugin **Export File** action; requires this server to be running)
-- List files: `http://127.0.0.1:3847/files`
+- File browser: `http://127.0.0.1:3847/files`
 - Set active file (encode `path`): `http://127.0.0.1:3847/files/active?path=` + `encodeURIComponent("C:\\…\\design.hfc.json")`
+- Preview: `http://127.0.0.1:3847/preview`
 - MCP: `http://127.0.0.1:3847/mcp` (POST)
-- Debug load (POST JSON): `http://127.0.0.1:3847/debug/load-file`
-- Debug preview: `http://127.0.0.1:3847/debug/preview`
 
 Stop the server with **Ctrl+C** (SIGINT) or SIGTERM.
 

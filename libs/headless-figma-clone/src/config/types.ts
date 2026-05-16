@@ -5,7 +5,6 @@ export interface HeadlessFigmaRuntimeConfig {
   httpPort: number;
   workspaceDir: string;
   initialFilePath: string | null;
-  allowDebug: boolean;
   logLevel: LogLevel;
   screenshotTimeoutMs: number;
   /** Default Playwright `deviceScaleFactor` when `get_screenshot` omits it (Phase 2). */

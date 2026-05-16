@@ -42,30 +42,21 @@ describe('HTTP /files and /files/active', () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 
-  it('lists files with setActiveUrl and marks active file', async () => {
+  it('GET /files returns HTML file browser with file names', async () => {
     const res = await fetch(`http://127.0.0.1:${String(port)}/files`);
     expect(res.ok).toBe(true);
-    const body = (await res.json()) as {
-      workspaceDir: string;
-      files: Array<{
-        filePath: string;
-        fileKey: string;
-        fileName: string;
-        active: boolean;
-        setActiveUrl: string;
-      }>;
-    };
-    expect(body.files.length).toBe(2);
-    for (const f of body.files) {
-      expect(f.setActiveUrl).toContain('/files/active?path=');
-      expect(decodeURIComponent(new URL(f.setActiveUrl).searchParams.get('path')!)).toBe(f.filePath);
-    }
-    const activeCount = body.files.filter((f) => f.active).length;
-    expect(activeCount).toBe(1);
-    expect(body.files.find((f) => f.filePath === pathB)?.active).toBe(true);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const html = await res.text();
+    expect(html).toContain('Workspace files');
+    expect(html).toContain('Alpha');
+    expect(html).toContain('Beta');
+    expect(html).toContain('View');
+    expect(html).toContain('/files/active?path=');
+    expect(html).toContain('redirect=');
+    expect(html).toMatch(/redirect=(%2F|\/)preview/);
   });
 
-  it('GET /files/active switches active file', async () => {
+  it('GET /files/active switches active file (JSON)', async () => {
     const u = new URL(`http://127.0.0.1:${String(port)}/files/active`);
     u.searchParams.set('path', pathA);
     const res = await fetch(u);
@@ -75,9 +66,23 @@ describe('HTTP /files and /files/active', () => {
     expect(body.filePath).toBe(pathA);
 
     const list = await fetch(`http://127.0.0.1:${String(port)}/files`);
-    const listBody = (await list.json()) as { files: Array<{ filePath: string; active: boolean }> };
-    expect(listBody.files.find((f) => f.filePath === pathA)?.active).toBe(true);
-    expect(listBody.files.find((f) => f.filePath === pathB)?.active).toBe(false);
+    const listHtml = await list.text();
+    expect(listHtml).toContain('badge-active');
+    expect(listHtml).toContain('Alpha');
+  });
+
+  it('GET /files/active with redirect loads file and redirects to preview', async () => {
+    const u = new URL(`http://127.0.0.1:${String(port)}/files/active`);
+    u.searchParams.set('path', pathB);
+    u.searchParams.set('redirect', '/preview');
+    const res = await fetch(u, { redirect: 'manual' });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/preview');
+
+    const previewRes = await fetch(`http://127.0.0.1:${String(port)}/preview`);
+    expect(previewRes.ok).toBe(true);
+    const previewHtml = await previewRes.text();
+    expect(previewHtml).toContain('hfc-preview-toolbar');
   });
 
   it('rejects path outside workspace', async () => {

@@ -26,7 +26,6 @@ describe('mcp-http smoke', () => {
     const ws = join(baseDir, 'ws');
     process.env.HFC_WORKSPACE_DIR = ws;
     process.env.HFC_HTTP_PORT = '0';
-    process.env.HFC_ALLOW_DEBUG = '1';
     process.env.HFC_HTTP_HOST = '127.0.0.1';
 
     const config = loadConfig({ version: 'test', cliInitialFile: null });
@@ -152,7 +151,7 @@ describe('mcp-http smoke', () => {
     const codeFrameId = (ucBody.data as { result: { createdNodeIds: string[] } }).result.createdNodeIds[0];
     expect(codeFrameId).toMatch(/^I[0-9]+$/);
 
-    const previewRes = await fetch(`http://127.0.0.1:${String(port)}/debug/preview`);
+    const previewRes = await fetch(`http://127.0.0.1:${String(port)}/preview`);
     expect(previewRes.ok).toBe(true);
     const previewHtml = await previewRes.text();
     expect(previewHtml).toContain('hfc-node-I3');
