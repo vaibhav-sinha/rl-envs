@@ -20,12 +20,29 @@ export async function compileSubtreeForScreenshot(params: {
     timeoutMs: params.screenshotTimeoutMs,
     designCompiler,
   });
+  const opts: CompileHtmlOptions = {
+    ...params.options,
+    patternTileDataUrlByNodeId,
+  };
+  const preliminary = designCompiler.compileSubtree({
+    envelope: params.envelope,
+    rootNodeId: params.rootNodeId,
+    options: opts,
+  });
+  const measured = await params.screenshot.measureTextWidthsFromCompiledHtml({
+    html: preliminary.html,
+    timeoutMs: params.screenshotTimeoutMs,
+  });
+  const widthMap = measured && typeof measured === 'object' ? measured : {};
+  if (Object.keys(widthMap).length === 0) {
+    return preliminary;
+  }
   return designCompiler.compileSubtree({
     envelope: params.envelope,
     rootNodeId: params.rootNodeId,
     options: {
-      ...params.options,
-      patternTileDataUrlByNodeId,
+      ...opts,
+      measuredTextWidthPxByNodeId: widthMap,
     },
   });
 }

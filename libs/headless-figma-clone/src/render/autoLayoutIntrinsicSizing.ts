@@ -43,18 +43,26 @@ export function textCharactersForIntrinsicSizing(t: TextNode, env: FileEnvelope 
   return t.characters ?? '';
 }
 
+function measuredTextWidthPx(t: TextNode, env: FileEnvelope | undefined): number | null {
+  const m = env?.measuredTextWidthPxByNodeId?.[t.id];
+  if (m === undefined || !Number.isFinite(m) || m <= 0) return null;
+  return m;
+}
+
 function textIntrinsicWidthForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
   const fs = effectiveTextFontSizePx(t, env);
+  const approx = approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+  const mw = measuredTextWidthPx(t, env);
   if (t.layoutSizingHorizontal === 'FIXED') {
     return Math.max(0, t.width);
   }
   if (t.layoutSizingHorizontal === 'HUG' || t.layoutSizingHorizontal === 'FILL') {
-    return approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+    return mw !== null ? mw : approx;
   }
   if (typeof t.width === 'number' && t.width > 0) {
     return Math.max(0, t.width);
   }
-  return approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+  return mw !== null ? mw : approx;
 }
 
 function textIntrinsicHeightForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
@@ -294,8 +302,11 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
     t.layoutSizingVertical === 'FILL' ||
     (t.layoutSizingVertical !== 'FIXED' && (t.height ?? 0) <= 0);
   if (needsIntrinsicW) {
-    const fs = effectiveTextFontSizePx(t, env);
-    t.width = approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+    const mw = measuredTextWidthPx(t, env);
+    t.width =
+      mw !== null
+        ? mw
+        : approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), effectiveTextFontSizePx(t, env));
   }
   if (needsIntrinsicH) {
     t.height = Math.max(0, effectiveTextFontSizePx(t, env));

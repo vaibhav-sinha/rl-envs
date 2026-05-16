@@ -745,4 +745,9 @@ export interface FileEnvelope {
   gridStyles?: GridStyleDefinition[];
   /** Phase 5 legacy component masters (migrated to graph nodes in Phase 9). */
   components?: ComponentDefinition[];
+  /**
+   * Compile-only: Playwright-measured single-line text widths (`data-hfc-id` → px).
+   * Set by {@link compileSubtreeForScreenshot}; not persisted with the file.
+   */
+  measuredTextWidthPxByNodeId?: Record<string, number>;
 }

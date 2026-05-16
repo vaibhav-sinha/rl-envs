@@ -85,6 +85,11 @@ export type CompileHtmlOptions = {
   imageDataUrlByHash?: Record<string, string>;
   /** Rasterized pattern source tiles (`sourceNodeId` → data URL). */
   patternTileDataUrlByNodeId?: Record<string, string>;
+  /**
+   * When set (e.g. screenshot path), intrinsic text widths use these values instead of heuristics.
+   * Copied onto the compile-time envelope clone for the intrinsic pass.
+   */
+  measuredTextWidthPxByNodeId?: Record<string, number>;
 };
 
 /** Scoped UA reset so Playwright screenshots only show explicit compiled styles. */
@@ -2051,6 +2056,9 @@ function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions, enve
     throw new Error('compileRootScenes: empty roots');
   }
   /** Figma hugs auto-layout frame dimensions before render; mutate compile-time clone only. */
+  if (options.measuredTextWidthPxByNodeId) {
+    envelope.measuredTextWidthPxByNodeId = options.measuredTextWidthPxByNodeId;
+  }
   for (const root of roots) {
     applyAutoLayoutIntrinsicSizingDeep(root, envelope);
     syncHugTextLayoutMetricsDeep(root, envelope);
