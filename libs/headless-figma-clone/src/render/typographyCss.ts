@@ -1,5 +1,6 @@
 import type {
   FileEnvelope,
+  FontName,
   LeadingTrim,
   LetterSpacing,
   LineHeight,
@@ -9,6 +10,8 @@ import type {
   TextNode,
   TextRangeStyle,
 } from '../model/types.js';
+import { resolveRenderingFontName } from '../fonts/fontSubstitution.js';
+import { metricsLineHeightPx } from '../fonts/textMetrics.js';
 import {
   cssVarNameForVariable,
   resolveVariableToFloat,
@@ -16,6 +19,7 @@ import {
 } from '../variables/resolution.js';
 
 export interface TypographyInput {
+  fontName?: FontName;
   fontSize?: number;
   lineHeight?: LineHeight;
   letterSpacing?: LetterSpacing;
@@ -38,10 +42,13 @@ export const AUTO_LINE_HEIGHT_RATIO = 1.22;
  * Figma hug-contents line box for AUTO: tighter than browser `normal`, with descender slack
  * scaled by size (smaller type needs a bit more relative room for g/y/p descenders).
  */
-export function hugLayoutLineHeightPx(lineHeight: LineHeight | undefined, fontSize: number): number {
+export function hugLayoutLineHeightPx(
+  lineHeight: LineHeight | undefined,
+  fontSize: number,
+  fontName?: FontName
+): number {
   if (!lineHeight || lineHeight.unit === 'AUTO') {
-    const slack = fontSize <= 9 ? 3 : 2;
-    return Math.ceil(fontSize + slack);
+    return metricsLineHeightPx(fontSize, lineHeight, fontName);
   }
   return lineHeightPx(lineHeight, fontSize);
 }
@@ -138,7 +145,7 @@ export function paragraphTypographyCss(
 ): string {
   let s = '';
   const lh = opts?.tightAutoLineHeight
-    ? `${String(hugLayoutLineHeightPx(t.lineHeight, fontSize))}px`
+    ? `${String(hugLayoutLineHeightPx(t.lineHeight, fontSize, t.fontName))}px`
     : lineHeightCss(t.lineHeight, fontSize, t.boundVariables?.lineHeight, env);
   if (lh) s += `line-height:${lh};`;
   else s += 'line-height:normal;';
@@ -171,6 +178,7 @@ export function paragraphTypographyCss(
 
 export function mergeTypographyFromText(t: TextNode, style?: TextRangeStyle): TypographyInput {
   return {
+    fontName: style?.fontName ?? t.fontName,
     fontSize: style?.fontSize ?? t.fontSize,
     lineHeight: style?.lineHeight ?? t.lineHeight,
     leadingTrim: t.leadingTrim,
@@ -198,8 +206,8 @@ export function fontFamilyCssFromName(fontName: { family: string; style: string 
     if (s) return `font-family:"${s}",sans-serif;`;
     return `font-family:var(${cssVarNameForVariable(boundFamily)},sans-serif);`;
   }
-  if (!fontName) return 'font-family:Inter,sans-serif;';
-  return `font-family:"${fontName.family}",sans-serif;`;
+  const resolved = resolveRenderingFontName(fontName);
+  return `font-family:"${resolved.family}",sans-serif;`;
 }
 
 export function openTypeFeaturesCss(features: Record<string, boolean> | undefined): string {
@@ -210,8 +218,12 @@ export function openTypeFeaturesCss(features: Record<string, boolean> | undefine
   return parts.length ? `font-feature-settings:${parts.join(',')};` : '';
 }
 
-export function hugTextLineHeightPxFromTypography(fontSize: number, lineHeight?: LineHeight): number {
-  return Math.ceil(hugLayoutLineHeightPx(lineHeight, fontSize));
+export function hugTextLineHeightPxFromTypography(
+  fontSize: number,
+  lineHeight?: LineHeight,
+  fontName?: FontName
+): number {
+  return Math.ceil(hugLayoutLineHeightPx(lineHeight, fontSize, fontName));
 }
 
 /** Node-level font size (variables + text style), ignoring per-range overrides. */

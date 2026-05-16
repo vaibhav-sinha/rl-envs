@@ -36,6 +36,9 @@ describe('effectiveTextMaxFontSizePx', () => {
       ],
     });
     expect(effectiveTextMaxFontSizePx(t)).toBe(24);
-    expect(hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t))).toBe(26);
+    expect(hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t), undefined, {
+      family: 'Inter',
+      style: 'Regular',
+    })).toBe(30);
   });
 });

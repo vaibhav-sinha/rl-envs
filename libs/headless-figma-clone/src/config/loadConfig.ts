@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { HeadlessFigmaRuntimeConfig, LogLevel } from './types.js';
+import { getDefaultFontsDir } from '../fonts/packageRoot.js';
 
 function envInt(name: string, fallback: number): number {
   const v = process.env[name];
@@ -43,6 +44,7 @@ export function loadConfig(params: {
   return {
     httpHost: envString('HFC_HTTP_HOST', '127.0.0.1'),
     httpPort: envInt('HFC_HTTP_PORT', 3847),
+    fontsDir: envString('HFC_FONTS_DIR', getDefaultFontsDir()),
     workspaceDir: envString('HFC_WORKSPACE_DIR', join(homedir(), '.headless-figma-clone', 'workspace')),
     initialFilePath,
     logLevel: envLogLevel('HFC_LOG_LEVEL', 'info'),

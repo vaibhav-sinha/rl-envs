@@ -79,8 +79,8 @@ describe('useFigmaScript styledSegments', () => {
         rootNodeId: run.result?.rootId as string,
         options: { viewportPaddingPx: 0, includeCss: true, inlineCss: false },
       });
-      expect(compiled.css).toMatch(/height:26px/);
-      expect(compiled.css).toMatch(/line-height:26px/);
+      expect(compiled.css).toMatch(/height:30px/);
+      expect(compiled.css).toMatch(/line-height:30px/);
       expect(compiled.html).toContain('font-size:24px');
       expect(compiled.html).toContain('rgba(230,26,26');
       expect(compiled.html).toContain('href="https://example.com"');

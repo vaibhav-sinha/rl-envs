@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { loadConfig } from './config/loadConfig.js';
+import { setFontsDir } from './fonts/localFontRegistry.js';
 import { DocumentEngine } from './engine/DocumentEngine.js';
 import { JsonPersistence } from './persistence/JsonPersistence.js';
 import { createHeadlessMcpServer } from './mcp/registerTools.js';
@@ -100,6 +101,7 @@ async function main(): Promise<void> {
   const version = readPkgVersion();
   const argvOpts = parseArgv(process.argv);
   const config = loadConfig({ version, cliInitialFile: argvOpts.initialFile ?? null });
+  setFontsDir(config.fontsDir);
   const logger = createConsoleLogger(config.logLevel);
   const persistence = new JsonPersistence();
   const engine = new DocumentEngine({ persistence, logger });

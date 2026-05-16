@@ -1,16 +1,24 @@
 import type { FontName, TextNode, FileEnvelope, DocumentNode } from '../model/types.js';
+import { listLocalFontFaces, isFontAvailable } from './localFontRegistry.js';
+import { listFontsUsed } from './collectDocumentFonts.js';
+import { getFontAvailability, resolveRenderingFontName } from './fontSubstitution.js';
+import { DEFAULT_FONT } from './fontTypes.js';
 
-/** Bundled deterministic font catalog (no Figma cloud). */
-export const BUNDLED_FONTS: FontName[] = [
-  { family: 'Inter', style: 'Regular' },
-  { family: 'Inter', style: 'Medium' },
-  { family: 'Inter', style: 'Semi Bold' },
-  { family: 'Inter', style: 'Bold' },
-  { family: 'Roboto', style: 'Regular' },
-  { family: 'Roboto', style: 'Bold' },
-  { family: 'Arial', style: 'Regular' },
-  { family: 'Helvetica', style: 'Regular' },
-];
+export { DEFAULT_FONT, listFontsUsed, getFontAvailability, resolveRenderingFontName };
+export { collectDocumentFonts } from './collectDocumentFonts.js';
+export { collectRenderingFonts } from './fontSubstitution.js';
+export {
+  getFontFaceCss,
+  getLocalFontsFileBaseUrl,
+  listLocalFontFaces,
+  isFontAvailable,
+  getFontMetrics,
+  setFontsDirForTests,
+} from './localFontRegistry.js';
+export { measureTextWidthPx, metricsLineHeightPx, averageCharWidthPx } from './textMetrics.js';
+
+/** Locally installed fonts (from manifest). */
+export const BUNDLED_FONTS: FontName[] = listLocalFontFaces();
 
 const loadedFonts = new Set<string>();
 
@@ -19,12 +27,11 @@ function fontKey(f: FontName): string {
 }
 
 export function listAvailableFonts(): FontName[] {
-  return [...BUNDLED_FONTS];
+  return listLocalFontFaces();
 }
 
 export async function loadFontAsync(fontName: FontName): Promise<void> {
-  const hit = BUNDLED_FONTS.find((f) => f.family === fontName.family && f.style === fontName.style);
-  if (!hit) {
+  if (!isFontAvailable(fontName)) {
     throw new Error(`Font not available: ${fontName.family} ${fontName.style}`);
   }
   loadedFonts.add(fontKey(fontName));
@@ -59,13 +66,14 @@ export function hasMissingFont(envelope: FileEnvelope): boolean {
   const texts: TextNode[] = [];
   walkTextNodes(envelope.document, texts);
   for (const t of texts) {
-    const fn = t.fontName ?? { family: 'Inter', style: 'Regular' };
+    const fn = t.fontName ?? DEFAULT_FONT;
     if (!isFontLoaded(fn)) return true;
   }
   return false;
 }
 
 export function fontFamilyCss(fontName: FontName | undefined): string {
-  const family = fontName?.family ?? 'Inter';
-  return `font-family:'${family.replace(/'/g, "\\'")}',ui-sans-serif,system-ui,sans-serif;`;
+  const resolved = resolveRenderingFontName(fontName);
+  const family = resolved.family.replace(/'/g, "\\'");
+  return `font-family:'${family}',ui-sans-serif,system-ui,sans-serif;`;
 }

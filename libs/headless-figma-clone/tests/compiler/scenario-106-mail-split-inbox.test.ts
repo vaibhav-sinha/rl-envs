@@ -5,6 +5,8 @@ import { chromium } from 'playwright';
 import { afterAll, describe, expect, it } from 'vitest';
 import { applyEngineOp, DocumentEngine } from '../../src/engine/DocumentEngine.js';
 import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
+import { injectFontFacesIntoHtml } from '../../src/fonts/injectFonts.js';
+import { getLocalFontsFileBaseUrl } from '../../src/fonts/localFontRegistry.js';
 import { designCompiler, HFC_UA_RESET_CSS } from '../../src/render/DesignCompiler.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
@@ -92,8 +94,8 @@ describe('scenario 106 mail split inbox — single-line clip + hug text flex', (
     const bundle = out.css;
 
     expect(bundle).toMatch(new RegExp(`\\.hfc-node-${body.id}\\{[^}]*white-space:pre`));
-    expect(bundle).toMatch(new RegExp(`\\.hfc-node-${body.id}\\{[^}]*width:584px`));
-    expect(bundle).toMatch(new RegExp(`\\.hfc-node-${body.id}\\{[^}]*flex:0 0 13px`));
+    expect(bundle).toMatch(new RegExp(`\\.hfc-node-${body.id}\\{[^}]*width:472px`));
+    expect(bundle).toMatch(new RegExp(`\\.hfc-node-${body.id}\\{[^}]*flex:0 0 14px`));
     expect(bundle).toMatch(new RegExp(`\\.hfc-node-${sasha.id}\\{[^}]*white-space:pre`));
     expect(bundle).toMatch(new RegExp(`\\.hfc-node-${previewSub.id}\\{[^}]*color:rgba\\(89,97,115,1\\)`));
     expect(bundle).toContain('line-height:13px');
@@ -101,20 +103,13 @@ describe('scenario 106 mail split inbox — single-line clip + hug text flex', (
 
     browser ??= await chromium.launch();
     const page = await browser.newPage();
-    await page.setContent(
+    const shell = injectFontFacesIntoHtml(
       `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>${HFC_UA_RESET_CSS}\n${out.css}</style></head><body>${out.html}</body></html>`,
-      { waitUntil: 'load' }
+      getLocalFontsFileBaseUrl(),
+      env
     );
-    await page.addStyleTag({
-      url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
-    });
-    await page.evaluate(async () => {
-      const loads = ['11px', '10px', '9px'].map(
-        (size) => document.fonts.load(`400 ${size} Inter`).catch(() => undefined)
-      );
-      await Promise.all(loads);
-      await document.fonts.ready;
-    });
+    await page.setContent(shell, { waitUntil: 'load' });
+    await page.evaluate('document.fonts.ready');
 
     const bodyLines = await page.evaluate((id) => {
       const el = document.querySelector(`.hfc-node-${id} .hfc-text-inner span`);
@@ -134,8 +129,8 @@ describe('scenario 106 mail split inbox — single-line clip + hug text flex', (
       },
       { sashaId: sasha.id, subId: previewSub.id }
     );
-    expect(gap?.aH).toBe(13);
-    expect(gap?.bH).toBe(12);
+    expect(gap?.aH).toBe(14);
+    expect(gap?.bH).toBe(13);
     expect(gap?.gap ?? 0).toBeGreaterThanOrEqual(1);
     expect(gap?.gap ?? 0).toBeLessThanOrEqual(3);
 
@@ -160,7 +155,7 @@ describe('scenario 106 mail split inbox — single-line clip + hug text flex', (
     );
     expect(preview?.lines[2]).toContain('Let us lock assets');
     expect(
-      (preview?.thirdLineBottom ?? 0) <= (preview?.midBottom ?? 0) + 3,
+      (preview?.thirdLineBottom ?? 0) <= (preview?.midBottom ?? 0) + 5,
       `preview bottom ${String(preview?.thirdLineBottom)} vs mid ${String(preview?.midBottom)}`
     ).toBe(true);
 

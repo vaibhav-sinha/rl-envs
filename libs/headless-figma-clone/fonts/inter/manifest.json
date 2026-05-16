@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "family": "Inter",
+  "defaultStyle": "Regular",
+  "faces": [
+    {
+      "family": "Inter",
+      "style": "Thin",
+      "fontWeight": 100,
+      "italic": false,
+      "file": "Inter-Thin.woff2",
+      "metrics": "Inter-Thin.metrics.json"
+    },
+    {
+      "family": "Inter",
+      "style": "Extra Light",
+      "fontWeight": 200,
+      "italic": false,
+      "file": "Inter-ExtraLight.woff2",
+      "metrics": "Inter-ExtraLight.metrics.json"
+    },
+    {
+      "family": "Inter",
+      "style": "Light",
+      "fontWeight": 300,
+      "italic": false,
+      "file": "Inter-Light.woff2",
+      "metrics": "Inter-Light.metrics.json"
+    },
+    {
+      "family": "Inter",
+      "style": "Regular",
+      "fontWeight": 400,
+      "italic": false,
+      "file": "Inter-Regular.woff2",
+      "metrics": "Inter-Regular.metrics.json"
+    },
+    {
+      "family": "Inter",
+      "style": "Medium",
+      "fontWeight": 500,
+      "italic": false,
+      "file": "Inter-Medium.woff2",
+      "metrics": "Inter-Medium.metrics.json"
+    },
+    {
+      "family": "Inter",
+      "style": "Semi Bold",
+      "fontWeight": 600,
+      "italic": false,
+      "file": "Inter-SemiBold.woff2",
+      "metrics": "Inter-SemiBold.metrics.json"
+    },
+    {
+      "family": "Inter",
+      "style": "Bold",
+      "fontWeight": 700,
+      "italic": false,
+      "file": "Inter-Bold.woff2",
+      "metrics": "Inter-Bold.metrics.json"
+    },
+    {
+      "family": "Inter",
+      "style": "Extra Bold",
+      "fontWeight": 800,
+      "italic": false,
+      "file": "Inter-ExtraBold.woff2",
+      "metrics": "Inter-ExtraBold.metrics.json"
+    },
+    {
+      "family": "Inter",
+      "style": "Black",
+      "fontWeight": 900,
+      "italic": false,
+      "file": "Inter-Black.woff2",
+      "metrics": "Inter-Black.metrics.json"
+    }
+  ]
+}

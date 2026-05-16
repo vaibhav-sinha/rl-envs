@@ -7,22 +7,16 @@ import type {
   TextNode,
   TransformGroupNode,
 } from '../model/types.js';
-import {
-  effectiveTextMaxFontSizePx,
-  hugTextLineHeightPxFromTypography,
-} from './typographyCss.js';
+import { effectiveTextMaxFontSizePx } from './typographyCss.js';
 import { resolveVariableToStringValue } from '../variables/resolution.js';
+import { measureTextWidthPx, metricsLineHeightPx, averageCharWidthPx } from '../fonts/textMetrics.js';
 
 /** Matches Figma default dimensions for `createFrame` / `createAutoLayout` before explicit resize. */
 const FIGMA_DEFAULT_FRAME_MIN_SIDE = 100;
 
-/** Loose Inter-like advance estimate for Latin UI text (0.52 was too tight vs browser line metrics → false wraps). */
-const TEXT_WIDTH_CHAR_FACTOR = 0.62;
-
 /** Small horizontal slack so hugging TEXT boxes stay ≥ typical browser line width (avoids pre-wrap false wraps). */
-function approximateTextWidthPx(chars: string, fontSize: number): number {
-  const raw = chars.length * fontSize * TEXT_WIDTH_CHAR_FACTOR;
-  return Math.max(0, Math.ceil(raw) + Math.ceil(fontSize * 0.35));
+function approximateTextWidthPx(t: TextNode, chars: string, fontSize: number): number {
+  return measureTextWidthPx(chars, fontSize, t.fontName, t.letterSpacing);
 }
 
 /**
@@ -38,7 +32,7 @@ function reasonableExportedTextWidth(exported: number, approx: number): number {
 /** Hug/FILL text width for layout sums and compile-time `width` materialization. */
 function hugTextIntrinsicWidthPx(t: TextNode, env: FileEnvelope | undefined): number {
   const fs = effectiveTextMaxFontSizePx(t, env);
-  const approx = approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+  const approx = approximateTextWidthPx(t, textCharactersForIntrinsicSizing(t, env), fs);
   const exported = t.width ?? 0;
   if (exported > 0) {
     if (t.layoutSizingHorizontal === 'HUG' || t.layoutSizingHorizontal === 'FILL') {
@@ -71,12 +65,16 @@ function textIntrinsicWidthForAutoLayout(t: TextNode, env: FileEnvelope | undefi
   if (typeof t.width === 'number' && t.width > 0) {
     return Math.max(0, t.width);
   }
-  return approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+  return approximateTextWidthPx(t, textCharactersForIntrinsicSizing(t, env), fs);
 }
 
 /** One-line text box height for layout + CSS (extra px for descenders vs browser metrics). */
-export function hugTextLineHeightPx(fontSize: number, lineHeight?: TextNode['lineHeight']): number {
-  return hugTextLineHeightPxFromTypography(fontSize, lineHeight);
+export function hugTextLineHeightPx(
+  fontSize: number,
+  lineHeight?: TextNode['lineHeight'],
+  fontName?: TextNode['fontName']
+): number {
+  return metricsLineHeightPx(fontSize, lineHeight, fontName);
 }
 
 /** Figma `textAutoResize: HEIGHT` wraps at fixed width; hugging AL must reserve multiple lines. */
@@ -94,14 +92,19 @@ function boxWidthForWrappedIntrinsicHeight(t: TextNode, env: FileEnvelope | unde
   if (t.layoutSizingHorizontal === 'FIXED' || (t.width ?? 0) > 0) {
     return Math.max(0, t.width ?? 0);
   }
-  return approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
+  return approximateTextWidthPx(t, textCharactersForIntrinsicSizing(t, env), fs);
 }
 
-function approximateWrappedLineCount(chars: string, boxWidthPx: number, fontSize: number): number {
+function approximateWrappedLineCount(
+  t: TextNode,
+  chars: string,
+  boxWidthPx: number,
+  fontSize: number
+): number {
   if (!chars.length) return 1;
   if (boxWidthPx <= 0) return Math.max(1, chars.split('\n').length);
 
-  const charW = fontSize * TEXT_WIDTH_CHAR_FACTOR;
+  const charW = averageCharWidthPx(fontSize, t.fontName);
   const charsPerLine = Math.max(1, Math.floor(boxWidthPx / charW));
   let total = 0;
   for (const para of chars.split('\n')) {
@@ -112,10 +115,10 @@ function approximateWrappedLineCount(chars: string, boxWidthPx: number, fontSize
 
 function approximateWrappedTextHeightPx(t: TextNode, env: FileEnvelope | undefined): number {
   const fs = effectiveTextMaxFontSizePx(t, env);
-  const lineH = hugTextLineHeightPx(fs, t.lineHeight);
+  const lineH = hugTextLineHeightPx(fs, t.lineHeight, t.fontName);
   const chars = textCharactersForIntrinsicSizing(t, env);
   const boxW = boxWidthForWrappedIntrinsicHeight(t, env);
-  const lineCount = approximateWrappedLineCount(chars, boxW, fs);
+  const lineCount = approximateWrappedLineCount(t, chars, boxW, fs);
   const paraCount = Math.max(1, chars.split('\n').length);
   const paraGap = (t.paragraphSpacing ?? 0) * Math.max(0, paraCount - 1);
   return Math.ceil(lineCount * lineH + paraGap);
@@ -126,7 +129,7 @@ function hugTextIntrinsicHeightPx(t: TextNode, env: FileEnvelope | undefined): n
     return approximateWrappedTextHeightPx(t, env);
   }
   const fs = effectiveTextMaxFontSizePx(t, env);
-  return hugTextLineHeightPx(fs, t.lineHeight);
+  return hugTextLineHeightPx(fs, t.lineHeight, t.fontName);
 }
 
 function textIntrinsicHeightForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
