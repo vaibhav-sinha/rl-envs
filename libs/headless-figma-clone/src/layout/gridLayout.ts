@@ -1,6 +1,19 @@
 import type { FileEnvelope, FrameNode, GridTrackSize, SceneNode } from '../model/types.js';
 import { hugTextLineHeightPxFromTypography } from '../render/typographyCss.js';
 import type { TextNode } from '../model/types.js';
+import { cssVarNameForVariable, resolveVariableToFloat } from '../variables/resolution.js';
+
+function boundGridGapCss(
+  env: FileEnvelope | undefined,
+  variableId: string | undefined,
+  fallbackPx: number,
+  nodeModeOverrides?: Record<string, string>
+): string {
+  if (!variableId || !env) return `${String(fallbackPx)}px`;
+  const v = resolveVariableToFloat(env, variableId, nodeModeOverrides);
+  const fb = v !== null ? v : fallbackPx;
+  return `var(${cssVarNameForVariable(variableId)},${String(fb)}px)`;
+}
 
 export function isGridFrame(f: FrameNode): boolean {
   return f.layoutMode === 'GRID';
@@ -51,11 +64,14 @@ export function computeGridTemplate(
 
   const rows = rowSizes.map((t, i) => trackToCss(t, rowHugs[i])).join(' ');
   const cols = colSizes.map((t, i) => trackToCss(t, colHugs[i])).join(' ');
+  const modes = f.explicitVariableModes;
+  const rowGapPx = f.gridRowGap ?? 0;
+  const colGapPx = f.gridColumnGap ?? 0;
   return {
     rows,
     cols,
-    rowGap: `${String(f.gridRowGap ?? 0)}px`,
-    colGap: `${String(f.gridColumnGap ?? 0)}px`,
+    rowGap: boundGridGapCss(env, f.boundVariables?.gridRowGap, rowGapPx, modes),
+    colGap: boundGridGapCss(env, f.boundVariables?.gridColumnGap, colGapPx, modes),
   };
 }
 
@@ -79,5 +95,10 @@ export function gridChildPlacementCss(ch: SceneNode): string {
 
 export function frameGridInnerStyle(f: FrameNode, children: SceneNode[], env?: FileEnvelope): string {
   const t = computeGridTemplate(f, children, env);
-  return `display:grid;grid-template-rows:${t.rows};grid-template-columns:${t.cols};row-gap:${t.rowGap};column-gap:${t.colGap};box-sizing:border-box;width:100%;height:100%;padding:${String(f.paddingTop ?? 0)}px ${String(f.paddingRight ?? 0)}px ${String(f.paddingBottom ?? 0)}px ${String(f.paddingLeft ?? 0)}px;`;
+  const modes = f.explicitVariableModes;
+  const pt = boundGridGapCss(env, f.boundVariables?.paddingTop, f.paddingTop ?? 0, modes);
+  const pr = boundGridGapCss(env, f.boundVariables?.paddingRight, f.paddingRight ?? 0, modes);
+  const pb = boundGridGapCss(env, f.boundVariables?.paddingBottom, f.paddingBottom ?? 0, modes);
+  const pl = boundGridGapCss(env, f.boundVariables?.paddingLeft, f.paddingLeft ?? 0, modes);
+  return `display:grid;grid-template-rows:${t.rows};grid-template-columns:${t.cols};row-gap:${t.rowGap};column-gap:${t.colGap};box-sizing:border-box;width:100%;height:100%;padding:${pt} ${pr} ${pb} ${pl};`;
 }

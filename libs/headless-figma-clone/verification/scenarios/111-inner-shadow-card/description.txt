@@ -1,0 +1,1 @@
+White card with outer drop shadow and inner shadow along the top edge (inset highlight).

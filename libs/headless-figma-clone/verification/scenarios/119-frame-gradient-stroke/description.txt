@@ -1,0 +1,1 @@
+Dark card with squircle-style corners, per-corner radii, gradient stroke, and individual stroke weights.

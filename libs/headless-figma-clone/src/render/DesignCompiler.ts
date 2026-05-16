@@ -17,7 +17,7 @@ import {
 } from './patternTiles.js';
 import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
 import { frameGridInnerStyle, isGridFrame } from '../layout/gridLayout.js';
-import { allEffectsCss } from './effectsCss.js';
+import { allEffectsCss, type EffectResolveContext } from './effectsCss.js';
 import {
   fontFamilyCssFromName,
   hugTextLineHeightPxFromTypography,
@@ -42,7 +42,6 @@ import type {
   ComponentNode,
   ComponentSetNode,
   InstanceNode,
-  DropShadowEffect,
   Effect,
   EllipseNode,
   FileEnvelope,
@@ -177,11 +176,6 @@ function rgbaFromRgba(c: { r: number; g: number; b: number; a?: number }): strin
   return `rgba(${String(Math.round(c.r * 255))},${String(Math.round(c.g * 255))},${String(Math.round(c.b * 255))},${String(a)})`;
 }
 
-function rgbaFromEffectColor(c: { r: number; g: number; b: number; a?: number }): string {
-  const a = c.a !== undefined ? c.a : 1;
-  return `rgba(${String(Math.round(c.r * 255))},${String(Math.round(c.g * 255))},${String(Math.round(c.b * 255))},${String(a)})`;
-}
-
 function escapeHtmlText(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -214,6 +208,23 @@ function boundFloatCss(
   const v = resolveVariableToFloat(env, variableId, nodeModeOverrides);
   if (v === null) return `${String(fallbackPx)}px`;
   return `var(${cssVarNameForVariable(variableId)},${String(fallbackPx)}px)`;
+}
+
+function effectResolveCtx(
+  env: FileEnvelope,
+  node?: { explicitVariableModes?: Record<string, string> }
+): EffectResolveContext {
+  return { env, nodeModeOverrides: node?.explicitVariableModes };
+}
+
+function nodeEffectsCss(
+  effects: Effect[] | undefined,
+  env: FileEnvelope,
+  node: { id: string; explicitVariableModes?: Record<string, string> },
+  warnings: string[],
+  labelPrefix: string
+): string {
+  return allEffectsCss(effects, effectResolveCtx(env, node), warnings, `${labelPrefix}:${node.id}`);
 }
 
 /** SVG presentation `font-size` uses unitless user units (not `px` suffix). */
@@ -498,23 +509,6 @@ function measureScene(n: SceneNode, originX: number, originY: number): Bounds {
 
 function frameNeedsLayeredBackground(f: FrameNode): boolean {
   return (f.backgrounds?.length ?? 0) > 0;
-}
-
-function dropShadowCss(effects: Effect[] | undefined): string {
-  if (!effects?.length) return '';
-  const parts: string[] = [];
-  for (const e of effects) {
-    if (e.type !== 'DROP_SHADOW') continue;
-    if (e.visible === false) continue;
-    const ds = e as DropShadowEffect;
-    const ox = ds.offset.x;
-    const oy = ds.offset.y;
-    const blur = ds.radius ?? 0;
-    const spread = ds.spread ?? 0;
-    const col = ds.color ? rgbaFromEffectColor(ds.color) : 'rgba(0,0,0,0.35)';
-    parts.push(`${String(ox)}px ${String(oy)}px ${String(blur)}px ${String(spread)}px ${col}`);
-  }
-  return parts.length ? `box-shadow:${parts.join(',')};` : '';
 }
 
 function mixBlendCss(m: BlendMode | undefined): string {
@@ -883,7 +877,8 @@ function emitBooleanOperation(
   cssParts: string[],
   _imgMap: Record<string, string>,
   warnings: string[],
-  insideFlex: boolean
+  insideFlex: boolean,
+  env: FileEnvelope
 ): void {
   const w = b.width;
   const h = b.height;
@@ -892,7 +887,7 @@ function emitBooleanOperation(
     fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)
       ? `fill="${escapeAttr(rgbaFromSolid(fill))}"`
       : 'fill="rgba(0,100,200,0.85)"';
-  const shadow = dropShadowCss(b.effects);
+  const shadow = nodeEffectsCss(b.effects, env, b, warnings, 'boolean');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;flex:${String(b.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
@@ -935,8 +930,9 @@ function emitVector(
   htmlParts: string[],
   cssParts: string[],
   _imgMap: Record<string, string>,
-  _warnings: string[],
-  insideFlex: boolean
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope
 ): void {
   const pathData = v.vectorPaths[0]?.data;
   const vp = pathData ? svgViewportForPathData(pathData) : null;
@@ -950,7 +946,7 @@ function emitVector(
   } else if (fill && (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL')) {
     fillAttr = `fill="url(#grad-${v.id})"`;
   }
-  const shadow = dropShadowCss(v.effects);
+  const shadow = nodeEffectsCss(v.effects, env, v, warnings, 'vector');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;flex:${String(v.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
@@ -1260,7 +1256,7 @@ function emitScene(
       const pathNode = parentChildren.find((p) => p.id === t.textOnPath!.pathId);
       const vp = pathNode?.type === 'VECTOR' ? pathNode.vectorPaths?.[0] : undefined;
       if (vp?.data) {
-        const shadow = allEffectsCss(effectiveTextEffects(t, env), warnings, `text:${t.id}`);
+        const shadow = nodeEffectsCss(effectiveTextEffects(t, env), env, t, warnings, 'text');
         const vpBox = svgViewportForPathData(vp.data);
         const w = Math.max(t.width, vpBox.width);
         const h = Math.max(t.height, vpBox.height);
@@ -1284,7 +1280,7 @@ function emitScene(
       }
       warnings.push(`text_on_path_invalid:${t.id}`);
     }
-    const shadow = allEffectsCss(effectiveTextEffects(t, env), warnings, `text:${t.id}`);
+    const shadow = nodeEffectsCss(effectiveTextEffects(t, env), env, t, warnings, 'text');
     const pos = insideFlex
       ? sceneChildPos(t, insideFlex, absX, absY, parentFrame)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
@@ -1323,7 +1319,7 @@ function emitScene(
     );
     warnings.push(...strokeResult.warnings);
     const border = strokeResult.borderCss;
-    const shadow = allEffectsCss(effectiveFrameEffects(f, env), warnings, `frame:${f.id}`);
+    const shadow = nodeEffectsCss(effectiveFrameEffects(f, env), env, f, warnings, 'frame');
     const radiusCss = frameCornerRadiusCss(f);
     const radiusClip = radiusCss ? 'overflow:hidden;' : '';
     const clip = (frameEffectiveClipsContent(f) ? 'overflow:hidden;' : '') || radiusClip;
@@ -1394,7 +1390,7 @@ function emitScene(
   }
 
   if (n.type === 'BOOLEAN_OPERATION') {
-    emitBooleanOperation(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    emitBooleanOperation(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
     return;
   }
 
@@ -1402,7 +1398,7 @@ function emitScene(
     const isTextPathGuide =
       parentChildren?.some((p) => p.type === 'TEXT' && p.textOnPath?.pathId === n.id) ?? false;
     if (!isTextPathGuide) {
-      emitVector(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+      emitVector(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
     }
     return;
   }
@@ -1416,15 +1412,15 @@ function emitScene(
     return;
   }
   if (n.type === 'LINE') {
-    emitLine(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    emitLine(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
     return;
   }
   if (n.type === 'POLYGON') {
-    emitPolygon(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    emitPolygon(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
     return;
   }
   if (n.type === 'STAR') {
-    emitStar(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex);
+    emitStar(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, warnings, insideFlex, env);
     return;
   }
   if (n.type === 'TABLE') {
@@ -1781,7 +1777,7 @@ function emitRectangle(
   env: FileEnvelope,
   parentFrame?: FrameNode
 ): void {
-  const shadow = dropShadowCss(effectiveRectEffects(r, env));
+  const shadow = nodeEffectsCss(effectiveRectEffects(r, env), env, r, warnings, 'rect');
   const fillCss = stackedFillsCss(effectiveRectFills(r, env), imgMap, patternTiles, warnings, `rect:${r.id}`, env);
   const stroke = r.strokes?.[0];
   const sw = r.strokeWeight ?? 0;
@@ -1871,7 +1867,7 @@ function emitEllipse(
     );
     return;
   }
-  const shadow = dropShadowCss(e.effects);
+  const shadow = nodeEffectsCss(e.effects, env, e, warnings, 'ellipse');
   const fillCss = fillBackgroundStyles(e.fills?.[0], imgMap, patternTiles, warnings, `ellipse:${e.id}`, env);
   const pos = insideFlex
     ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
@@ -1902,7 +1898,7 @@ function emitEllipseArcSvg(
   _patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
-  _env: FileEnvelope,
+  env: FileEnvelope,
   parentFrame?: FrameNode
 ): void {
   const w = e.width;
@@ -1917,7 +1913,7 @@ function emitEllipseArcSvg(
   } else if (fill?.type === 'IMAGE') {
     fillAttr = `fill="url(#img-${e.id})"`;
   }
-  const shadow = dropShadowCss(e.effects);
+  const shadow = nodeEffectsCss(e.effects, env, e, warnings, 'ellipse');
   const pos = insideFlex
     ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
@@ -2014,13 +2010,14 @@ function emitLine(
   htmlParts: string[],
   cssParts: string[],
   _imgMap: Record<string, string>,
-  _warnings: string[],
-  insideFlex = false
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope
 ): void {
   const w = ln.width;
   const h = ln.height;
   const { vbW, vbH, x1, y1, x2, y2, svgW, svgH, svgLeft, svgTop } = lineSvgLayout(ln);
-  const shadow = dropShadowCss(ln.effects);
+  const shadow = nodeEffectsCss(ln.effects, env, ln, warnings, 'line');
   const stroke = ln.strokes[0];
   const col = stroke.type === 'SOLID' ? rgbaFromSolid(stroke) : '#000';
   const dash = ln.dashPattern?.length ? ` stroke-dasharray="${escapeAttr(ln.dashPattern.map((x) => String(x)).join(' '))}"` : '';
@@ -2047,7 +2044,8 @@ function emitPolygon(
   cssParts: string[],
   imgMap: Record<string, string>,
   warnings: string[],
-  insideFlex = false
+  insideFlex: boolean,
+  env: FileEnvelope
 ): void {
   const w = p.width;
   const h = p.height;
@@ -2061,7 +2059,7 @@ function emitPolygon(
   } else if (fill?.type === 'IMAGE') {
     fillAttr = `fill="url(#img-${p.id})"`;
   }
-  const shadow = dropShadowCss(p.effects);
+  const shadow = nodeEffectsCss(p.effects, env, p, warnings, 'polygon');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(p.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
@@ -2113,7 +2111,8 @@ function emitStar(
   cssParts: string[],
   imgMap: Record<string, string>,
   warnings: string[],
-  insideFlex = false
+  insideFlex: boolean,
+  env: FileEnvelope
 ): void {
   const w = s.width;
   const h = s.height;
@@ -2127,7 +2126,7 @@ function emitStar(
   } else if (fill?.type === 'IMAGE') {
     fillAttr = `fill="url(#img-${s.id})"`;
   }
-  const shadow = dropShadowCss(s.effects);
+  const shadow = nodeEffectsCss(s.effects, env, s, warnings, 'star');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(s.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;

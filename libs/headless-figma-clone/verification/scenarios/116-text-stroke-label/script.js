@@ -1,0 +1,17 @@
+await figma.loadFontAsync({ family: 'Inter', style: 'Bold' });
+const root = figma.createFrame();
+root.name = 'ScenarioRoot';
+root.resize(480, 360);
+root.fills = [{ type: 'SOLID', color: { r: 0.1, g: 0.12, b: 0.2 } }];
+figma.currentPage.appendChild(root);
+const badge = figma.createText();
+badge.characters = 'LIVE';
+badge.fontSize = 42;
+badge.fills = [{ type: 'SOLID', color: { r: 1, g: 0.95, b: 0.2 } }];
+badge.strokes = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+badge.strokeWeight = 2;
+badge.strokeAlign = 'OUTSIDE';
+badge.x = 150;
+badge.y = 150;
+root.appendChild(badge);
+return { rootId: root.id };

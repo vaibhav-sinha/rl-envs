@@ -2386,6 +2386,48 @@ function parseBoundVariablesPatch(
   return Object.keys(out).length ? out : undefined;
 }
 
+const FRAME_BOUND_ARRAY_FIELDS = ['effects', 'layoutGrids', 'fills', 'strokes', 'textRangeFills'] as const;
+
+function parseVariableAliasId(raw: unknown, label: string): string {
+  if (typeof raw === 'string') return raw;
+  if (isRecord(raw) && raw.type === 'VARIABLE_ALIAS' && typeof raw.id === 'string') return raw.id;
+  throw new ValidationErr('VALIDATION_ERROR', `${label} must be a variable id or VARIABLE_ALIAS`);
+}
+
+function parseFrameBoundVariablesPatch(env: FileEnvelope, raw: unknown): FrameVariableBindings | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isRecord(raw)) throw new ValidationErr('VALIDATION_ERROR', 'FRAME.boundVariables must be object');
+
+  const scalarRaw: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (FRAME_BIND_FIELDS.has(k)) scalarRaw[k] = v;
+  }
+  const scalar = parseBoundVariablesPatch(env, scalarRaw, FRAME_BIND_FIELDS, 'FRAME') ?? {};
+  const out: FrameVariableBindings = { ...scalar };
+
+  for (const k of FRAME_BOUND_ARRAY_FIELDS) {
+    if (!(k in raw)) continue;
+    const v = raw[k];
+    if (v === undefined || v === null) continue;
+    if (!Array.isArray(v)) {
+      throw new ValidationErr('VALIDATION_ERROR', `FRAME.boundVariables.${k} must be an array`);
+    }
+    const ids = v.map((item, i) => parseVariableAliasId(item, `FRAME.boundVariables.${k}[${String(i)}]`));
+    for (const id of ids) {
+      const hit = findVariableDefinition(env, id);
+      if (!hit) {
+        throw new ValidationErr('VALIDATION_ERROR', `FRAME.boundVariables.${k}: unknown variable ${id}`);
+      }
+      if ((k === 'fills' || k === 'strokes' || k === 'textRangeFills') && hit.variable.resolvedType !== 'COLOR') {
+        throw new ValidationErr('VALIDATION_ERROR', `FRAME.boundVariables.${k} requires COLOR variables`);
+      }
+    }
+    out[k] = ids;
+  }
+
+  return Object.keys(out).length ? out : undefined;
+}
+
 function applyStrokeFieldsFromPatch(
   target: Record<string, unknown>,
   patch: Record<string, unknown>
@@ -2565,9 +2607,9 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     applyStrokeFieldsFromPatch(f as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('FRAME', f);
     if ('boundVariables' in patch) {
-      const bv = parseBoundVariablesPatch(env, patch.boundVariables, FRAME_BIND_FIELDS, 'FRAME');
+      const bv = parseFrameBoundVariablesPatch(env, patch.boundVariables);
       if (bv === undefined) delete f.boundVariables;
-      else f.boundVariables = bv as FrameVariableBindings;
+      else f.boundVariables = bv;
     }
     return;
   }
