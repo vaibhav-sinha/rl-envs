@@ -345,8 +345,10 @@ export function mapTypography(props: Record<string, unknown>): Partial<TextNode>
   if (lh) out.lineHeight = lh;
   const ls = lenientParse(() => parseLetterSpacing(prop(props, 'letterSpacing'), 'letterSpacing'));
   if (ls) out.letterSpacing = ls;
-  lenientParse(() => parseTextCase(prop(props, 'textCase'), 'textCase'));
-  lenientParse(() => parseTextDecoration(prop(props, 'textDecoration'), 'textDecoration'));
+  const tc = lenientParse(() => parseTextCase(prop(props, 'textCase'), 'textCase'));
+  if (tc) out.textCase = tc;
+  const td = lenientParse(() => parseTextDecoration(prop(props, 'textDecoration'), 'textDecoration'));
+  if (td) out.textDecoration = td;
   const lt = optStr(prop(props, 'leadingTrim'));
   if (lt === 'CAP_HEIGHT' || lt === 'NONE') out.leadingTrim = lt;
   const pi = optNum(prop(props, 'paragraphIndent'));

@@ -46,6 +46,8 @@ import {
   parseIndividualStrokeWeights,
   parseLetterSpacing,
   parseLineHeight,
+  parseTextCase,
+  parseTextDecoration,
   parseTextListOptions,
 } from './typographyParse.js';
 import { ENGINE_MATRIX, sceneShapeTypes } from './phase-matrix.js';
@@ -670,6 +672,8 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
     textOnPath,
     lineHeight: parseLineHeight(spec.lineHeight, 'TEXT.lineHeight'),
     letterSpacing: parseLetterSpacing(spec.letterSpacing, 'TEXT.letterSpacing'),
+    textCase: parseTextCase(spec.textCase, 'TEXT.textCase'),
+    textDecoration: parseTextDecoration(spec.textDecoration, 'TEXT.textDecoration'),
     leadingTrim: spec.leadingTrim as TextNode['leadingTrim'],
     paragraphIndent: typeof spec.paragraphIndent === 'number' ? spec.paragraphIndent : undefined,
     paragraphSpacing: typeof spec.paragraphSpacing === 'number' ? spec.paragraphSpacing : undefined,
