@@ -17,4 +17,5 @@ html,body{margin:0;padding:0;}#hfc-root,#hfc-root *{box-sizing:border-box;}#hfc-
 #hfc-root{position:relative;width:120px;height:80px;isolation:isolate;}
 .hfc-node-I3{position:absolute;left:0px;top:0px;width:120px;height:80px;box-sizing:border-box;border:none;background-color:transparent;overflow:hidden;}
 .hfc-node-I3 > .hfc-bg-layer{background-color:rgba(217,230,255,1);}.hfc-node-I3 > .hfc-fill-layer{background-color:rgba(255,255,255,1);}
-.hfc-node-I4{position:absolute;left:8px;top:10px;width:100px;height:24px;box-sizing:border-box;white-space:pre-wrap;word-break:break-word;font-family:'Inter',ui-sans-serif,system-ui,sans-serif;}
+.hfc-node-I4{position:absolute;left:8px;top:10px;width:100px;height:24px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-start;min-height:0;white-space:pre-wrap;word-break:break-word;line-height:normal;font-family:'Inter',ui-sans-serif,system-ui,sans-serif;}
+.hfc-node-I4 .hfc-text-inner{text-align:left;}

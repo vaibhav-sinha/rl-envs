@@ -1,5 +1,6 @@
 import {
   applyAutoLayoutIntrinsicSizingDeep,
+  hugTextLineHeightPx,
   syncHugTextLayoutMetricsDeep,
 } from './autoLayoutIntrinsicSizing.js';
 import {
@@ -232,6 +233,58 @@ function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; 
   }
   const fontSizeCss = boundFloatCss(env, t.boundVariables?.fontSize, fontSize);
   return { fontSize, fontWeight, fills, fontSizeCss };
+}
+
+/** Map Figma `textAlignVertical` / `textAlignHorizontal` to a column flex box (defaults TOP + LEFT match Figma). */
+function textFlexContainerCss(t: TextNode, ellip: boolean): string {
+  const v = t.textAlignVertical ?? 'TOP';
+  const h = t.textAlignHorizontal ?? 'LEFT';
+  const jc = v === 'CENTER' ? 'center' : v === 'BOTTOM' ? 'flex-end' : 'flex-start';
+  let ai: string;
+  if (ellip) ai = 'stretch';
+  else if (h === 'CENTER') ai = 'center';
+  else if (h === 'RIGHT') ai = 'flex-end';
+  else if (h === 'JUSTIFIED') ai = 'stretch';
+  else ai = 'flex-start';
+  return `display:flex;flex-direction:column;justify-content:${jc};align-items:${ai};min-height:0;`;
+}
+
+function textInnerHorizontalCss(t: TextNode): string {
+  const h = t.textAlignHorizontal ?? 'LEFT';
+  if (h === 'CENTER') return 'text-align:center;';
+  if (h === 'RIGHT') return 'text-align:right;';
+  if (h === 'JUSTIFIED') return 'text-align:justify;';
+  return 'text-align:left;';
+}
+
+/** Figma: fixed width + `HEIGHT` auto-resize grows vertically (wrap); single-line box height truncates horizontally. */
+function textUsesSingleLineEllipsis(t: TextNode, env: FileEnvelope): boolean {
+  if (t.textOnPath) return false;
+  if (t.characters.includes('\n')) return false;
+  if (t.textTruncation === 'DISABLED') return false;
+  if (t.textAutoResize === 'HEIGHT') return false;
+  if (t.textTruncation === 'ENDING' && t.maxLines != null && t.maxLines > 1) return false;
+  if (t.textAutoResize === 'TRUNCATE') return true;
+  if (t.textTruncation === 'ENDING' && t.maxLines === 1) return true;
+  const fs = effectiveTextBase(t, env).fontSize;
+  const cap = Math.ceil(hugTextLineHeightPx(fs) * 1.14);
+  if (!(t.height > 0 && t.height <= cap)) return false;
+  /**
+   * Implicit single-line ellipsis is for short UI labels (constrained flex titles). Long one-line copy
+   * (chart axis labels, spaced columns, etc.) must stay `pre-wrap` or most of the string disappears.
+   */
+  const chars = effectiveTextCharacters(t, env);
+  if (chars.length > 48) return false;
+  /** Captions / axis labels use smaller type; implicit ellipsis + overflow clips descenders in stacked rows. */
+  if (fs < 12) return false;
+  return true;
+}
+
+function textFlowCss(t: TextNode, env: FileEnvelope): string {
+  if (textUsesSingleLineEllipsis(t, env)) {
+    return 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal;overflow-wrap:normal;';
+  }
+  return 'white-space:pre-wrap;word-break:break-word;';
 }
 
 function effectiveTextCharacters(t: TextNode, env: FileEnvelope): string {
@@ -1178,11 +1231,15 @@ function emitScene(
     const pos = insideFlex
       ? sceneChildPos(t, insideFlex, absX, absY, parentFrame)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
-    const flexTextMetrics = insideFlex ? 'line-height:1;' : '';
+    const ellip = textUsesSingleLineEllipsis(t, env);
+    const flexOuterAlign = textFlexContainerCss(t, ellip);
+    const flexTextMetrics = ellip ? 'line-height:1.15;' : 'line-height:normal;';
+    const innerRule = `${textInnerHorizontalCss(t)}${ellip ? 'min-width:0;width:100%;display:block;' : ''}`;
     htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${t.id}{${pos}box-sizing:border-box;white-space:pre-wrap;word-break:break-word;${flexTextMetrics}${fontFamilyCss(t.fontName)}${opRot}${shadow}}`
+      `.hfc-node-${t.id}{${pos}box-sizing:border-box;${flexOuterAlign}${textFlowCss(t, env)}${flexTextMetrics}${fontFamilyCss(t.fontName)}${opRot}${shadow}}`
     );
+    cssParts.push(`.hfc-node-${t.id} .hfc-text-inner{${innerRule}}`);
     htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings)}</div></div>`);
     return;
   }

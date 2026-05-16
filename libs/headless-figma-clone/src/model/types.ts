@@ -341,6 +341,25 @@ export interface TextNode extends NodeBase, LayoutSelfFields {
    * @see Figma Plugin API — `TextNode.textOnPath`.
    */
   textOnPath?: { pathId: string; startOffset?: number };
+  /**
+   * Figma `TextNode.textAutoResize`. `HEIGHT` = fixed width, grow vertically (wrap); `TRUNCATE` is legacy.
+   * @see Figma Plugin API — `TextNode.textAutoResize`.
+   */
+  textAutoResize?: 'NONE' | 'WIDTH_AND_HEIGHT' | 'HEIGHT' | 'TRUNCATE';
+  /** When `ENDING`, overflowing text uses an ellipsis (see `maxLines`). */
+  textTruncation?: 'DISABLED' | 'ENDING';
+  /** Only applies with `textTruncation: 'ENDING'`. */
+  maxLines?: number | null;
+  /**
+   * Figma `TextNode.textAlignHorizontal`. Omitted = Figma default `LEFT`.
+   * @see Figma Plugin API — `TextNode.textAlignHorizontal`.
+   */
+  textAlignHorizontal?: 'LEFT' | 'CENTER' | 'RIGHT' | 'JUSTIFIED';
+  /**
+   * Figma `TextNode.textAlignVertical`. Omitted = Figma default `TOP`.
+   * @see Figma Plugin API — `TextNode.textAlignVertical`.
+   */
+  textAlignVertical?: 'TOP' | 'CENTER' | 'BOTTOM';
   /** Phase 8 — `fontSize` → FLOAT variable; `characters` → STRING variable. */
   boundVariables?: TextVariableBindings;
 }

@@ -13,7 +13,13 @@ import { resolveVariableToFloat, resolveVariableToStringValue } from '../variabl
 const FIGMA_DEFAULT_FRAME_MIN_SIDE = 100;
 
 /** Loose Inter-like advance estimate for Latin UI text (0.52 was too tight vs browser line metrics → false wraps). */
-const TEXT_WIDTH_CHAR_FACTOR = 0.58;
+const TEXT_WIDTH_CHAR_FACTOR = 0.62;
+
+/** Small horizontal slack so hugging TEXT boxes stay ≥ typical browser line width (avoids pre-wrap false wraps). */
+function approximateTextWidthPx(chars: string, fontSize: number): number {
+  const raw = chars.length * fontSize * TEXT_WIDTH_CHAR_FACTOR;
+  return Math.max(0, Math.ceil(raw) + Math.ceil(fontSize * 0.35));
+}
 
 /** Match {@link DesignCompiler} `effectiveTextBase` font-size resolution for intrinsic width/height. */
 function effectiveTextFontSizePx(t: TextNode, env: FileEnvelope | undefined): number {
@@ -27,11 +33,6 @@ function effectiveTextFontSizePx(t: TextNode, env: FileEnvelope | undefined): nu
     if (st?.fontSize !== undefined) fontSize = st.fontSize;
   }
   return fontSize;
-}
-
-function approximateTextWidthPx(chars: string, fontSize: number): number {
-  const raw = chars.length * fontSize * TEXT_WIDTH_CHAR_FACTOR;
-  return Math.max(0, Math.ceil(raw));
 }
 
 export function textCharactersForIntrinsicSizing(t: TextNode, env: FileEnvelope | undefined): string {
@@ -57,18 +58,23 @@ function textIntrinsicWidthForAutoLayout(t: TextNode, env: FileEnvelope | undefi
   return approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
 }
 
+/** One-line text box height for layout + CSS (extra px for descenders vs browser metrics). */
+export function hugTextLineHeightPx(fontSize: number): number {
+  return Math.max(0, Math.ceil(fontSize * 1.22) + 2);
+}
+
 function textIntrinsicHeightForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
   const fs = effectiveTextFontSizePx(t, env);
   if (t.layoutSizingVertical === 'FIXED') {
     return Math.max(0, t.height);
   }
   if (t.layoutSizingVertical === 'HUG' || t.layoutSizingVertical === 'FILL') {
-    return Math.max(0, fs);
+    return hugTextLineHeightPx(fs);
   }
   if (typeof t.height === 'number' && t.height > 0) {
     return Math.max(0, t.height);
   }
-  return Math.max(0, fs);
+  return hugTextLineHeightPx(fs);
 }
 
 function padX(f: FrameNode): number {
@@ -298,7 +304,8 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
     t.width = approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
   }
   if (needsIntrinsicH) {
-    t.height = Math.max(0, effectiveTextFontSizePx(t, env));
+    const fs = effectiveTextFontSizePx(t, env);
+    t.height = hugTextLineHeightPx(fs);
   }
 }
 

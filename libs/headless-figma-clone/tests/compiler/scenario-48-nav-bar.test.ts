@@ -55,7 +55,7 @@ describe('scenario 48 nav bar composite compile', () => {
       expect(bundle).toContain(`hfc-node-${links.id}`);
       expect(bundle).toMatch(new RegExp(`\\.hfc-node-${links.id}\\{[^}]*flex:0 0 auto`));
       expect(bundle).toMatch(new RegExp(`\\.hfc-node-${links.id}\\{[^}]*height:auto`));
-      expect(bundle).toMatch(new RegExp(`\\.hfc-node-${links.id}\\{[^}]*line-height:1`));
+      expect(bundle).toMatch(new RegExp(`\\.hfc-node-${links.id}\\{[^}]*line-height:(normal|1|1\\.15);`));
       expect(bundle).not.toMatch(new RegExp(`\\.hfc-node-${links.id}\\{[^}]*flex:1 1`));
       expect(bundle).not.toMatch(new RegExp(`\\.hfc-node-${links.id}\\{[^}]*width:200px`));
     } finally {

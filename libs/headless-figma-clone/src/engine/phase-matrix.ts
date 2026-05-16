@@ -114,6 +114,11 @@ export const ENGINE_MATRIX = {
       'effects',
       'textStyleId',
       'textOnPath',
+      'textAutoResize',
+      'textTruncation',
+      'maxLines',
+      'textAlignHorizontal',
+      'textAlignVertical',
       'boundVariables',
     ]),
     RECTANGLE: new Set([

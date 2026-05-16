@@ -2861,7 +2861,7 @@ chartShell.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
 chartShell.strokes = [{ type: 'SOLID', color: { r: 0.88, g: 0.9, b: 0.94 } }];
 chartShell.strokeWeight = 1;
 const capT = figma.createText();
-capT.characters = 'Engagement index';
+capT.characters = 'Engagement Index';
 capT.fontSize = 12;
 capT.fills = [{ type: 'SOLID', color: { r: 0.22, g: 0.24, b: 0.3 } }];
 chartShell.appendChild(capT);
