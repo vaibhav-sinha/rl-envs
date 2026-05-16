@@ -32,7 +32,7 @@ function approximateTextWidthPx(chars: string, fontSize: number): number {
 function reasonableExportedTextWidth(exported: number, approx: number): number {
   if (exported <= 0) return approx;
   if (approx <= 0) return exported;
-  return exported >= approx * 0.55 ? exported : approx;
+  return exported >= approx * 1 ? exported : approx;
 }
 
 /** Hug/FILL text width for layout sums and compile-time `width` materialization. */
