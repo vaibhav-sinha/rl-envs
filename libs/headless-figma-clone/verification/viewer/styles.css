@@ -157,11 +157,49 @@ body {
 
 .controls {
   display: flex;
+  align-items: center;
   justify-content: center;
   gap: 1rem;
   padding: 0.75rem 1rem;
   border-top: 1px solid #2a2f3a;
   background: #161922;
+}
+
+.goto-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.goto-control label {
+  font-size: 0.875rem;
+  color: #8b93a7;
+}
+
+.goto-control input {
+  width: 4.5rem;
+  padding: 0.5rem 0.625rem;
+  font-size: 0.875rem;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  background: #1f2430;
+  color: #e8eaef;
+  -moz-appearance: textfield;
+}
+
+.goto-control input::-webkit-outer-spin-button,
+.goto-control input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.goto-control input:focus {
+  outline: none;
+  border-color: #5b8def;
+}
+
+.goto-control input.invalid {
+  border-color: #e05c5c;
 }
 
 .controls button {

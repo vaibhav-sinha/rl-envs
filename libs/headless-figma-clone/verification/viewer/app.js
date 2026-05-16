@@ -16,6 +16,8 @@ const elDescriptionPanel = document.getElementById('description-panel');
 const btnPrev = document.getElementById('btn-prev');
 const btnNext = document.getElementById('btn-next');
 const btnToggleDesc = document.getElementById('toggle-description');
+const gotoForm = document.getElementById('goto-form');
+const inputGoto = document.getElementById('goto-input');
 
 /**
  * @param {string} id
@@ -50,6 +52,24 @@ function loadImage(img, placeholder, url) {
   probe.src = url;
 }
 
+/** @param {number} n */
+function findScenarioIndexByNumber(n) {
+  const byOrder = scenarios.findIndex((s) => s.order === n);
+  if (byOrder >= 0) return byOrder;
+
+  const idPrefix = `${String(n)}-`;
+  return scenarios.findIndex((s) => s.id === String(n) || s.id.startsWith(idPrefix));
+}
+
+/** @param {number} index */
+function updateUrlForIndex(index) {
+  const entry = scenarios[index];
+  if (!entry) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set('i', String(entry.order));
+  window.history.replaceState(null, '', url);
+}
+
 /** @param {number} index */
 async function showScenario(index) {
   if (scenarios.length === 0) return;
@@ -58,7 +78,11 @@ async function showScenario(index) {
 
   elTitle.textContent = entry.title;
   elId.textContent = entry.id;
-  elIndex.textContent = `${String(currentIndex + 1)} / ${String(scenarios.length)}`;
+  elIndex.textContent = `${String(entry.order)} / ${String(scenarios[scenarios.length - 1]?.order ?? scenarios.length)}`;
+
+  inputGoto.value = String(entry.order);
+  inputGoto.classList.remove('invalid');
+  updateUrlForIndex(currentIndex);
 
   btnPrev.disabled = currentIndex <= 0;
   btnNext.disabled = currentIndex >= scenarios.length - 1;
@@ -83,9 +107,16 @@ async function init() {
   const manifest = await res.json();
   scenarios = [...(manifest.scenarios || [])].sort((a, b) => a.order - b.order);
 
+  const minOrder = scenarios[0]?.order ?? 1;
+  const maxOrder = scenarios[scenarios.length - 1]?.order ?? minOrder;
+  inputGoto.min = String(minOrder);
+  inputGoto.max = String(maxOrder);
+
   const params = new URLSearchParams(window.location.search);
   const start = Number.parseInt(params.get('i') ?? '0', 10);
-  await showScenario(Number.isFinite(start) ? start - 1 : 0);
+  const startIndex =
+    Number.isFinite(start) && start > 0 ? findScenarioIndexByNumber(start) : 0;
+  await showScenario(startIndex >= 0 ? startIndex : 0);
 }
 
 btnPrev.addEventListener('click', () => {
@@ -96,12 +127,30 @@ btnNext.addEventListener('click', () => {
   void showScenario(currentIndex + 1);
 });
 
+gotoForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const n = Number.parseInt(inputGoto.value, 10);
+  if (!Number.isFinite(n)) {
+    inputGoto.classList.add('invalid');
+    return;
+  }
+  const index = findScenarioIndexByNumber(n);
+  if (index < 0) {
+    inputGoto.classList.add('invalid');
+    return;
+  }
+  void showScenario(index);
+});
+
 btnToggleDesc.addEventListener('click', () => {
   const collapsed = elDescriptionPanel.classList.toggle('collapsed');
   btnToggleDesc.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
 });
 
 document.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+    return;
+  }
   if (e.key === 'ArrowLeft') {
     e.preventDefault();
     void showScenario(currentIndex - 1);

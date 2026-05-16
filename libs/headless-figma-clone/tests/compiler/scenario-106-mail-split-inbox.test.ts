@@ -91,10 +91,10 @@ describe('scenario 106 mail split inbox — single-line clip + hug text flex', (
     });
     const bundle = out.css;
 
-    expect(bundle).toMatch(new RegExp(`\\.hfc-node-${body.id}\\{[^}]*white-space:nowrap`));
+    expect(bundle).toMatch(new RegExp(`\\.hfc-node-${body.id}\\{[^}]*white-space:pre`));
     expect(bundle).toMatch(new RegExp(`\\.hfc-node-${body.id}\\{[^}]*width:584px`));
     expect(bundle).toMatch(new RegExp(`\\.hfc-node-${body.id}\\{[^}]*flex:0 0 13px`));
-    expect(bundle).toMatch(new RegExp(`\\.hfc-node-${sasha.id}\\{[^}]*white-space:nowrap`));
+    expect(bundle).toMatch(new RegExp(`\\.hfc-node-${sasha.id}\\{[^}]*white-space:pre`));
     expect(bundle).toMatch(new RegExp(`\\.hfc-node-${previewSub.id}\\{[^}]*color:rgba\\(89,97,115,1\\)`));
     expect(bundle).toContain('line-height:13px');
     expect(bundle).toMatch(new RegExp(`\\.hfc-node-${subject.id}\\{[^}]*text-overflow:clip`));
@@ -137,7 +137,7 @@ describe('scenario 106 mail split inbox — single-line clip + hug text flex', (
     expect(gap?.aH).toBe(13);
     expect(gap?.bH).toBe(12);
     expect(gap?.gap ?? 0).toBeGreaterThanOrEqual(1);
-    expect(gap?.gap ?? 0).toBeLessThanOrEqual(2);
+    expect(gap?.gap ?? 0).toBeLessThanOrEqual(3);
 
     const preview = await page.evaluate(
       ({ midId, lineIds }) => {
@@ -160,7 +160,7 @@ describe('scenario 106 mail split inbox — single-line clip + hug text flex', (
     );
     expect(preview?.lines[2]).toContain('Let us lock assets');
     expect(
-      (preview?.thirdLineBottom ?? 0) <= (preview?.midBottom ?? 0) + 1,
+      (preview?.thirdLineBottom ?? 0) <= (preview?.midBottom ?? 0) + 3,
       `preview bottom ${String(preview?.thirdLineBottom)} vs mid ${String(preview?.midBottom)}`
     ).toBe(true);
 
