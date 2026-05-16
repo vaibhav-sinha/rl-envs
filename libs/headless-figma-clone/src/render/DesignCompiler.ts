@@ -1171,6 +1171,16 @@ function emitVector(
   );
 }
 
+/** Local offset for a GROUP child stored in frame space (see import normalizeGroupChildrenToFrameSpace). */
+function groupChildLocalOffset(node: SceneNode, group: GroupNode): { x: number; y: number } {
+  const relX = node.x - group.x;
+  const relY = node.y - group.y;
+  if (relY > group.height + 1 && node.y >= group.y + group.y) {
+    return { x: node.x - 2 * group.x, y: node.y - 2 * group.y };
+  }
+  return { x: relX, y: relY };
+}
+
 /** Figma GROUP: positioned wrapper; children use coordinates relative to group origin. */
 function emitGroup(
   g: GroupNode,
@@ -1200,7 +1210,6 @@ function emitGroup(
   const groupClass = insideFlex ? `hfc-node-${g.id} hfc-group-flex` : `hfc-node-${g.id} hfc-group`;
   htmlParts.push(`<div class="${groupClass}" data-hfc-id="${g.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`.hfc-node-${g.id}{${outerCss}box-sizing:border-box;${opRot}}`);
-  const localOrigin = { x: g.x, y: g.y };
   for (const c of paintables) {
     emitScene(
       c,
@@ -1219,7 +1228,7 @@ function emitGroup(
       paintables,
       undefined,
       false,
-      localOrigin
+      g
     );
   }
   htmlParts.push('</div>');
@@ -1429,7 +1438,7 @@ function emitScene(
   parentChildren: SceneNode[] | null,
   parentFrame?: FrameNode,
   useParentCoords = false,
-  coordLocalOrigin?: { x: number; y: number }
+  coordGroupParent?: GroupNode
 ): void {
   if (n.type === 'SECTION') return;
 
@@ -1459,8 +1468,9 @@ function emitScene(
 
   const pageX = originX + n.x + shiftX;
   const pageY = originY + n.y + shiftY;
-  const absX = coordLocalOrigin ? n.x - coordLocalOrigin.x : useParentCoords ? n.x : pageX;
-  const absY = coordLocalOrigin ? n.y - coordLocalOrigin.y : useParentCoords ? n.y : pageY;
+  const groupLocal = coordGroupParent ? groupChildLocalOffset(n, coordGroupParent) : undefined;
+  const absX = groupLocal ? groupLocal.x : useParentCoords ? n.x : pageX;
+  const absY = groupLocal ? groupLocal.y : useParentCoords ? n.y : pageY;
   const zIndex = z.value++;
   const opRot = transformOpacityCss(n);
 

@@ -58,4 +58,13 @@ describe('import → compile parity', () => {
     expect(text!.x).toBe(16);
     expect(text!.y).toBe(40);
   });
+
+  it('does not double-translate grouped text when x/y are frame-space', () => {
+    const envelope = loadEnvelope('group-wrong-local.snapshot.json');
+    const out = compileFrame(envelope, 'Parent');
+    const blob = `${out.html}\n${out.css}`;
+    expect(blob).toMatch(/left:112px;top:308px/);
+    expect(blob).toMatch(/left:0px;top:0px/);
+    expect(blob).not.toMatch(/left:112px;top:308px;width:120px[^}]*left:112px;top:308px/);
+  });
 });

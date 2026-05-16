@@ -225,6 +225,9 @@ function hasLocalGeometry(props: Record<string, unknown>): boolean {
 /**
  * Bounds for HFC nodes. Prefer Figma parent-relative `x`/`y`/`width`/`height` when present;
  * otherwise derive from `absoluteBoundingBox` minus `parentPageOrigin`.
+ *
+ * When `parentPageOrigin` is set, prefer `absoluteBoundingBox` first: grouped nodes sometimes
+ * export frame-space `x`/`y` that would be double-translated by group normalization.
  */
 export function boundsFromProps(
   props: Record<string, unknown>,
@@ -235,6 +238,15 @@ export function boundsFromProps(
   width: number;
   height: number;
 } {
+  const box = prop(props, 'absoluteBoundingBox') as Record<string, unknown> | undefined;
+  if (box && parentPageOrigin) {
+    return {
+      x: num(box.x) - parentPageOrigin.x,
+      y: num(box.y) - parentPageOrigin.y,
+      width: num(box.width),
+      height: num(box.height),
+    };
+  }
   if (hasLocalGeometry(props)) {
     return {
       x: num(prop(props, 'x')),
@@ -243,7 +255,6 @@ export function boundsFromProps(
       height: num(prop(props, 'height'), 1),
     };
   }
-  const box = prop(props, 'absoluteBoundingBox') as Record<string, unknown> | undefined;
   if (box) {
     const ox = parentPageOrigin?.x ?? 0;
     const oy = parentPageOrigin?.y ?? 0;

@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+
+- We are on windows using powershell. Do not use 'tail' in command line.
+- Do not run scripts with 'npx run -e ""'. That gets stuck and does not produce any result.
+- You have been writing <motion.div> in compiler output instead of <div>. Do not make that mistake.

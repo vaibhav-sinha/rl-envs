@@ -81,4 +81,19 @@ describe('boundsFromProps', () => {
     );
     expect(text).toMatchObject({ x: 16, y: 40, width: 80, height: 24 });
   });
+
+  it('prefers absoluteBoundingBox over frame-space x/y when parent origin is set', () => {
+    const groupOrigin = { x: 112, y: 308 };
+    const text = boundsFromProps(
+      {
+        x: 112,
+        y: 308,
+        width: 120,
+        height: 32,
+        absoluteBoundingBox: { x: 112, y: 308, width: 120, height: 32 },
+      },
+      groupOrigin
+    );
+    expect(text).toMatchObject({ x: 0, y: 0, width: 120, height: 32 });
+  });
 });
