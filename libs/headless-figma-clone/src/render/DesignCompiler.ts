@@ -1129,11 +1129,48 @@ function emitGroup(
   patternTiles: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
-  env: FileEnvelope
+  env: FileEnvelope,
+  parentFrame?: FrameNode
 ): void {
   const paintables: SceneNode[] = [];
   flattenGroupPaintOrderContents(g, paintables);
   paintables.sort((a, b) => internalIdSeq(a.id) - internalIdSeq(b.id));
+
+  if (!insideFlex) {
+    for (const c of paintables) {
+      emitScene(
+        c,
+        originX,
+        originY,
+        shiftX,
+        shiftY,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        patternTiles,
+        warnings,
+        false,
+        env,
+        paintables,
+        undefined,
+        false
+      );
+    }
+    return;
+  }
+
+  const zIndex = z.value++;
+  const opRot = transformOpacityCss(g);
+  const outerCss = flexChildLayoutCss(
+    g,
+    true,
+    { absX: g.x, absY: g.y, width: g.width, height: g.height },
+    parentFrame
+  );
+  htmlParts.push(`<div class="hfc-node-${g.id} hfc-group-flex" data-hfc-id="${g.id}" style="z-index:${String(zIndex)}">`);
+  cssParts.push(`.hfc-node-${g.id}{${outerCss}box-sizing:border-box;${opRot}}`);
+  const localOrigin = { x: g.x, y: g.y };
   for (const c of paintables) {
     emitScene(
       c,
@@ -1147,13 +1184,15 @@ function emitGroup(
       imgMap,
       patternTiles,
       warnings,
-      insideFlex,
+      false,
       env,
       paintables,
       undefined,
-      false
+      false,
+      localOrigin
     );
   }
+  htmlParts.push('</div>');
 }
 
 /**
@@ -1359,12 +1398,28 @@ function emitScene(
   env: FileEnvelope,
   parentChildren: SceneNode[] | null,
   parentFrame?: FrameNode,
-  useParentCoords = false
+  useParentCoords = false,
+  coordLocalOrigin?: { x: number; y: number }
 ): void {
   if (n.type === 'SECTION') return;
 
   if (n.type === 'GROUP') {
-    emitGroup(n, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env);
+    emitGroup(
+      n,
+      originX,
+      originY,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      insideFlex,
+      env,
+      parentFrame
+    );
     return;
   }
 
@@ -1374,8 +1429,8 @@ function emitScene(
 
   const pageX = originX + n.x + shiftX;
   const pageY = originY + n.y + shiftY;
-  const absX = useParentCoords ? n.x : pageX;
-  const absY = useParentCoords ? n.y : pageY;
+  const absX = coordLocalOrigin ? n.x - coordLocalOrigin.x : useParentCoords ? n.x : pageX;
+  const absY = coordLocalOrigin ? n.y - coordLocalOrigin.y : useParentCoords ? n.y : pageY;
   const zIndex = z.value++;
   const opRot = transformOpacityCss(n);
 
