@@ -68,7 +68,7 @@ const SUPPORTED_SCENE_TYPES = new Set([
 interface ImportContext {
   idMap: FigmaIdMap;
   imageRemap: (h: string) => string | undefined;
-  iconSvgRemap: (figmaNodeId: string) => string | undefined;
+  iconExportRemap: (figmaNodeId: string) => string | undefined;
   report: ImportReport;
   /** COMPONENT master frames keyed by component HFC id */
   componentRootFrames: Map<string, FrameNode>;
@@ -100,19 +100,20 @@ export interface ImportResult {
   report: ImportReport;
 }
 
-function isSvgAsset(
+function isFigmaNodeIconAsset(
   asset: SerializedAsset
-): asset is Extract<SerializedAsset, { mimeType: 'image/svg+xml' }> {
-  return asset.mimeType === 'image/svg+xml';
+): asset is Extract<SerializedAsset, { figmaNodeId: string }> {
+  return 'figmaNodeId' in asset;
 }
 
-function mapIconSvgFromSnapshot(
+function mapIconExportFromSnapshot(
   p: Record<string, unknown>,
-  iconSvgRemap: (figmaNodeId: string) => string | undefined
+  iconExportRemap: (figmaNodeId: string) => string | undefined
 ): { iconSvgAssetHash?: string } {
-  const figmaNodeId = optStr(prop(p, 'hfcIconSvgAsset'));
+  const figmaNodeId =
+    optStr(prop(p, 'hfcIconSvgAsset')) ?? optStr(prop(p, 'hfcIconPngAsset'));
   if (!figmaNodeId) return {};
-  const hash = iconSvgRemap(figmaNodeId);
+  const hash = iconExportRemap(figmaNodeId);
   return hash ? { iconSvgAssetHash: hash } : {};
 }
 
@@ -127,14 +128,14 @@ export function importFigmaPluginSnapshot(
   const report = createImportReport();
   const idMap = new FigmaIdMap(3);
   const figmaImageToSha = new Map<string, string>();
-  const figmaNodeSvgToSha = new Map<string, string>();
+  const figmaNodeIconToSha = new Map<string, string>();
   const assetBuffers: ImportResult['assetBuffers'] = [];
 
   for (const asset of snapshot.assets) {
     const buf = Buffer.from(asset.base64, 'base64');
     const sha256 = createHash('sha256').update(buf).digest('hex');
-    if (isSvgAsset(asset)) {
-      figmaNodeSvgToSha.set(asset.figmaNodeId, sha256);
+    if (isFigmaNodeIconAsset(asset)) {
+      figmaNodeIconToSha.set(asset.figmaNodeId, sha256);
     } else {
       figmaImageToSha.set(asset.figmaImageHash, sha256);
     }
@@ -142,11 +143,11 @@ export function importFigmaPluginSnapshot(
   }
 
   const imageRemap = (figmaHash: string) => figmaImageToSha.get(figmaHash);
-  const iconSvgRemap = (figmaNodeId: string) => figmaNodeSvgToSha.get(figmaNodeId);
+  const iconExportRemap = (figmaNodeId: string) => figmaNodeIconToSha.get(figmaNodeId);
   const ctx: ImportContext = {
     idMap,
     imageRemap,
-    iconSvgRemap,
+    iconExportRemap,
     report,
     componentRootFrames: new Map(),
   };
@@ -285,7 +286,7 @@ function importSceneNode(
       name: node.name,
       ...mapBlendOpacity(p),
       ...mapLayoutSelf(p),
-      ...mapIconSvgFromSnapshot(p, ctx.iconSvgRemap),
+      ...mapIconExportFromSnapshot(p, ctx.iconExportRemap),
     };
     const b = boundsFromProps(p, parentPageOrigin);
     const nodePageOrigin = childPageOrigin(parentPageOrigin, b);
@@ -346,7 +347,7 @@ function importSceneNode(
     ...mapBlendOpacity(p),
     ...mapLayoutSelf(p),
     ...mapLayoutExtras(p),
-    ...mapIconSvgFromSnapshot(p, ctx.iconSvgRemap),
+    ...mapIconExportFromSnapshot(p, ctx.iconExportRemap),
     ...(mapBoundVariables(p, idMap) ? { boundVariables: mapBoundVariables(p, idMap) } : {}),
     ...(mapExplicitVariableModes(p, idMap) ? { explicitVariableModes: mapExplicitVariableModes(p, idMap) } : {}),
   };

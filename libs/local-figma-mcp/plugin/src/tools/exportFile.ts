@@ -1,7 +1,11 @@
 import type { FigmaPluginSnapshot, SerializedAsset, SerializedNode } from '../snapshotTypes.js';
 import { SNAPSHOT_VERSION } from '../snapshotTypes.js';
 import {
+  findSerializedNodeById,
   findStructuralIconExportRootIds,
+  ICON_RASTER_EXPORT_SCALE,
+  prefersRasterIconExport,
+  tagSerializedIconPngExport,
   tagSerializedIconSvgExport,
 } from './iconDetector.js';
 import { keysForNodeType } from './nodePropertyKeys.js';
@@ -85,31 +89,50 @@ async function serializeStyleRecord(style: { id: string; name: string } & Record
   return out;
 }
 
-async function buildIconSvgAssets(document: SerializedNode): Promise<SerializedAsset[]> {
+async function buildIconExportAssets(document: SerializedNode): Promise<SerializedAsset[]> {
   const iconRootIds = findStructuralIconExportRootIds(document);
   const assets: SerializedAsset[] = [];
 
   for (const nodeId of iconRootIds) {
+    const serialized = findSerializedNodeById(document, nodeId);
+    if (!serialized) continue;
+
     const node = await figma.getNodeByIdAsync(nodeId);
     if (!node || !('exportAsync' in node)) continue;
+
+    const exportNode = node as SceneNode & {
+      exportAsync: (settings: ExportSettings) => Promise<Uint8Array>;
+    };
+
     try {
-      const bytes = await (
-        node as SceneNode & {
-          exportAsync: (settings: ExportSettingsSVG) => Promise<Uint8Array>;
-        }
-      ).exportAsync({
-        format: 'SVG',
-        contentsOnly: true,
-        svgOutlineText: true,
-        svgIdAttribute: false,
-        svgSimplifyStroke: true,
-      });
-      assets.push({
-        figmaNodeId: nodeId,
-        mimeType: 'image/svg+xml',
-        base64: bytesToBase64(bytes),
-      });
-      tagSerializedIconSvgExport(document, nodeId, nodeId);
+      if (prefersRasterIconExport(serialized)) {
+        const bytes = await exportNode.exportAsync({
+          format: 'PNG',
+          contentsOnly: true,
+          constraint: { type: 'SCALE', value: ICON_RASTER_EXPORT_SCALE },
+        });
+        assets.push({
+          figmaNodeId: nodeId,
+          mimeType: 'image/png',
+          base64: bytesToBase64(bytes),
+          exportScale: ICON_RASTER_EXPORT_SCALE,
+        });
+        tagSerializedIconPngExport(document, nodeId, nodeId);
+      } else {
+        const bytes = await exportNode.exportAsync({
+          format: 'SVG',
+          contentsOnly: true,
+          svgOutlineText: true,
+          svgIdAttribute: false,
+          svgSimplifyStroke: true,
+        });
+        assets.push({
+          figmaNodeId: nodeId,
+          mimeType: 'image/svg+xml',
+          base64: bytesToBase64(bytes),
+        });
+        tagSerializedIconSvgExport(document, nodeId, nodeId);
+      }
     } catch {
       /* skip failed icon export */
     }
@@ -194,8 +217,8 @@ export async function buildFigmaPluginSnapshot(): Promise<FigmaPluginSnapshot> {
   for (const c of variableCollections) collectImageHashes(c);
 
   const rasterAssets = await buildAssets();
-  const iconSvgAssets = await buildIconSvgAssets(document);
-  const assets = [...rasterAssets, ...iconSvgAssets];
+  const iconExportAssets = await buildIconExportAssets(document);
+  const assets = [...rasterAssets, ...iconExportAssets];
 
   return {
     snapshotVersion: SNAPSHOT_VERSION,

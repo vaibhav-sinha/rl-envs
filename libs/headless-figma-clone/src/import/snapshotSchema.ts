@@ -24,7 +24,14 @@ const svgAssetSchema = z.object({
   base64: z.string(),
 });
 
-export const serializedAssetSchema = z.union([rasterAssetSchema, svgAssetSchema]);
+const iconPngAssetSchema = z.object({
+  figmaNodeId: z.string(),
+  mimeType: z.literal('image/png'),
+  base64: z.string(),
+  exportScale: z.number().int().min(1).max(4).optional(),
+});
+
+export const serializedAssetSchema = z.union([rasterAssetSchema, svgAssetSchema, iconPngAssetSchema]);
 
 export const figmaPluginSnapshotSchema = z.object({
   snapshotVersion: z.literal(SNAPSHOT_VERSION),
@@ -60,7 +67,14 @@ export type SerializedSvgAsset = {
   base64: string;
 };
 
-export type SerializedAsset = SerializedRasterAsset | SerializedSvgAsset;
+export type SerializedIconPngAsset = {
+  figmaNodeId: string;
+  mimeType: 'image/png';
+  base64: string;
+  exportScale?: number;
+};
+
+export type SerializedAsset = SerializedRasterAsset | SerializedSvgAsset | SerializedIconPngAsset;
 
 export interface FigmaPluginSnapshot {
   snapshotVersion: typeof SNAPSHOT_VERSION;

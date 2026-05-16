@@ -80,6 +80,7 @@ export const HANDLED_SNAPSHOT_KEYS = new Set([
   'explicitVariableModes',
   'isMask',
   'hfcIconSvgAsset',
+  'hfcIconPngAsset',
   'clipsContent',
   'backgrounds',
   'layoutMode',
