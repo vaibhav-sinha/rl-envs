@@ -96,7 +96,7 @@ export const PROPERTY_KEYS_BY_TYPE: Record<string, readonly string[]> = {
   LINE: [...GEOMETRY, 'strokeCap', 'strokeJoin'],
   POLYGON: [...GEOMETRY, 'pointCount'],
   STAR: [...GEOMETRY, 'pointCount', 'innerRadius'],
-  VECTOR: [...GEOMETRY, 'vectorPaths', 'vectorNetwork', 'handleMirroring'],
+  VECTOR: [...GEOMETRY, 'vectorPaths', 'handleMirroring'],
   BOOLEAN_OPERATION: [...GEOMETRY, 'booleanOperation'],
   TEXT: [
     ...GEOMETRY,

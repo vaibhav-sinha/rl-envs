@@ -5,6 +5,9 @@ import { bytesToBase64, serializeValue } from './serializeValue.js';
 
 const IMAGE_HASHES = new Set<string>();
 
+/** Reading these can abort the plugin WASM runtime (not catchable in JS). */
+const UNSAFE_PROPERTY_KEYS = new Set(['vectorNetwork']);
+
 function collectImageHashes(value: unknown): void {
   if (!value || typeof value !== 'object') return;
   if (Array.isArray(value)) {
@@ -24,6 +27,7 @@ function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Reco
   const keys = keysForNodeType(node.type);
 
   for (const key of keys) {
+    if (UNSAFE_PROPERTY_KEYS.has(key)) continue;
     try {
       const val = node[key];
       if (val === undefined) continue;

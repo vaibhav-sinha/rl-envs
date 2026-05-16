@@ -20,6 +20,20 @@ type SessionEntry = {
 
 const DEFAULT_JSON_BODY_LIMIT = 200 * 1024 * 1024;
 
+/** Figma plugin UI iframes use a `null` origin; browsers only allow `Access-Control-Allow-Origin: *`. */
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, mcp-session-id',
+  'Access-Control-Max-Age': '86400',
+};
+
+function applyCors(res: ServerResponse): void {
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    res.setHeader(key, value);
+  }
+}
+
 function readJsonBody(req: IncomingMessage, maxBytes = DEFAULT_JSON_BODY_LIMIT): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -139,6 +153,13 @@ export async function createHttpServer(params: {
 
   const httpServer = createServer(async (req, res) => {
     try {
+      applyCors(res);
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
       const url = req.url?.split('?')[0] ?? '';
 
       if (req.method === 'GET' && url.startsWith('/assets/')) {

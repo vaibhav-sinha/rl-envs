@@ -69,4 +69,28 @@ describe('POST /export/hfc', () => {
     const body = (await res.json()) as { exportEndpoint?: string };
     expect(body.exportEndpoint).toBe('/export/hfc');
   });
+
+  it('allows CORS from null origin (Figma plugin UI)', async () => {
+    const preflight = await fetch(`http://127.0.0.1:${String(port)}/export/hfc`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'null',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type',
+      },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
+
+    const res = await fetch(`http://127.0.0.1:${String(port)}/export/hfc`, {
+      method: 'POST',
+      headers: {
+        Origin: 'null',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ hfcFileName: 'Cors-Test', snapshot }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+  });
 });
