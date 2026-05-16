@@ -107,7 +107,8 @@ Replace the host and port with your listen address (for example `http://127.0.0.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | JSON: `status`, `version`. Always available. |
+| `GET` | `/health` | JSON: `status`, `version`, `exportEndpoint`. Always available. |
+| `POST` | `/export/hfc` | JSON body `{ "hfcFileName": "…", "snapshot": { … } }` — imports a Figma plugin export snapshot and writes `{slug}.hfc.json` under **`HFC_WORKSPACE_DIR`**. Response: `filePath`, `fileKey`, `fileName`. Used by the **local-figma-mcp** plugin UI (Figma Desktop → HFC, port **3847**). |
 | `GET` | `/files` | JSON: workspace `.hfc.json` files with metadata; each entry includes **`setActiveUrl`** pointing at `/files/active` for that file. Always available. |
 | `GET` | `/files/active?path=…` | Loads the given absolute path as the active document. Query **`path`** must be URL-encoded, resolve under **`HFC_WORKSPACE_DIR`**, and end with **`.hfc.json`**. JSON: `ok`, `fileKey`, `filePath`, `fileName`. Always available. |
 | `POST` | `/mcp` | MCP Streamable HTTP (JSON-RPC bodies, `mcp-session-id` header after initialize). Always available. |
@@ -123,6 +124,7 @@ With **`HFC_ALLOW_DEBUG=1`** or the **`--debug`** CLI flag:
 Example base URL: `http://127.0.0.1:3847`
 
 - Health: `http://127.0.0.1:3847/health`
+- Figma export import: `POST http://127.0.0.1:3847/export/hfc` (from the Local Figma MCP plugin **Export File** action; requires this server to be running)
 - List files: `http://127.0.0.1:3847/files`
 - Set active file (encode `path`): `http://127.0.0.1:3847/files/active?path=` + `encodeURIComponent("C:\\…\\design.hfc.json")`
 - MCP: `http://127.0.0.1:3847/mcp` (POST)

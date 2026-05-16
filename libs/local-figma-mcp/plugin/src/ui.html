@@ -12,6 +12,7 @@
         display: flex;
         flex-direction: column;
         height: 100vh;
+        position: relative;
       }
       header {
         padding: 10px 12px;
@@ -22,7 +23,7 @@
       .status.connected { color: #4ade80; }
       .status.disconnected { color: #f87171; }
       .meta { color: #999; margin-top: 4px; font-size: 11px; }
-      .actions { margin-top: 8px; display: flex; gap: 8px; }
+      .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
       button {
         background: #333;
         color: #eee;
@@ -33,6 +34,7 @@
         font-size: 11px;
       }
       button:hover { background: #444; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
       #log {
         flex: 1;
         overflow: auto;
@@ -44,27 +46,111 @@
       }
       .line { margin: 2px 0; color: #bbb; }
       .line.err { color: #f87171; }
+      .overlay {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.65);
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+      }
+      .overlay.visible { display: flex; }
+      .dialog, .loader-panel {
+        background: #2a2a2a;
+        border: 1px solid #444;
+        border-radius: 8px;
+        padding: 16px;
+        min-width: 280px;
+        max-width: 90%;
+      }
+      .dialog h2, .loader-panel h2 {
+        margin: 0 0 12px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .dialog label {
+        display: block;
+        font-size: 11px;
+        color: #aaa;
+        margin-bottom: 4px;
+      }
+      .dialog input {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #555;
+        border-radius: 4px;
+        background: #1e1e1e;
+        color: #eee;
+        font-size: 12px;
+        margin-bottom: 12px;
+      }
+      .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+      .loader-panel { text-align: center; }
+      .spinner {
+        width: 28px;
+        height: 28px;
+        border: 3px solid #444;
+        border-top-color: #4ade80;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin: 0 auto 12px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      #loaderText { color: #ccc; font-size: 11px; }
     </style>
   </head>
   <body>
     <header>
       <div class="status disconnected" id="status">Disconnected</div>
-      <div class="meta" id="meta">Server: ws://localhost:3855/plugin</div>
+      <div class="meta" id="meta">MCP: ws://localhost:3855 · Export: http://localhost:3847</div>
       <div class="actions">
+        <button id="exportBtn" type="button">Export File</button>
         <button id="reconnect" type="button">Reconnect</button>
       </div>
     </header>
     <div id="log"></div>
+
+    <div class="overlay" id="exportDialogOverlay">
+      <div class="dialog">
+        <h2>Export to HFC</h2>
+        <label for="hfcFileName">File name</label>
+        <input id="hfcFileName" type="text" placeholder="My-design" autocomplete="off" />
+        <div class="dialog-actions">
+          <button type="button" id="exportCancel">Cancel</button>
+          <button type="button" id="exportConfirm">Export</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="overlay" id="loaderOverlay">
+      <div class="loader-panel">
+        <div class="spinner"></div>
+        <h2 id="loaderText">Working…</h2>
+      </div>
+    </div>
+
     <script>
       const WS_URL = 'ws://localhost:3855/plugin';
+      const HFC_EXPORT_URL = 'http://localhost:3847/export/hfc';
       const statusEl = document.getElementById('status');
       const metaEl = document.getElementById('meta');
       const logEl = document.getElementById('log');
       const reconnectBtn = document.getElementById('reconnect');
+      const exportBtn = document.getElementById('exportBtn');
+      const exportDialogOverlay = document.getElementById('exportDialogOverlay');
+      const loaderOverlay = document.getElementById('loaderOverlay');
+      const loaderText = document.getElementById('loaderText');
+      const hfcFileNameInput = document.getElementById('hfcFileName');
+      const exportCancel = document.getElementById('exportCancel');
+      const exportConfirm = document.getElementById('exportConfirm');
 
       let ws = null;
       let reconnectTimer = null;
       let backoff = 1000;
+      let lastFileName = 'Untitled';
+      let exportChunks = null;
+      let exportPendingName = '';
 
       function log(line, isErr) {
         const div = document.createElement('div');
@@ -80,11 +166,19 @@
         if (detail) metaEl.textContent = detail;
       }
 
+      function setLoader(visible, text) {
+        loaderOverlay.classList.toggle('visible', visible);
+        if (text) loaderText.textContent = text;
+        exportBtn.disabled = visible;
+        reconnectBtn.disabled = visible;
+      }
+
       function sendHello() {
         parent.postMessage({ pluginMessage: { type: 'request_hello' } }, '*');
       }
 
       function onHelloData(data) {
+        lastFileName = data.fileName || 'Untitled';
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
         ws.send(
           JSON.stringify({
@@ -97,7 +191,7 @@
         const fileLabel = data.fileKey
           ? data.fileName + ' (' + data.fileKey + ')'
           : data.fileName;
-        setConnected(true, 'File: ' + fileLabel);
+        setConnected(true, 'File: ' + fileLabel + ' · Export → :3847');
         log('plugin_hello sent');
       }
 
@@ -160,7 +254,41 @@
         }, backoff);
       }
 
-      window.onmessage = (event) => {
+      async function uploadToHfc(hfcFileName, snapshot) {
+        setLoader(true, 'Uploading to HFC…');
+        const res = await fetch(HFC_EXPORT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hfcFileName, snapshot }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const errMsg =
+            body.error?.message || body.error || res.statusText || 'Upload failed';
+          throw new Error(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
+        }
+        return body;
+      }
+
+      exportBtn.onclick = () => {
+        hfcFileNameInput.value = lastFileName.replace(/[^a-zA-Z0-9._\s-]+/g, '').trim() || 'Untitled';
+        exportDialogOverlay.classList.add('visible');
+      };
+
+      exportCancel.onclick = () => {
+        exportDialogOverlay.classList.remove('visible');
+      };
+
+      exportConfirm.onclick = () => {
+        const name = hfcFileNameInput.value.trim() || lastFileName;
+        exportDialogOverlay.classList.remove('visible');
+        exportPendingName = name;
+        exportChunks = null;
+        setLoader(true, 'Reading document…');
+        parent.postMessage({ pluginMessage: { type: 'export_file', hfcFileName: name } }, '*');
+      };
+
+      window.onmessage = async (event) => {
         const msg = event.data.pluginMessage;
         if (!msg) return;
         if (msg.type === 'hello_data') {
@@ -169,6 +297,48 @@
         }
         if (msg.type === 'log') {
           log(msg.line, msg.line.startsWith('✗'));
+          return;
+        }
+        if (msg.type === 'export_progress') {
+          setLoader(true, msg.detail || msg.phase || 'Working…');
+          return;
+        }
+        if (msg.type === 'export_file_chunk') {
+          if (!exportChunks || exportChunks.total !== msg.total) {
+            exportChunks = { parts: new Array(msg.total), total: msg.total, name: msg.hfcFileName };
+          }
+          exportChunks.parts[msg.index] = msg.data;
+          setLoader(true, 'Receiving snapshot… ' + (msg.index + 1) + '/' + msg.total);
+          return;
+        }
+        if (msg.type === 'export_file_result') {
+          if (!msg.ok) {
+            setLoader(false);
+            log('Export failed: ' + (msg.error || 'unknown'), true);
+            return;
+          }
+          try {
+            let snapshotJson = msg.snapshotJson;
+            if (!snapshotJson && exportChunks) {
+              if (exportChunks.parts.some((p) => p === undefined)) {
+                throw new Error('Incomplete snapshot chunks');
+              }
+              snapshotJson = exportChunks.parts.join('');
+            }
+            if (!snapshotJson) throw new Error('No snapshot data received');
+            const snapshot = JSON.parse(snapshotJson);
+            const result = await uploadToHfc(msg.hfcFileName || exportPendingName, snapshot);
+            setLoader(false);
+            log('Saved: ' + (result.filePath || result.fileName || 'ok'));
+          } catch (e) {
+            setLoader(false);
+            const m = e instanceof Error ? e.message : String(e);
+            log('Upload failed: ' + m, true);
+            if (m.includes('fetch') || m.includes('Failed')) {
+              log('Is HFC running? npm run start in headless-figma-clone', true);
+            }
+          }
+          exportChunks = null;
           return;
         }
         if (msg.type === 'tool_response' && ws && ws.readyState === WebSocket.OPEN) {
@@ -183,6 +353,7 @@
       };
 
       connect();
+      sendHello();
     </script>
   </body>
 </html>

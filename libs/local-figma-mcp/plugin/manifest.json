@@ -4,13 +4,20 @@
   "api": "1.0.0",
   "main": "build/code.js",
   "ui": "build/ui.html",
-  "editorType": ["figma", "figjam"],
-  "permissions": ["teamlibrary"],
+  "editorType": [
+    "figma"
+  ],
+  "permissions": [
+    "teamlibrary"
+  ],
   "networkAccess": {
-    "allowedDomains": ["none"],
+    "allowedDomains": [
+      "none"
+    ],
     "devAllowedDomains": [
       "http://localhost:3855",
       "ws://localhost:3855",
+      "http://localhost:3847",
       "https://upload.wikimedia.org"
     ],
     "reasoning": "Connect to the local-figma-mcp server on the developer machine."
