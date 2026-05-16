@@ -184,7 +184,7 @@ describe('phase7 constraints and sizing compile', () => {
     }
   });
 
-  it('rejects layoutSizingHorizontal FILL before appendChild (matches Figma)', async () => {
+  it('allows layoutSizingHorizontal FILL before appendChild on detached shapes', async () => {
     const engine = new DocumentEngine({
       persistence: new JsonPersistence(),
       logger: createConsoleLogger('error'),
@@ -203,14 +203,15 @@ box.resize(80, 32);
 box.layoutSizingHorizontal = 'FILL';
 col.appendChild(box);
 root.appendChild(col);
-return {};
+return { sizing: box.layoutSizingHorizontal };
 `,
       engine
     );
-    expect(run.kind).toBe('error');
-    if (run.kind === 'error') {
-      expect(run.message).toMatch(/layoutSizingHorizontal/);
-    }
+    expect(run.kind).toBe('ok');
+    if (run.kind !== 'ok') return;
+    const tx = await engine.applyTransaction(run.operations);
+    expect(tx.success).toBe(true);
+    expect((run.result as { sizing?: string }).sizing).toBe('FILL');
   });
 
   it('runs verification scenarios 26, 27, and 30 scripts', async () => {

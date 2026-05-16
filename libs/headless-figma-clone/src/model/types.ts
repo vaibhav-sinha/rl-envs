@@ -141,18 +141,103 @@ export interface GridStyleDefinition {
   layoutGrids: LayoutGridColumns[];
 }
 
-/** Phase 8 — subset of Figma variable bindings on node fields (FLOAT / STRING). */
+/** Figma VariableBindableNodeField (subset used on frames). */
 export type FrameBoundVariableField =
+  | 'width'
+  | 'height'
+  | 'characters'
+  | 'itemSpacing'
   | 'paddingLeft'
   | 'paddingRight'
   | 'paddingTop'
   | 'paddingBottom'
-  | 'itemSpacing';
+  | 'visible'
+  | 'topLeftRadius'
+  | 'topRightRadius'
+  | 'bottomLeftRadius'
+  | 'bottomRightRadius'
+  | 'minWidth'
+  | 'maxWidth'
+  | 'minHeight'
+  | 'maxHeight'
+  | 'counterAxisSpacing'
+  | 'strokeWeight'
+  | 'strokeTopWeight'
+  | 'strokeRightWeight'
+  | 'strokeBottomWeight'
+  | 'strokeLeftWeight'
+  | 'opacity'
+  | 'gridRowGap'
+  | 'gridColumnGap';
 
-export type TextBoundVariableField = 'fontSize' | 'characters';
+/** Figma VariableBindableTextField. */
+export type TextBoundVariableField =
+  | 'fontFamily'
+  | 'fontSize'
+  | 'fontStyle'
+  | 'fontWeight'
+  | 'letterSpacing'
+  | 'lineHeight'
+  | 'paragraphSpacing'
+  | 'paragraphIndent'
+  | 'characters';
 
-export type FrameVariableBindings = Partial<Record<FrameBoundVariableField, string>>;
-export type TextVariableBindings = Partial<Record<TextBoundVariableField, string>>;
+export type FrameVariableBindings = Partial<Record<FrameBoundVariableField, string>> & {
+  fills?: string[];
+  strokes?: string[];
+  effects?: string[];
+  layoutGrids?: string[];
+  textRangeFills?: string[];
+};
+
+export type TextVariableBindings = Partial<Record<TextBoundVariableField, string>> & {
+  textRangeFills?: string[];
+};
+
+export type LineHeight =
+  | { unit: 'AUTO' }
+  | { unit: 'PIXELS'; value: number }
+  | { unit: 'PERCENT'; value: number };
+
+export type LetterSpacing =
+  | { unit: 'PIXELS'; value: number }
+  | { unit: 'PERCENT'; value: number };
+
+export type LeadingTrim = 'NONE' | 'CAP_HEIGHT' | 'EXCLUSION';
+
+export type TextCase = 'ORIGINAL' | 'UPPER' | 'LOWER' | 'TITLE' | 'SMALL_CAPS' | 'SMALL_CAPS_FORCED';
+
+export interface TextDecoration {
+  type: 'NONE' | 'UNDERLINE' | 'STRIKETHROUGH';
+  color?: RGBA;
+  offset?: number;
+  thickness?: number;
+  style?: 'SOLID' | 'WAVY' | 'DOTTED';
+  skipInk?: boolean;
+}
+
+export interface TextListOptions {
+  type: 'NONE' | 'ORDERED' | 'UNORDERED';
+  indent?: number;
+}
+
+export interface IndividualStrokeWeights {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export type GridTrackSize =
+  | { type: 'FIXED'; value: number }
+  | { type: 'HUG' }
+  | { type: 'FLEX'; value?: number };
+
+export type EffectBoundVariableField = 'radius' | 'color' | 'spread' | 'offsetX' | 'offsetY';
+
+export type EffectBoundVariables = Partial<
+  Record<EffectBoundVariableField, { type: 'VARIABLE_ALIAS'; id: string }>
+>;
 
 export interface DropShadowEffect {
   type: 'DROP_SHADOW';
@@ -163,6 +248,18 @@ export interface DropShadowEffect {
   color: RGBA;
   blendMode: BlendMode;
   showShadowBehindNode?: boolean;
+  boundVariables?: EffectBoundVariables;
+}
+
+export interface InnerShadowEffect {
+  type: 'INNER_SHADOW';
+  visible?: boolean;
+  offset: { x: number; y: number };
+  radius: number;
+  spread?: number;
+  color: RGBA;
+  blendMode: BlendMode;
+  boundVariables?: EffectBoundVariables;
 }
 
 export interface BackgroundBlurEffect {
@@ -170,9 +267,38 @@ export interface BackgroundBlurEffect {
   visible?: boolean;
   /** Blur radius in CSS px. */
   radius: number;
+  boundVariables?: EffectBoundVariables;
 }
 
-export type Effect = DropShadowEffect | BackgroundBlurEffect;
+export interface LayerBlurEffect {
+  type: 'LAYER_BLUR';
+  visible?: boolean;
+  radius: number;
+  boundVariables?: EffectBoundVariables;
+}
+
+export interface NoiseEffect {
+  type: 'NOISE';
+  visible?: boolean;
+  radius?: number;
+  noiseSize?: number;
+  density?: number;
+}
+
+export interface TextureEffect {
+  type: 'TEXTURE';
+  visible?: boolean;
+  radius?: number;
+  imageHash?: string;
+}
+
+export type Effect =
+  | DropShadowEffect
+  | InnerShadowEffect
+  | BackgroundBlurEffect
+  | LayerBlurEffect
+  | NoiseEffect
+  | TextureEffect;
 
 export interface NodeBase {
   id: string;
@@ -211,9 +337,22 @@ export interface LayoutSelfFields {
   layoutSizingVertical?: LayoutSizing;
   layoutPositioning?: LayoutPositioning;
   constraints?: LayoutConstraints;
+  /** Grid auto-layout child placement (layoutMode GRID on parent). */
+  gridRowSpan?: number;
+  gridColumnSpan?: number;
+  gridRowAnchorIndex?: number;
+  gridColumnAnchorIndex?: number;
+  gridChildHorizontalAlign?: 'MIN' | 'CENTER' | 'MAX' | 'AUTO';
+  gridChildVerticalAlign?: 'MIN' | 'CENTER' | 'MAX' | 'AUTO';
 }
 
-export type LayoutMode = 'NONE' | 'HORIZONTAL' | 'VERTICAL';
+export type LayoutMode = 'NONE' | 'HORIZONTAL' | 'VERTICAL' | 'GRID';
+
+export type LayoutGridBoundVariableField = 'count' | 'gutterSize' | 'sectionSize' | 'offset';
+
+export type LayoutGridBoundVariables = Partial<
+  Record<LayoutGridBoundVariableField, { type: 'VARIABLE_ALIAS'; id: string }>
+>;
 
 export interface LayoutGridColumns {
   type: 'COLUMNS';
@@ -223,6 +362,7 @@ export interface LayoutGridColumns {
   gutter: number;
   /** Optional RGBA 0..1 for grid line color (default light gray). */
   color?: RGBA;
+  boundVariables?: LayoutGridBoundVariables;
 }
 
 export interface DocumentNode extends NodeBase {
@@ -279,10 +419,25 @@ export interface FrameNode extends NodeBase, LayoutSelfFields {
   topRightRadius?: number;
   bottomRightRadius?: number;
   bottomLeftRadius?: number;
+  cornerSmoothing?: number;
+  individualStrokeWeights?: Partial<IndividualStrokeWeights>;
   effects?: Effect[];
   clipsContent?: boolean;
+  itemReverseZIndex?: boolean;
+  strokesIncludedInLayout?: boolean;
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
+  gridStyleId?: string;
+  explicitVariableModes?: Record<string, string>;
   /** Phase 4 auto layout (compile-time resolved positions on ephemeral clone). */
   layoutMode?: LayoutMode;
+  gridRowCount?: number;
+  gridColumnCount?: number;
+  gridRowGap?: number;
+  gridColumnGap?: number;
+  gridRowSizes?: GridTrackSize[];
+  gridColumnSizes?: GridTrackSize[];
   paddingLeft?: number;
   paddingRight?: number;
   paddingTop?: number;
@@ -305,9 +460,19 @@ export interface FrameNode extends NodeBase, LayoutSelfFields {
 
 export interface TextRangeStyle {
   fills?: Paint[];
+  fontName?: FontName;
   fontSize?: number;
   fontWeight?: number;
+  lineHeight?: LineHeight;
+  letterSpacing?: LetterSpacing;
+  textCase?: TextCase;
+  textDecoration?: TextDecoration;
   hyperlink?: { type: 'URL'; url: string };
+  textStyleId?: string;
+  fillStyleId?: string;
+  listOptions?: TextListOptions;
+  openTypeFeatures?: Record<string, boolean>;
+  boundVariables?: Partial<Record<TextBoundVariableField, string>>;
 }
 
 export interface StyledSegment {
@@ -360,7 +525,26 @@ export interface TextNode extends NodeBase, LayoutSelfFields {
    * @see Figma Plugin API — `TextNode.textAlignVertical`.
    */
   textAlignVertical?: 'TOP' | 'CENTER' | 'BOTTOM';
-  /** Phase 8 — `fontSize` → FLOAT variable; `characters` → STRING variable. */
+  lineHeight?: LineHeight;
+  letterSpacing?: LetterSpacing;
+  leadingTrim?: LeadingTrim;
+  paragraphIndent?: number;
+  paragraphSpacing?: number;
+  listSpacing?: number;
+  hangingPunctuation?: boolean;
+  hangingList?: boolean;
+  listOptions?: TextListOptions;
+  strokes?: Paint[];
+  strokeWeight?: number;
+  strokeAlign?: 'INSIDE' | 'OUTSIDE' | 'CENTER';
+  strokeCap?: StrokeCap;
+  strokeJoin?: StrokeJoin;
+  miterLimit?: number;
+  dashPattern?: number[];
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
+  explicitVariableModes?: Record<string, string>;
   boundVariables?: TextVariableBindings;
 }
 
@@ -386,9 +570,13 @@ export interface RectangleNode extends NodeBase, LayoutSelfFields {
   topRightRadius?: number;
   bottomRightRadius?: number;
   bottomLeftRadius?: number;
+  cornerSmoothing?: number;
+  individualStrokeWeights?: Partial<IndividualStrokeWeights>;
   effects?: Effect[];
+  explicitVariableModes?: Record<string, string>;
   /** References {@link FileEnvelope.paintStyles} id (first paint merged as fill when node fills absent). */
   fillStyleId?: string;
+  strokeStyleId?: string;
   /** References {@link FileEnvelope.effectStyles} id (merged at compile when `effects` is empty). */
   effectStyleId?: string;
 }

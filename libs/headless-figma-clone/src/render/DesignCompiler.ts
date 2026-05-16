@@ -1,8 +1,4 @@
-import {
-  applyAutoLayoutIntrinsicSizingDeep,
-  hugTextLineHeightPx,
-  syncHugTextLayoutMetricsDeep,
-} from './autoLayoutIntrinsicSizing.js';
+import { applyAutoLayoutIntrinsicSizingDeep, syncHugTextLayoutMetricsDeep } from './autoLayoutIntrinsicSizing.js';
 import {
   booleanOperandPathD,
   clampRectCornerRadiiToBox,
@@ -20,8 +16,17 @@ import {
   patternRepeatCellSize,
 } from './patternTiles.js';
 import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
+import { frameGridInnerStyle, isGridFrame } from '../layout/gridLayout.js';
+import { allEffectsCss } from './effectsCss.js';
+import {
+  fontFamilyCssFromName,
+  hugTextLineHeightPxFromTypography,
+  mergeTypographyFromText,
+  openTypeFeaturesCss,
+  paragraphTypographyCss,
+} from './typographyCss.js';
+import { computeStrokeBorder, rgbaFromSolid as strokeRgbaFromSolid } from './strokeRender.js';
 import { svgViewportForPathData } from './vectorPathBounds.js';
-import { fontFamilyCss } from '../fonts/fontCatalog.js';
 import {
   buildRootCssVariableBlock,
   cssVarNameForVariable,
@@ -199,9 +204,14 @@ function paintColorCss(fill: Paint | undefined, _env: FileEnvelope, fallback: st
   return fallback;
 }
 
-function boundFloatCss(env: FileEnvelope, variableId: string | undefined, fallbackPx: number): string {
+function boundFloatCss(
+  env: FileEnvelope,
+  variableId: string | undefined,
+  fallbackPx: number,
+  nodeModeOverrides?: Record<string, string>
+): string {
   if (!variableId) return `${String(fallbackPx)}px`;
-  const v = resolveVariableToFloat(env, variableId);
+  const v = resolveVariableToFloat(env, variableId, nodeModeOverrides);
   if (v === null) return `${String(fallbackPx)}px`;
   return `var(${cssVarNameForVariable(variableId)},${String(fallbackPx)}px)`;
 }
@@ -267,8 +277,11 @@ function textUsesSingleLineEllipsis(t: TextNode, env: FileEnvelope): boolean {
   if (t.textAutoResize === 'TRUNCATE') return true;
   if (t.textTruncation === 'ENDING' && t.maxLines === 1) return true;
   const fs = effectiveTextBase(t, env).fontSize;
-  const cap = Math.ceil(hugTextLineHeightPx(fs) * 1.14);
-  if (!(t.height > 0 && t.height <= cap)) return false;
+  const lineH = hugTextLineHeightPxFromTypography(fs, t.lineHeight);
+  const cap = Math.ceil(lineH * 1.14);
+  /** Designers often pad label boxes a few px above one line (e.g. 12px type in 20px chip). */
+  const heightSlack = Math.min(4, Math.max(2, Math.ceil(fs * 0.25)));
+  if (!(t.height > 0 && t.height <= cap + heightSlack)) return false;
   /**
    * Implicit single-line ellipsis is for short UI labels (constrained flex titles). Long one-line copy
    * (chart axis labels, spaced columns, etc.) must stay `pre-wrap` or most of the string disappears.
@@ -283,6 +296,9 @@ function textUsesSingleLineEllipsis(t: TextNode, env: FileEnvelope): boolean {
 function textFlowCss(t: TextNode, env: FileEnvelope): string {
   if (textUsesSingleLineEllipsis(t, env)) {
     return 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal;overflow-wrap:normal;';
+  }
+  if (t.textTruncation === 'ENDING' && t.maxLines != null && t.maxLines > 1) {
+    return `display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:${String(t.maxLines)};overflow:hidden;white-space:pre-wrap;word-break:break-word;`;
   }
   return 'white-space:pre-wrap;word-break:break-word;';
 }
@@ -310,6 +326,42 @@ function effectiveRectEffects(r: RectangleNode, env: FileEnvelope): Effect[] | u
     if (st?.effects?.length) return st.effects;
   }
   return r.effects;
+}
+
+function effectiveFrameFills(f: FrameNode, env: FileEnvelope): Paint[] {
+  if (f.fills?.length) return f.fills;
+  if (f.fillStyleId) {
+    const ps = env.paintStyles?.find((p) => p.id === f.fillStyleId);
+    return ps?.paints ?? [];
+  }
+  return f.fills ?? [];
+}
+
+function effectiveFrameStrokes(f: FrameNode, env: FileEnvelope): Paint[] {
+  if (f.strokes?.length) return f.strokes;
+  if (f.strokeStyleId) {
+    const ps = env.paintStyles?.find((p) => p.id === f.strokeStyleId);
+    return ps?.paints ?? [];
+  }
+  return f.strokes ?? [];
+}
+
+function effectiveFrameEffects(f: FrameNode, env: FileEnvelope): Effect[] | undefined {
+  if (f.effects?.length) return f.effects;
+  if (f.effectStyleId) {
+    const st = env.effectStyles?.find((s) => s.id === f.effectStyleId);
+    if (st?.effects?.length) return st.effects;
+  }
+  return f.effects;
+}
+
+function effectiveTextEffects(t: TextNode, env: FileEnvelope): Effect[] | undefined {
+  if (t.effects?.length) return t.effects;
+  if (t.effectStyleId) {
+    const st = env.effectStyles?.find((s) => s.id === t.effectStyleId);
+    if (st?.effects?.length) return st.effects;
+  }
+  return t.effects;
 }
 
 function patternPaintCss(
@@ -465,19 +517,6 @@ function dropShadowCss(effects: Effect[] | undefined): string {
   return parts.length ? `box-shadow:${parts.join(',')};` : '';
 }
 
-function backdropBlurCss(effects: Effect[] | undefined): string {
-  if (!effects?.length) return '';
-  let r = 0;
-  for (const e of effects) {
-    if (e.type !== 'BACKGROUND_BLUR') continue;
-    if (e.visible === false) continue;
-    if (typeof e.radius === 'number' && e.radius > r) r = e.radius;
-  }
-  return r > 0
-    ? `backdrop-filter:blur(${String(r)}px);-webkit-backdrop-filter:blur(${String(r)}px);`
-    : '';
-}
-
 function mixBlendCss(m: BlendMode | undefined): string {
   if (!m || m === 'PASS_THROUGH' || m === 'NORMAL') return '';
   const map: Partial<Record<BlendMode, string>> = {
@@ -525,7 +564,6 @@ function transformOpacityCss(n: SceneNode, opts?: { skipRotation?: boolean }): s
     s += 'display:none;';
   }
   s += mixBlendCss(n.blendMode);
-  if ('effects' in n) s += backdropBlurCss(n.effects);
   return s;
 }
 
@@ -641,10 +679,22 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[]): 
   const defaultFw = base.fontWeight;
 
   function spanStyle(style: StyledSegment['style']): string {
+    const fs = style.fontSize ?? base.fontSize;
     const fsCss = style.fontSize !== undefined ? `${String(style.fontSize)}px` : defaultFsCss;
     const fw = style.fontWeight ?? defaultFw;
     const color = paintColorCss(style.fills?.[0], env, defaultColor, warnings, 'text_span');
-    return `font-size:${fsCss};font-weight:${String(fw)};color:${color};`;
+    const typo = mergeTypographyFromText(t, style);
+    return [
+      `font-size:${fsCss}`,
+      `font-weight:${String(fw)}`,
+      `color:${color}`,
+      fontFamilyCssFromName(style.fontName ?? t.fontName, style.boundVariables?.fontFamily ?? t.boundVariables?.fontFamily, env).replace(/;$/, ''),
+      paragraphTypographyCss(typo, fs, env).replace(/;$/g, '').split(';').filter(Boolean).join(';'),
+      openTypeFeaturesCss(style.openTypeFeatures),
+    ]
+      .filter(Boolean)
+      .join(';')
+      .concat(';');
   }
 
   let i = 0;
@@ -711,7 +761,7 @@ function starPathD(points: number, innerR: number, w: number, h: number): string
 }
 
 function frameUsesFlexCss(f: FrameNode): boolean {
-  return f.layoutMode === 'HORIZONTAL' || f.layoutMode === 'VERTICAL';
+  return f.layoutMode === 'HORIZONTAL' || f.layoutMode === 'VERTICAL' || f.layoutMode === 'GRID';
 }
 
 /** Figma parity: auto-layout frames clip overflowing children unless `clipsContent === false`. */
@@ -756,13 +806,14 @@ function frameFlexAlignContentCss(f: FrameNode): string {
 }
 
 function frameFlexGapCss(f: FrameNode, env: FileEnvelope): string {
+  const modes = f.explicitVariableModes;
   const item = f.itemSpacing ?? 0;
-  const itemCss = boundFloatCss(env, f.boundVariables?.itemSpacing, item);
+  const itemCss = boundFloatCss(env, f.boundVariables?.itemSpacing, item, modes);
   if (f.layoutWrap !== 'WRAP') {
     return `gap:${itemCss};`;
   }
   const counter = f.counterAxisSpacing ?? item;
-  const counterCss = boundFloatCss(env, undefined, counter);
+  const counterCss = boundFloatCss(env, f.boundVariables?.counterAxisSpacing, counter, modes);
   if (f.layoutMode === 'VERTICAL') {
     return `row-gap:${itemCss};column-gap:${counterCss};`;
   }
@@ -770,16 +821,20 @@ function frameFlexGapCss(f: FrameNode, env: FileEnvelope): string {
 }
 
 function frameFlexInnerStyle(f: FrameNode, env: FileEnvelope): string {
+  if (isGridFrame(f)) {
+    return frameGridInnerStyle(f, f.children, env);
+  }
   const dir = f.layoutMode === 'VERTICAL' ? 'column' : 'row';
   const wrap = f.layoutWrap === 'WRAP' ? 'wrap' : 'nowrap';
   const pl = f.paddingLeft ?? 0;
   const pr = f.paddingRight ?? 0;
   const pt = f.paddingTop ?? 0;
   const pb = f.paddingBottom ?? 0;
-  const plCss = boundFloatCss(env, f.boundVariables?.paddingLeft, pl);
-  const prCss = boundFloatCss(env, f.boundVariables?.paddingRight, pr);
-  const ptCss = boundFloatCss(env, f.boundVariables?.paddingTop, pt);
-  const pbCss = boundFloatCss(env, f.boundVariables?.paddingBottom, pb);
+  const modes = f.explicitVariableModes;
+  const plCss = boundFloatCss(env, f.boundVariables?.paddingLeft, pl, modes);
+  const prCss = boundFloatCss(env, f.boundVariables?.paddingRight, pr, modes);
+  const ptCss = boundFloatCss(env, f.boundVariables?.paddingTop, pt, modes);
+  const pbCss = boundFloatCss(env, f.boundVariables?.paddingBottom, pb, modes);
   const gapCss = frameFlexGapCss(f, env);
   const alignContentCss = frameFlexAlignContentCss(f);
   const jc =
@@ -1089,14 +1144,16 @@ function emitChildrenWithMasks(
   flexInner: boolean,
   env: FileEnvelope
 ): void {
+  const childList =
+    parentFrame?.itemReverseZIndex && flexInner ? [...ctn.children].reverse() : ctn.children;
   let i = 0;
-  while (i < ctn.children.length) {
-    const ch = ctn.children[i]!;
+  while (i < childList.length) {
+    const ch = childList[i]!;
     if (ch.isMask && !flexInner) {
       const masked: SceneNode[] = [];
       i++;
-      while (i < ctn.children.length && !ctn.children[i]!.isMask) {
-        masked.push(ctn.children[i]!);
+      while (i < childList.length && !childList[i]!.isMask) {
+        masked.push(childList[i]!);
         i++;
       }
       emitMaskCluster(
@@ -1203,7 +1260,7 @@ function emitScene(
       const pathNode = parentChildren.find((p) => p.id === t.textOnPath!.pathId);
       const vp = pathNode?.type === 'VECTOR' ? pathNode.vectorPaths?.[0] : undefined;
       if (vp?.data) {
-        const shadow = dropShadowCss(t.effects);
+        const shadow = allEffectsCss(effectiveTextEffects(t, env), warnings, `text:${t.id}`);
         const vpBox = svgViewportForPathData(vp.data);
         const w = Math.max(t.width, vpBox.width);
         const h = Math.max(t.height, vpBox.height);
@@ -1227,17 +1284,26 @@ function emitScene(
       }
       warnings.push(`text_on_path_invalid:${t.id}`);
     }
-    const shadow = dropShadowCss(t.effects);
+    const shadow = allEffectsCss(effectiveTextEffects(t, env), warnings, `text:${t.id}`);
     const pos = insideFlex
       ? sceneChildPos(t, insideFlex, absX, absY, parentFrame)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
     const ellip = textUsesSingleLineEllipsis(t, env);
     const flexOuterAlign = textFlexContainerCss(t, ellip);
-    const flexTextMetrics = ellip ? 'line-height:1.15;' : 'line-height:normal;';
+    const baseTypo = effectiveTextBase(t, env);
+    const flexTextMetrics = ellip
+      ? 'line-height:1.15;'
+      : paragraphTypographyCss(mergeTypographyFromText(t), baseTypo.fontSize, env);
     const innerRule = `${textInnerHorizontalCss(t)}${ellip ? 'min-width:0;width:100%;display:block;' : ''}`;
+    const textStroke = t.strokes?.[0];
+    const tsw = t.strokeWeight ?? 0;
+    const textStrokeCss =
+      textStroke && textStroke.type === 'SOLID' && tsw > 0
+        ? `-webkit-text-stroke:${String(tsw)}px ${strokeRgbaFromSolid(textStroke)};`
+        : '';
     htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `.hfc-node-${t.id}{${pos}box-sizing:border-box;${flexOuterAlign}${textFlowCss(t, env)}${flexTextMetrics}${fontFamilyCss(t.fontName)}${opRot}${shadow}}`
+      `.hfc-node-${t.id}{${pos}box-sizing:border-box;${flexOuterAlign}${textFlowCss(t, env)}${flexTextMetrics}${fontFamilyCssFromName(t.fontName, t.boundVariables?.fontFamily, env)}${textStrokeCss}${opRot}${shadow}}`
     );
     cssParts.push(`.hfc-node-${t.id} .hfc-text-inner{${innerRule}}`);
     htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings)}</div></div>`);
@@ -1246,15 +1312,18 @@ function emitScene(
 
   if (n.type === 'FRAME') {
     const f = n;
-    const fill = f.fills?.[0];
+    const frameFills = effectiveFrameFills(f, env);
+    const fill = frameFills[0];
     const fillCss = fillBackgroundStyles(fill, imgMap, patternTiles, warnings, `frame_fill:${f.id}`, env);
-    const stroke = f.strokes?.[0];
-    const sw = f.strokeWeight ?? 0;
-    const border =
-      stroke && stroke.type === 'SOLID' && sw > 0
-        ? `${String(sw)}px solid ${rgbaFromSolid(stroke)}`
-        : 'none';
-    const shadow = dropShadowCss(f.effects);
+    const frameStrokes = effectiveFrameStrokes(f, env);
+    const strokeResult = computeStrokeBorder(
+      { ...f, strokes: frameStrokes },
+      f.id,
+      escapeAttr
+    );
+    warnings.push(...strokeResult.warnings);
+    const border = strokeResult.borderCss;
+    const shadow = allEffectsCss(effectiveFrameEffects(f, env), warnings, `frame:${f.id}`);
     const radiusCss = frameCornerRadiusCss(f);
     const radiusClip = radiusCss ? 'overflow:hidden;' : '';
     const clip = (frameEffectiveClipsContent(f) ? 'overflow:hidden;' : '') || radiusClip;
@@ -1273,6 +1342,7 @@ function emitScene(
       cssParts.push(
         `.hfc-node-${f.id}{${frameOuterCss}box-sizing:border-box;${fillCss}border:${border};${radiusCss}${clip}${opRot}${shadow}}`
       );
+      if (strokeResult.svgOverlay) htmlParts.push(strokeResult.svgOverlay);
       if (flex) {
         htmlParts.push(
           `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;${frameFlexInnerStyle(f, env)}">`

@@ -2,7 +2,17 @@ import { ulid } from 'ulid';
 import type { EngineOperation } from '../engine/DocumentEngine.js';
 import { applyEnvelopeOperation, type EnvelopeOperation } from '../engine/envelopeOps.js';
 import { findEnvelopeNode } from '../engine/DocumentEngine.js';
-import type { FileEnvelope, Paint, VariableCollection, VariableDefinition, VariableResolvedValue } from '../model/types.js';
+import type {
+  Effect,
+  EffectBoundVariableField,
+  FileEnvelope,
+  LayoutGridColumns,
+  LayoutGridBoundVariableField,
+  Paint,
+  VariableCollection,
+  VariableDefinition,
+  VariableResolvedValue,
+} from '../model/types.js';
 import { ValidationErr } from '../util/errors.js';
 import { findVariableDefinition } from './resolution.js';
 import { assertRequiredModeId } from './validation.js';
@@ -72,10 +82,46 @@ export function canDeferSetBoundVariable(nodeType: string, field: string): boole
     return GEOMETRY_PAINT_NODE_TYPES.has(nodeType);
   }
   if (nodeType === 'FRAME') {
-    return FLOAT_BIND_FIELDS.has(field as VariableBindableNodeField);
+    const frameFloat = new Set([
+      'width',
+      'height',
+      'itemSpacing',
+      'paddingLeft',
+      'paddingRight',
+      'paddingTop',
+      'paddingBottom',
+      'topLeftRadius',
+      'topRightRadius',
+      'bottomLeftRadius',
+      'bottomRightRadius',
+      'minWidth',
+      'maxWidth',
+      'minHeight',
+      'maxHeight',
+      'counterAxisSpacing',
+      'strokeWeight',
+      'strokeTopWeight',
+      'strokeRightWeight',
+      'strokeBottomWeight',
+      'strokeLeftWeight',
+      'opacity',
+      'gridRowGap',
+      'gridColumnGap',
+    ]);
+    if (frameFloat.has(field)) return true;
+    return field === 'characters';
   }
   if (nodeType === 'TEXT') {
-    return field === 'fontSize' || field === 'characters';
+    const textString = new Set(['fontFamily', 'fontStyle', 'characters']);
+    if (textString.has(field)) return true;
+    return (
+      field === 'fontSize' ||
+      field === 'fontWeight' ||
+      field === 'letterSpacing' ||
+      field === 'lineHeight' ||
+      field === 'paragraphSpacing' ||
+      field === 'paragraphIndent'
+    );
   }
   return false;
 }
@@ -318,12 +364,54 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       return { type: 'VARIABLE_COLOR', variableId: variable.id, visible: paint.visible, opacity: paint.opacity };
     },
 
-    setBoundVariableForEffect: (): never => {
-      throw new ValidationErr('UNSUPPORTED_OPERATION', 'setBoundVariableForEffect is not implemented in headless-figma-clone');
+    setBoundVariableForEffect: (
+      effect: Effect,
+      field: EffectBoundVariableField,
+      variable: ScriptVariable | { id: string } | null
+    ): Effect => {
+      const next = structuredClone(effect) as Effect & {
+        boundVariables?: Partial<Record<EffectBoundVariableField, { type: 'VARIABLE_ALIAS'; id: string }>>;
+      };
+      const bv = { ...(next.boundVariables ?? {}) };
+      if (variable === null) {
+        delete bv[field];
+      } else {
+        const hit = findVariableDefinition(working, variable.id);
+        if (!hit) throw new ValidationErr('VALIDATION_ERROR', `Unknown variable ${variable.id}`);
+        if (field === 'color') {
+          if (hit.variable.resolvedType !== 'COLOR') {
+            throw new ValidationErr('VALIDATION_ERROR', 'Effect color binding requires COLOR variable');
+          }
+        } else if (hit.variable.resolvedType !== 'FLOAT') {
+          throw new ValidationErr('VALIDATION_ERROR', `Effect ${field} binding requires FLOAT variable`);
+        }
+        bv[field] = { type: 'VARIABLE_ALIAS', id: variable.id };
+      }
+      next.boundVariables = Object.keys(bv).length ? bv : undefined;
+      return next;
     },
 
-    setBoundVariableForLayoutGrid: (): never => {
-      throw new ValidationErr('UNSUPPORTED_OPERATION', 'setBoundVariableForLayoutGrid is not implemented in headless-figma-clone');
+    setBoundVariableForLayoutGrid: (
+      layoutGrid: LayoutGridColumns,
+      field: LayoutGridBoundVariableField,
+      variable: ScriptVariable | { id: string } | null
+    ): LayoutGridColumns => {
+      const next = structuredClone(layoutGrid) as LayoutGridColumns & {
+        boundVariables?: LayoutGridColumns['boundVariables'];
+      };
+      const bv = { ...(next.boundVariables ?? {}) };
+      if (variable === null) {
+        delete bv[field];
+      } else {
+        const hit = findVariableDefinition(working, variable.id);
+        if (!hit) throw new ValidationErr('VALIDATION_ERROR', `Unknown variable ${variable.id}`);
+        if (hit.variable.resolvedType !== 'FLOAT') {
+          throw new ValidationErr('VALIDATION_ERROR', `Layout grid ${field} binding requires FLOAT variable`);
+        }
+        bv[field] = { type: 'VARIABLE_ALIAS', id: variable.id };
+      }
+      next.boundVariables = Object.keys(bv).length ? bv : undefined;
+      return next;
     },
 
     importVariableByKeyAsync: async (): Promise<never> => {
@@ -393,8 +481,25 @@ export function bindVariableToNodeField(
   if (live.type === 'FRAME' && STRING_BIND_FIELDS.has(field)) {
     throw new ValidationErr('VALIDATION_ERROR', `FRAME cannot bind field ${field}`);
   }
-  if (live.type === 'TEXT' && field !== 'fontSize' && field !== 'characters') {
-    throw new ValidationErr('VALIDATION_ERROR', `TEXT cannot bind field ${field}`);
+  if (live.type === 'TEXT') {
+    const textFloat = new Set([
+      'fontSize',
+      'fontWeight',
+      'letterSpacing',
+      'lineHeight',
+      'paragraphSpacing',
+      'paragraphIndent',
+    ]);
+    const textString = new Set(['fontFamily', 'fontStyle', 'characters']);
+    if (textFloat.has(field) && hit.variable.resolvedType !== 'FLOAT') {
+      throw new ValidationErr('VALIDATION_ERROR', `Field ${field} requires FLOAT variable`);
+    }
+    if (textString.has(field) && hit.variable.resolvedType !== 'STRING') {
+      throw new ValidationErr('VALIDATION_ERROR', `Field ${field} requires STRING variable`);
+    }
+    if (!textFloat.has(field) && !textString.has(field) && !PAINT_BIND_FIELDS.has(field)) {
+      throw new ValidationErr('VALIDATION_ERROR', `TEXT cannot bind field ${field}`);
+    }
   }
   if (live.type !== 'FRAME' && live.type !== 'TEXT') {
     throw new ValidationErr('VALIDATION_ERROR', `Node type ${live.type} does not support boundVariables`);

@@ -7,6 +7,7 @@ import type {
   TextNode,
   TransformGroupNode,
 } from '../model/types.js';
+import { hugTextLineHeightPxFromTypography } from './typographyCss.js';
 import { resolveVariableToFloat, resolveVariableToStringValue } from '../variables/resolution.js';
 
 /** Matches Figma default dimensions for `createFrame` / `createAutoLayout` before explicit resize. */
@@ -59,8 +60,8 @@ function textIntrinsicWidthForAutoLayout(t: TextNode, env: FileEnvelope | undefi
 }
 
 /** One-line text box height for layout + CSS (extra px for descenders vs browser metrics). */
-export function hugTextLineHeightPx(fontSize: number): number {
-  return Math.max(0, Math.ceil(fontSize * 1.22) + 2);
+export function hugTextLineHeightPx(fontSize: number, lineHeight?: TextNode['lineHeight']): number {
+  return hugTextLineHeightPxFromTypography(fontSize, lineHeight);
 }
 
 function textIntrinsicHeightForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
@@ -69,12 +70,12 @@ function textIntrinsicHeightForAutoLayout(t: TextNode, env: FileEnvelope | undef
     return Math.max(0, t.height);
   }
   if (t.layoutSizingVertical === 'HUG' || t.layoutSizingVertical === 'FILL') {
-    return hugTextLineHeightPx(fs);
+    return hugTextLineHeightPx(fs, t.lineHeight);
   }
   if (typeof t.height === 'number' && t.height > 0) {
     return Math.max(0, t.height);
   }
-  return hugTextLineHeightPx(fs);
+  return hugTextLineHeightPx(fs, t.lineHeight);
 }
 
 function padX(f: FrameNode): number {
@@ -87,7 +88,7 @@ function padY(f: FrameNode): number {
 
 /** Whether this frame behaves as auto-layout container in our renderer. */
 function isFlexFrame(f: FrameNode): boolean {
-  return f.layoutMode === 'HORIZONTAL' || f.layoutMode === 'VERTICAL';
+  return f.layoutMode === 'HORIZONTAL' || f.layoutMode === 'VERTICAL' || f.layoutMode === 'GRID';
 }
 
 /** Primary axis unspecified or not FIXED → Figma derives size from laid-out contents. */
@@ -305,7 +306,7 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
   }
   if (needsIntrinsicH) {
     const fs = effectiveTextFontSizePx(t, env);
-    t.height = hugTextLineHeightPx(fs);
+    t.height = hugTextLineHeightPx(fs, t.lineHeight);
   }
 }
 

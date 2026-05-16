@@ -10,7 +10,13 @@ export function cssVarNameForVariable(variableId: string): string {
   return `--hfc-var-${variableId}`;
 }
 
-export function activeModeIdForCollection(env: FileEnvelope, col: VariableCollection): string {
+export function activeModeIdForCollection(
+  env: FileEnvelope,
+  col: VariableCollection,
+  nodeModeOverrides?: Record<string, string>
+): string {
+  const nodeOverride = nodeModeOverrides?.[col.id];
+  if (nodeOverride && col.modes.some((m) => m.id === nodeOverride)) return nodeOverride;
   const o = env.activeModeByCollectionId?.[col.id];
   if (o && col.modes.some((m) => m.id === o)) return o;
   return col.defaultModeId;
@@ -43,34 +49,47 @@ function effectiveVariableForResolution(
 
 export function resolveVariableValue(
   env: FileEnvelope,
-  variableId: string
+  variableId: string,
+  nodeModeOverrides?: Record<string, string>
 ): VariableResolvedValue | null {
   const hit = effectiveVariableForResolution(env, variableId);
   if (!hit) return null;
-  const modeId = activeModeIdForCollection(env, hit.collection);
+  const modeId = activeModeIdForCollection(env, hit.collection, nodeModeOverrides);
   return hit.variable.valuesByMode[modeId] ?? null;
 }
 
-export function resolveVariableToRgb(env: FileEnvelope, variableId: string): RGB | null {
+export function resolveVariableToRgb(
+  env: FileEnvelope,
+  variableId: string,
+  nodeModeOverrides?: Record<string, string>
+): RGB | null {
   const hit = effectiveVariableForResolution(env, variableId);
   if (!hit || hit.variable.resolvedType !== 'COLOR') return null;
-  const val = resolveVariableValue(env, variableId);
+  const val = resolveVariableValue(env, variableId, nodeModeOverrides);
   if (!val || val.type !== 'COLOR') return null;
   return val.color;
 }
 
-export function resolveVariableToFloat(env: FileEnvelope, variableId: string): number | null {
+export function resolveVariableToFloat(
+  env: FileEnvelope,
+  variableId: string,
+  nodeModeOverrides?: Record<string, string>
+): number | null {
   const hit = effectiveVariableForResolution(env, variableId);
   if (!hit || hit.variable.resolvedType !== 'FLOAT') return null;
-  const val = resolveVariableValue(env, variableId);
+  const val = resolveVariableValue(env, variableId, nodeModeOverrides);
   if (!val || val.type !== 'FLOAT') return null;
   return val.value;
 }
 
-export function resolveVariableToStringValue(env: FileEnvelope, variableId: string): string | null {
+export function resolveVariableToStringValue(
+  env: FileEnvelope,
+  variableId: string,
+  nodeModeOverrides?: Record<string, string>
+): string | null {
   const hit = effectiveVariableForResolution(env, variableId);
   if (!hit || hit.variable.resolvedType !== 'STRING') return null;
-  const val = resolveVariableValue(env, variableId);
+  const val = resolveVariableValue(env, variableId, nodeModeOverrides);
   if (!val || val.type !== 'STRING') return null;
   return val.value;
 }
