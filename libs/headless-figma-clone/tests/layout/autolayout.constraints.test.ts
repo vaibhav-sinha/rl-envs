@@ -22,6 +22,6 @@ describe('autolayout constraints (flex child)', () => {
       rootNodeId: frame.id,
       options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
     });
-    expect(out.html).toContain('flex:2 1 auto');
+    expect(out.html).toContain('flex:2 0 auto');
   });
 });

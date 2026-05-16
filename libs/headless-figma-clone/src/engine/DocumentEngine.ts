@@ -154,6 +154,53 @@ function parseTextOnPath(raw: unknown, label: string): TextNode['textOnPath'] {
   return { pathId, startOffset: raw.startOffset };
 }
 
+const TEXT_AUTO_RESIZE_VALUES = new Set(['NONE', 'WIDTH_AND_HEIGHT', 'HEIGHT', 'TRUNCATE']);
+const TEXT_TRUNCATION_VALUES = new Set(['DISABLED', 'ENDING']);
+
+function parseTextAutoResize(raw: unknown, label: string): TextNode['textAutoResize'] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'string' || !TEXT_AUTO_RESIZE_VALUES.has(raw)) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label} must be NONE, WIDTH_AND_HEIGHT, HEIGHT, or TRUNCATE`);
+  }
+  return raw as TextNode['textAutoResize'];
+}
+
+function parseTextTruncation(raw: unknown, label: string): TextNode['textTruncation'] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'string' || !TEXT_TRUNCATION_VALUES.has(raw)) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label} must be DISABLED or ENDING`);
+  }
+  return raw as TextNode['textTruncation'];
+}
+
+function parseMaxLines(raw: unknown, label: string): number | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || !Number.isInteger(raw) || raw < 1) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label} must be a positive integer or null`);
+  }
+  return raw;
+}
+
+const TEXT_ALIGN_H_VALUES = new Set(['LEFT', 'CENTER', 'RIGHT', 'JUSTIFIED']);
+const TEXT_ALIGN_V_VALUES = new Set(['TOP', 'CENTER', 'BOTTOM']);
+
+function parseTextAlignHorizontal(raw: unknown, label: string): TextNode['textAlignHorizontal'] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'string' || !TEXT_ALIGN_H_VALUES.has(raw)) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label} must be LEFT, CENTER, RIGHT, or JUSTIFIED`);
+  }
+  return raw as TextNode['textAlignHorizontal'];
+}
+
+function parseTextAlignVertical(raw: unknown, label: string): TextNode['textAlignVertical'] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'string' || !TEXT_ALIGN_V_VALUES.has(raw)) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label} must be TOP, CENTER, or BOTTOM`);
+  }
+  return raw as TextNode['textAlignVertical'];
+}
+
 export function validateTransformModifiers(modifiers: unknown, label: string): TransformModifier[] {
   if (modifiers === undefined || modifiers === null) {
     throw new ValidationErr('VALIDATION_ERROR', `in ${label}: Property "modifiers" failed validation: Required value missing`);
@@ -572,6 +619,27 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
     textStyleId: spec.textStyleId,
     textOnPath,
   };
+  if (spec.textAutoResize !== undefined) {
+    const ar = parseTextAutoResize(spec.textAutoResize, 'TEXT.textAutoResize');
+    if (ar !== undefined) text.textAutoResize = ar;
+  }
+  if (spec.textTruncation !== undefined) {
+    const tr = parseTextTruncation(spec.textTruncation, 'TEXT.textTruncation');
+    if (tr !== undefined) text.textTruncation = tr;
+  }
+  if ('maxLines' in spec) {
+    const ml = parseMaxLines(spec.maxLines, 'TEXT.maxLines');
+    if (ml === undefined) delete text.maxLines;
+    else text.maxLines = ml;
+  }
+  if (spec.textAlignHorizontal !== undefined) {
+    const ha = parseTextAlignHorizontal(spec.textAlignHorizontal, 'TEXT.textAlignHorizontal');
+    if (ha !== undefined) text.textAlignHorizontal = ha;
+  }
+  if (spec.textAlignVertical !== undefined) {
+    const va = parseTextAlignVertical(spec.textAlignVertical, 'TEXT.textAlignVertical');
+    if (va !== undefined) text.textAlignVertical = va;
+  }
   validateTextGeometry(text);
   if (text.fills) text.fills = validatePaintArray(text.fills, 'fills', env) ?? [];
   if (text.effects) text.effects = validateEffects(text.effects, 'effects') ?? [];
@@ -2399,6 +2467,31 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       } else {
         t.textOnPath = parseTextOnPath(top, 'textOnPath');
       }
+    }
+    if ('textAutoResize' in patch) {
+      const ar = patch.textAutoResize;
+      if (ar === undefined || ar === null) delete t.textAutoResize;
+      else t.textAutoResize = parseTextAutoResize(ar, 'textAutoResize');
+    }
+    if ('textTruncation' in patch) {
+      const tr = patch.textTruncation;
+      if (tr === undefined || tr === null) delete t.textTruncation;
+      else t.textTruncation = parseTextTruncation(tr, 'textTruncation');
+    }
+    if ('maxLines' in patch) {
+      const ml = parseMaxLines(patch.maxLines, 'maxLines');
+      if (ml === undefined) delete t.maxLines;
+      else t.maxLines = ml;
+    }
+    if ('textAlignHorizontal' in patch) {
+      const ha = patch.textAlignHorizontal;
+      if (ha === undefined || ha === null) delete t.textAlignHorizontal;
+      else t.textAlignHorizontal = parseTextAlignHorizontal(ha, 'textAlignHorizontal');
+    }
+    if ('textAlignVertical' in patch) {
+      const va = patch.textAlignVertical;
+      if (va === undefined || va === null) delete t.textAlignVertical;
+      else t.textAlignVertical = parseTextAlignVertical(va, 'textAlignVertical');
     }
     if ('boundVariables' in patch) {
       const bv = parseBoundVariablesPatch(env, patch.boundVariables, TEXT_BIND_FIELDS, 'TEXT');
