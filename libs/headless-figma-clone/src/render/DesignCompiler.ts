@@ -307,7 +307,7 @@ function textFlowCss(t: TextNode, env: FileEnvelope): string {
       t.textAutoResize === 'TRUNCATE' ||
       (t.textTruncation === 'ENDING' && (t.maxLines === 1 || t.maxLines == null));
     const tail = wantsEllipsis ? 'text-overflow:ellipsis;' : 'text-overflow:clip;';
-    return `white-space:nowrap;overflow:hidden;${tail}word-break:normal;overflow-wrap:normal;`;
+    return `white-space:pre;overflow:hidden;${tail}word-break:normal;overflow-wrap:normal;`;
   }
   if (t.textTruncation === 'ENDING' && t.maxLines != null && t.maxLines > 1) {
     return `display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:${String(t.maxLines)};overflow:hidden;white-space:pre-wrap;word-break:break-word;`;

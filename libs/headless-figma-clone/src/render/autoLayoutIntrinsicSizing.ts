@@ -219,22 +219,7 @@ function maxCrossHeightHorizRow(n: SceneNode, env: FileEnvelope | undefined): nu
  */
 export function effectiveVerticalItemSpacingPx(f: FrameNode): number {
   const gap = f.itemSpacing ?? 0;
-  if (f.layoutMode !== 'VERTICAL' || gap <= 0) return gap;
-  const kids = f.children;
-  if (!kids?.length || kids.length < 2) return gap;
-  const pad = (f.paddingTop ?? 0) + (f.paddingBottom ?? 0);
-  const frameH = f.height ?? 0;
-  if (frameH <= 0) return gap;
-  let contentH = 0;
-  for (const c of kids) {
-    contentH += Math.max(0, (c as { height?: number }).height ?? 0);
-  }
-  const gaps = kids.length - 1;
-  const needed = contentH + gap * gaps;
-  const avail = frameH - pad;
-  if (needed <= avail) return gap;
-  const tightGap = (avail - contentH) / gaps;
-  return Math.max(0, Math.min(gap, tightGap));
+  return gap;
 }
 
 function sumPrimaryHeightsVert(f: FrameNode, env: FileEnvelope | undefined): number {

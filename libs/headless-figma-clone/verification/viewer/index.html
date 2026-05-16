@@ -41,6 +41,17 @@
 
     <footer class="controls">
       <button type="button" id="btn-prev">← Previous</button>
+      <form class="goto-control" id="goto-form">
+        <label for="goto-input">Go to</label>
+        <input
+          type="number"
+          id="goto-input"
+          min="1"
+          inputmode="numeric"
+          aria-label="Scenario number"
+        />
+        <button type="submit" id="btn-goto">Go</button>
+      </form>
       <button type="button" id="btn-next">Next →</button>
     </footer>
 
