@@ -138,7 +138,10 @@ function collectVariableReferences(env: FileEnvelope, variableId: string): strin
     }
   };
   for (const p of env.document.children) {
-    if (p.type === 'PAGE') walkNodes(p.children);
+    if (p.type === 'PAGE') {
+      walkPaint(p.backgrounds, `node:${p.id}:backgrounds`);
+      walkNodes(p.children);
+    }
   }
   for (const col of env.variableCollections ?? []) {
     for (const v of col.variables) {

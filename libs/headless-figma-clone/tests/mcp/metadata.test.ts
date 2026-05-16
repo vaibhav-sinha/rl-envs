@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { applyCreateNodeOp } from '../../src/engine/DocumentEngine.js';
-import { collectMetadataTree } from '../../src/mcp/metadata.js';
+import { collectMetadataTree, collectPagesIndex } from '../../src/mcp/metadata.js';
 import { emptyEnvelope, pageId } from '../helpers/envelope.js';
+
+describe('collectPagesIndex', () => {
+  it('lists PAGE children of the document', () => {
+    const env = emptyEnvelope();
+    const pages = collectPagesIndex(env.document);
+    expect(pages).toEqual([{ id: pageId(env), name: 'Page 1' }]);
+  });
+});
 
 describe('collectMetadataTree', () => {
   it('includes layout and table fields on nodes', () => {

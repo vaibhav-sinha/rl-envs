@@ -307,7 +307,7 @@ ${UA}#hfc-root{position:relative;width:10px;height:10px;isolation:isolate;}
         envelope,
         options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
       })
-    ).toThrow('compileFirstPage: no scene nodes on first page');
+    ).toThrow('compileFirstPage: no scene nodes on page');
   });
 });
 

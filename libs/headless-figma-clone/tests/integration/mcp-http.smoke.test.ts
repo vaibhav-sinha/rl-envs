@@ -99,9 +99,14 @@ describe('mcp-http smoke', () => {
     expect(useBody.ok).toBe(true);
     expect((useBody.data as { touchedNodeIds: string[] }).touchedNodeIds).toContain('I3');
 
-    const meta = await client.callTool({ name: 'get_metadata', arguments: {} });
-    const mText = getToolText(meta);
-    const mBody = parseToolJson(mText!);
+    const metaPages = await client.callTool({ name: 'get_metadata', arguments: {} });
+    const pagesBody = parseToolJson(getToolText(metaPages)!);
+    expect(pagesBody.ok).toBe(true);
+    const pages = (pagesBody.data as { pages: { id: string; name: string }[] }).pages;
+    expect(pages.some((p) => p.id === 'I2')).toBe(true);
+
+    const meta = await client.callTool({ name: 'get_metadata', arguments: { nodeId: 'I2' } });
+    const mBody = parseToolJson(getToolText(meta)!);
     expect(mBody.ok).toBe(true);
     const root = (mBody.data as { root: { id: string; children?: { id: string }[] } }).root;
     const ids = (root.children ?? []).map((c) => c.id);

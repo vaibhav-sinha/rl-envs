@@ -89,7 +89,10 @@ export async function createHttpServer(params: {
   const debugPreviewStore = { html: debugPreviewShell('No active file loaded.') };
 
   const refreshDebugPreview = (env: FileEnvelope): void => {
-    const page = env.document.children[0];
+    const currentPageId = engine.getCurrentPageId();
+    const page = currentPageId
+      ? env.document.children.find((c) => c.type === 'PAGE' && c.id === currentPageId)
+      : env.document.children[0];
     if (!page || page.children.length === 0) {
       debugPreviewStore.html = debugPreviewShell('Active file has no frames yet.');
       return;
@@ -97,6 +100,7 @@ export async function createHttpServer(params: {
     try {
       const compiled = designCompiler.compileFirstPage({
         envelope: env,
+        pageId: page.id,
         options: {
           viewportPaddingPx: 16,
           includeCss: true,

@@ -6,7 +6,7 @@ import { compileSubtreeForScreenshot } from '../render/compileForScreenshot.js';
 import { designCompiler } from '../render/DesignCompiler.js';
 import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
-import { collectMetadataTree } from './metadata.js';
+import { collectMetadataTree, collectPagesIndex } from './metadata.js';
 import { mapUseFigmaToEngineOperations, toolErrorJson, toolJson } from './useFigmaMap.js';
 import { runUseFigmaScript } from './useFigmaScript.js';
 import { buildVariableDefsPayload } from '../variables/resolution.js';
@@ -214,18 +214,28 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           isError: true,
         };
       }
-      const firstPage = file.document.children[0];
-      const rootId = args.nodeId ?? firstPage?.id;
-      if (!rootId) {
+      const nodeId = args.nodeId?.trim();
+      if (!nodeId) {
+        const pages = collectPagesIndex(file.document);
+        if (pages.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', 'No pages in document') }],
+            isError: true,
+          };
+        }
         return {
-          content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', 'No pages in document') }],
-          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: toolJson({ metadataFormatVersion: 1 as const, pages }),
+            },
+          ],
         };
       }
-      const node = engine.queryNode(rootId);
+      const node = engine.queryNode(nodeId);
       if (!node) {
         return {
-          content: [{ type: 'text' as const, text: toolErrorJson('UNKNOWN_NODE', `Unknown node ${rootId}`) }],
+          content: [{ type: 'text' as const, text: toolErrorJson('UNKNOWN_NODE', `Unknown node ${nodeId}`) }],
           isError: true,
         };
       }
@@ -379,6 +389,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
         const hasCode = typeof args.code === 'string' && args.code.trim().length > 0;
         let ops;
         let scriptResult: unknown | undefined;
+        let scriptCurrentPageId: string | undefined;
         if (hasCode) {
           void args.skillNames;
           const run = await runUseFigmaScript(args.code!.trim(), engine);
@@ -390,6 +401,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           }
           ops = run.operations;
           scriptResult = run.result;
+          scriptCurrentPageId = run.currentPageId;
         } else {
           ops = mapUseFigmaToEngineOperations(args.operations as unknown[]);
         }
@@ -404,6 +416,9 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             ],
             isError: true,
           };
+        }
+        if (scriptCurrentPageId) {
+          engine.setCurrentPageId(scriptCurrentPageId);
         }
         const data: Record<string, unknown> = {
           touchedNodeIds: r.touchedNodeIds,

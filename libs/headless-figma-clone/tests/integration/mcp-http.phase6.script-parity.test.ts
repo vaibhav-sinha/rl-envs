@@ -140,7 +140,7 @@ describe('mcp-http Phase 6 script parity', () => {
     const opsParse = parseToolJson(getToolText(opsBody)!);
     expect(opsParse.ok).toBe(true);
 
-    const meta1 = await client.callTool({ name: 'get_metadata', arguments: {} });
+    const meta1 = await client.callTool({ name: 'get_metadata', arguments: { nodeId: 'I2' } });
     const m1 = parseToolJson(getToolText(meta1)!).data as { root: MetaNode };
     const shell1 = findNamedFrame(m1.root, 'ParShell');
     expect(shell1).toBeTruthy();
@@ -184,7 +184,7 @@ return {};
     const codeParse = parseToolJson(getToolText(codeBody)!);
     expect(codeParse.ok).toBe(true);
 
-    const meta2 = await client.callTool({ name: 'get_metadata', arguments: {} });
+    const meta2 = await client.callTool({ name: 'get_metadata', arguments: { nodeId: 'I2' } });
     const m2 = parseToolJson(getToolText(meta2)!).data as { root: MetaNode };
     const shell2 = findNamedFrame(m2.root, 'ParShell');
     expect(shell2).toBeTruthy();

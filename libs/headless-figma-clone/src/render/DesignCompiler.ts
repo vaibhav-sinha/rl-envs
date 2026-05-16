@@ -116,14 +116,26 @@ export interface DesignCompiler {
     rootNodeId: string;
     options: CompileHtmlOptions;
   }): CompiledDesign;
-  /** All top-level scene nodes on the document's first page. */
-  compileFirstPage(params: { envelope: FileEnvelope; options: CompileHtmlOptions }): CompiledDesign;
+  /** All top-level scene nodes on a page (defaults to first page when `pageId` omitted). */
+  compileFirstPage(params: {
+    envelope: FileEnvelope;
+    options: CompileHtmlOptions;
+    pageId?: string;
+  }): CompiledDesign;
 }
 
 function findSceneNode(envelope: FileEnvelope, id: string): SceneNode | null {
   for (const page of envelope.document.children) {
     const hit = findSceneInList(page.children, id);
     if (hit) return hit;
+  }
+  return null;
+}
+
+function findPageForSceneNode(envelope: FileEnvelope, sceneNodeId: string): PageNode | null {
+  for (const page of envelope.document.children) {
+    if (page.type !== 'PAGE') continue;
+    if (findSceneInList(page.children, sceneNodeId)) return page;
   }
   return null;
 }
@@ -2226,7 +2238,12 @@ function normalizeRootBounds(root: SceneNode, raw: Bounds): Bounds {
   return Number.isFinite(raw.minX) ? raw : { minX: 0, minY: 0, maxX: root.width, maxY: root.height };
 }
 
-function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions, envelope: FileEnvelope): CompiledDesign {
+function compileRootScenes(
+  roots: SceneNode[],
+  options: CompileHtmlOptions,
+  envelope: FileEnvelope,
+  pageBackgrounds?: Paint[]
+): CompiledDesign {
   if (roots.length === 0) {
     throw new Error('compileRootScenes: empty roots');
   }
@@ -2266,7 +2283,11 @@ function compileRootScenes(roots: SceneNode[], options: CompileHtmlOptions, enve
     emitScene(root, 0, 0, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, envelope, null);
   }
 
-  const cssBlock = `${HFC_UA_RESET_CSS}\n#hfc-root{position:relative;width:${String(W)}px;height:${String(H)}px;isolation:isolate;}\n${cssParts.join('\n')}`;
+  const pageBg =
+    pageBackgrounds?.[0] && pageBackgrounds[0].visible !== false
+      ? fillBackgroundStyles(pageBackgrounds[0], imgMap, patternTiles, warnings, 'page_canvas', envelope)
+      : '';
+  const cssBlock = `${HFC_UA_RESET_CSS}\n#hfc-root{position:relative;width:${String(W)}px;height:${String(H)}px;isolation:isolate;${pageBg}}\n${cssParts.join('\n')}`;
   const primary = roots[0]!;
   const rootClip: Rect =
     roots.length === 1
@@ -2321,15 +2342,18 @@ export const designCompiler: DesignCompiler = {
     if (!rootCloned) {
       throw new Error(`compileSubtree: unknown scene node id ${rootNodeId} after clone`);
     }
-    return compileRootScenes([rootCloned], options, env);
+    const page = findPageForSceneNode(env, rootNodeId);
+    return compileRootScenes([rootCloned], options, env, page?.backgrounds);
   },
 
-  compileFirstPage({ envelope, options }): CompiledDesign {
+  compileFirstPage({ envelope, options, pageId }): CompiledDesign {
     const env = structuredClone(envelope);
-    const page = env.document.children[0];
+    const page = pageId
+      ? env.document.children.find((c): c is PageNode => c.type === 'PAGE' && c.id === pageId)
+      : env.document.children.find((c): c is PageNode => c.type === 'PAGE');
     if (!page || page.children.length === 0) {
-      throw new Error('compileFirstPage: no scene nodes on first page');
+      throw new Error('compileFirstPage: no scene nodes on page');
     }
-    return compileRootScenes(page.children, options, env);
+    return compileRootScenes(page.children, options, env, page.backgrounds);
   },
 };
