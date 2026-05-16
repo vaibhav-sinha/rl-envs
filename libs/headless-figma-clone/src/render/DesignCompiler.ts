@@ -1990,14 +1990,127 @@ function scaleComponentRootToInstance(root: FrameNode, targetWidth: number, targ
   scaleSceneNodeGeometry(root, sx, sy);
 }
 
+type CornerRadiiFields = Pick<
+  RectangleNode,
+  'cornerRadius' | 'topLeftRadius' | 'topRightRadius' | 'bottomRightRadius' | 'bottomLeftRadius' | 'cornerSmoothing'
+>;
+
+function copyCornerRadiiFromDetached(master: CornerRadiiFields, detached: CornerRadiiFields): void {
+  if (detached.cornerRadius !== undefined) master.cornerRadius = detached.cornerRadius;
+  if (detached.topLeftRadius !== undefined) master.topLeftRadius = detached.topLeftRadius;
+  if (detached.topRightRadius !== undefined) master.topRightRadius = detached.topRightRadius;
+  if (detached.bottomRightRadius !== undefined) master.bottomRightRadius = detached.bottomRightRadius;
+  if (detached.bottomLeftRadius !== undefined) master.bottomLeftRadius = detached.bottomLeftRadius;
+  if (detached.cornerSmoothing !== undefined) master.cornerSmoothing = detached.cornerSmoothing;
+}
+
+function copySceneBoundsFromDetached(master: SceneNode, detached: SceneNode): void {
+  master.x = detached.x;
+  master.y = detached.y;
+  if (
+    master.type === 'FRAME' ||
+    master.type === 'RECTANGLE' ||
+    master.type === 'ELLIPSE' ||
+    master.type === 'LINE' ||
+    master.type === 'POLYGON' ||
+    master.type === 'STAR' ||
+    master.type === 'VECTOR' ||
+    master.type === 'TEXT'
+  ) {
+    master.width = detached.width;
+    master.height = detached.height;
+  }
+  if (detached.constraints) master.constraints = { ...detached.constraints };
+}
+
+function mergeRectangleFromDetached(master: RectangleNode, detached: RectangleNode): void {
+  copySceneBoundsFromDetached(master, detached);
+  copyCornerRadiiFromDetached(master, detached);
+  if (detached.fills !== undefined) master.fills = structuredClone(detached.fills);
+  if (detached.strokes !== undefined) master.strokes = structuredClone(detached.strokes);
+  if (detached.effects !== undefined) master.effects = structuredClone(detached.effects);
+  if (detached.strokeWeight !== undefined) master.strokeWeight = detached.strokeWeight;
+  if (detached.strokeAlign !== undefined) master.strokeAlign = detached.strokeAlign;
+  if (detached.visible !== undefined) master.visible = detached.visible;
+  if (detached.opacity !== undefined) master.opacity = detached.opacity;
+}
+
+function mergeTextFromDetached(master: TextNode, detached: TextNode): void {
+  copySceneBoundsFromDetached(master, detached);
+  if (detached.characters !== undefined) master.characters = detached.characters;
+  if (detached.fontSize !== undefined) master.fontSize = detached.fontSize;
+  if (detached.fontWeight !== undefined) master.fontWeight = detached.fontWeight;
+  if (detached.fills !== undefined) master.fills = structuredClone(detached.fills);
+  if (detached.visible !== undefined) master.visible = detached.visible;
+  if (detached.opacity !== undefined) master.opacity = detached.opacity;
+}
+
+function mergeFrameFromDetached(master: FrameNode, detached: FrameNode): void {
+  copySceneBoundsFromDetached(master, detached);
+  copyCornerRadiiFromDetached(master, detached);
+  if (detached.fills !== undefined) master.fills = structuredClone(detached.fills);
+  if (detached.clipsContent !== undefined) master.clipsContent = detached.clipsContent;
+  mergeDetachedChildrenIntoRoot(master, detached.children);
+}
+
+/** Align exported instance subtrees onto cloned masters (same structure, instance-local ids and geometry). */
+function mergeNodePairFromDetached(master: SceneNode, detached: SceneNode): void {
+  if (master.type === 'RECTANGLE' && detached.type === 'RECTANGLE') {
+    mergeRectangleFromDetached(master, detached);
+    return;
+  }
+  if (master.type === 'TEXT' && detached.type === 'TEXT') {
+    mergeTextFromDetached(master, detached);
+    return;
+  }
+  if (master.type === 'FRAME' && detached.type === 'FRAME') {
+    mergeFrameFromDetached(master, detached);
+    return;
+  }
+  if (master.type === 'FRAME' && master.children.length === 1) {
+    mergeNodePairFromDetached(master.children[0]!, detached);
+    return;
+  }
+  if (detached.type === 'FRAME' && detached.children.length === 1 && master.type !== 'FRAME') {
+    mergeNodePairFromDetached(master, detached.children[0]!);
+  }
+}
+
+function mergeDetachedChildrenIntoRoot(root: FrameNode, detached: SceneNode[]): void {
+  if (!detached.length) return;
+  const masterKids = root.children;
+  if (
+    masterKids.length === 1 &&
+    masterKids[0]!.type === 'FRAME' &&
+    detached.length === 1 &&
+    detached[0]!.type !== 'FRAME'
+  ) {
+    mergeNodePairFromDetached(masterKids[0]!, detached[0]!);
+    return;
+  }
+  if (detached.length === 1 && detached[0]!.type === 'FRAME' && masterKids.length > 0) {
+    mergeDetachedChildrenIntoRoot(root, (detached[0] as FrameNode).children);
+    return;
+  }
+  const n = Math.min(masterKids.length, detached.length);
+  for (let i = 0; i < n; i++) {
+    mergeNodePairFromDetached(masterKids[i]!, detached[i]!);
+  }
+}
+
 function prepareInstanceComponentRoot(
   root: FrameNode,
-  instSize: { width: number; height: number },
+  inst: Pick<InstanceNode, 'width' | 'height' | 'children'>,
   env: FileEnvelope,
   overrides?: ComponentInstanceNode['overrides']
 ): void {
   applyComponentOverrides(root, overrides);
-  scaleComponentRootToInstance(root, instSize.width, instSize.height);
+  const detached = instanceDetachedChildren(inst as InstanceNode);
+  if (detached) {
+    mergeDetachedChildrenIntoRoot(root, detached);
+  } else {
+    scaleComponentRootToInstance(root, inst.width, inst.height);
+  }
   prepareClonedComponentSubtreeForEmit(root, env);
 }
 
