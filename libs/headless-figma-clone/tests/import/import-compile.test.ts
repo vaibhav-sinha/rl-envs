@@ -87,7 +87,8 @@ describe('import → compile parity', () => {
     const out = compileFrame(envelope, 'Parent');
     const blob = `${out.html}\n${out.css}`;
     expect(blob).toMatch(/left:0px;top:0px;width:120px;height:32px/);
-    expect(blob).toMatch(/left:0px;top:48px;width:80px;height:6px/);
+    expect(blob).toMatch(/left:0px;top:48px;width:200px;height:6px/);
+    expect(blob).toMatch(/left:0px;top:0px;width:80px;height:6px/);
     expect(blob).not.toMatch(/top:144px/);
   });
 });

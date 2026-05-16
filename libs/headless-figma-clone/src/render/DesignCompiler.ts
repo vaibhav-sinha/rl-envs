@@ -248,15 +248,22 @@ function internalIdSeq(id: string): number {
   return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
 }
 
-/**
- * Expand GROUP to paintable scene nodes (no GROUP wrappers). Order matches a DFS over direct
- * children; caller may re-sort for global z (Figma stacks by creation order across nesting).
- */
-function flattenGroupPaintOrderContents(g: GroupNode, out: SceneNode[]): void {
-  for (const child of g.children) {
-    if (child.type === 'GROUP') flattenGroupPaintOrderContents(child, out);
-    else out.push(child);
+/** SVG mask markup for a Figma mask node (vector path or bounding rect). */
+function maskShapeSvgMarkup(maskNode: SceneNode, parentW: number, parentH: number, maskId: string): string {
+  const mx = maskNode.x;
+  const my = maskNode.y;
+  const mw = maskNode.width;
+  const mh = maskNode.height;
+  const head = `mask id="${escapeAttr(maskId)}" maskUnits="userSpaceOnUse" x="0" y="0" width="${String(parentW)}" height="${String(parentH)}"`;
+  if (maskNode.type === 'VECTOR' && maskNode.vectorPaths?.[0]?.data) {
+    const d = maskNode.vectorPaths[0].data;
+    return `<${head}><path d="${escapeAttr(d)}" fill="white" transform="translate(${String(mx)},${String(my)})"/></mask>`;
   }
+  const d = operandPathD(maskNode);
+  if (d && d !== 'M0,0') {
+    return `<${head}><path d="${escapeAttr(d)}" fill="white" transform="translate(${String(mx)},${String(my)})"/></mask>`;
+  }
+  return `<${head}><rect x="${String(mx)}" y="${String(my)}" width="${String(mw)}" height="${String(mh)}" fill="white"/></mask>`;
 }
 
 function sceneChildPos(
@@ -1209,23 +1216,108 @@ function emitGroup(
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope,
-  parentFrame?: FrameNode
+  parentFrame?: FrameNode,
+  parentGroup?: GroupNode
 ): void {
-  const paintables: SceneNode[] = [];
-  flattenGroupPaintOrderContents(g, paintables);
-  paintables.sort((a, b) => internalIdSeq(a.id) - internalIdSeq(b.id));
-
+  const localPos = parentGroup ? groupChildLocalOffset(g, parentGroup) : { x: g.x, y: g.y };
   const zIndex = z.value++;
   const opRot = transformOpacityCss(g);
   const outerCss = insideFlex
-    ? flexChildLayoutCss(g, true, { absX: g.x, absY: g.y, width: g.width, height: g.height }, parentFrame)
-    : `position:absolute;left:${String(g.x)}px;top:${String(g.y)}px;width:${String(g.width)}px;height:${String(g.height)}px;`;
+    ? flexChildLayoutCss(g, true, { absX: localPos.x, absY: localPos.y, width: g.width, height: g.height }, parentFrame)
+    : `position:absolute;left:${String(localPos.x)}px;top:${String(localPos.y)}px;width:${String(g.width)}px;height:${String(g.height)}px;`;
   const groupClass = insideFlex ? `hfc-node-${g.id} hfc-group-flex` : `hfc-node-${g.id} hfc-group`;
   htmlParts.push(`<div class="${groupClass}" data-hfc-id="${g.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`.hfc-node-${g.id}{${outerCss}box-sizing:border-box;${opRot}}`);
-  for (const c of paintables) {
+  emitGroupChildren(
+    g,
+    originX,
+    originY,
+    shiftX,
+    shiftY,
+    htmlParts,
+    cssParts,
+    z,
+    imgMap,
+    patternTiles,
+    warnings,
+    insideFlex,
+    env,
+    parentFrame
+  );
+  htmlParts.push('</div>');
+}
+
+/** Emit group children with mask clusters (flattening skips mask relationships). */
+function emitGroupChildren(
+  g: GroupNode,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope,
+  parentFrame?: FrameNode
+): void {
+  const childList = [...g.children].sort((a, b) => internalIdSeq(a.id) - internalIdSeq(b.id));
+  let i = 0;
+  while (i < childList.length) {
+    const ch = childList[i]!;
+    if (ch.isMask) {
+      const masked: SceneNode[] = [];
+      i++;
+      while (i < childList.length && !childList[i]!.isMask) {
+        masked.push(childList[i]!);
+        i++;
+      }
+      emitMaskCluster(
+        ch,
+        masked,
+        g,
+        0,
+        0,
+        originX,
+        originY,
+        shiftX,
+        shiftY,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        patternTiles,
+        warnings,
+        env
+      );
+      continue;
+    }
+    if (ch.type === 'GROUP') {
+      emitGroup(
+        ch,
+        originX,
+        originY,
+        shiftX,
+        shiftY,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        patternTiles,
+        warnings,
+        insideFlex,
+        env,
+        parentFrame,
+        g
+      );
+      i++;
+      continue;
+    }
     emitScene(
-      c,
+      ch,
       originX,
       originY,
       shiftX,
@@ -1238,13 +1330,13 @@ function emitGroup(
       warnings,
       false,
       env,
-      paintables,
+      g.children,
       undefined,
       false,
       g
     );
+    i++;
   }
-  htmlParts.push('</div>');
 }
 
 /**
@@ -1300,19 +1392,16 @@ function emitMaskCluster(
   warnings: string[],
   env: FileEnvelope
 ): void {
-  const mx = maskNode.x;
-  const my = maskNode.y;
-  const mw = maskNode.width;
-  const mh = maskNode.height;
   const mid = `hfc-svg-mask-${maskNode.id}`;
   const zi = z.value++;
+  const maskDef = maskShapeSvgMarkup(maskNode, parent.width, parent.height, mid);
   htmlParts.push(
     `<div class="hfc-mask-wrap" data-hfc-mask="${maskNode.id}" style="position:absolute;left:${String(containerAbsX)}px;top:${String(
       containerAbsY
     )}px;width:${String(parent.width)}px;height:${String(parent.height)}px;overflow:visible;z-index:${String(zi)}">`
   );
   htmlParts.push(
-    `<svg width="0" height="0" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="${String(mx)}" y="${String(my)}" width="${String(mw)}" height="${String(mh)}"><rect x="${String(mx)}" y="${String(my)}" width="${String(mw)}" height="${String(mh)}" fill="white"/></mask></defs></svg>`
+    `<svg width="0" height="0" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>${maskDef}</defs></svg>`
   );
   htmlParts.push(
     `<div class="hfc-masked-inner" style="position:absolute;left:0;top:0;width:${String(parent.width)}px;height:${String(
