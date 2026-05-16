@@ -34,7 +34,7 @@ import {
   paragraphTypographyCss,
 } from './typographyCss.js';
 import { computeStrokeBorder, rgbaFromSolid as strokeRgbaFromSolid } from './strokeRender.js';
-import { svgViewportForPathData } from './vectorPathBounds.js';
+import { svgViewportForPathData, svgViewportForVectorPaths } from './vectorPathBounds.js';
 import {
   buildRootCssVariableBlock,
   cssVarNameForVariable,
@@ -1148,10 +1148,9 @@ function emitVector(
   insideFlex: boolean,
   env: FileEnvelope
 ): void {
-  const pathData = v.vectorPaths[0]?.data;
-  const vp = pathData ? svgViewportForPathData(pathData) : null;
-  const w = vp?.width ?? v.width;
-  const h = vp?.height ?? v.height;
+  const vp = v.vectorPaths.length > 0 ? svgViewportForVectorPaths(v.vectorPaths) : null;
+  const w = Math.max(v.width, vp?.width ?? 0);
+  const h = Math.max(v.height, vp?.height ?? 0);
   const viewBox = vp?.viewBox ?? `0 0 ${String(w)} ${String(h)}`;
   const fill = v.fills?.[0];
   let fillAttr = 'fill="transparent"';
@@ -1287,6 +1286,22 @@ function emitGroup(
   const localPos = parentGroup ? groupChildLocalOffset(g, parentGroup) : { x: g.x, y: g.y };
   const zIndex = z.value++;
   const opRot = transformOpacityCss(g);
+  if (
+    tryEmitExportedSvgIcon(
+      g,
+      localPos.x,
+      localPos.y,
+      zIndex,
+      opRot,
+      htmlParts,
+      cssParts,
+      imgMap,
+      insideFlex,
+      parentFrame
+    )
+  ) {
+    return;
+  }
   const outerCss = insideFlex
     ? flexChildLayoutCss(g, true, { absX: localPos.x, absY: localPos.y, width: g.width, height: g.height }, parentFrame)
     : `position:absolute;left:${String(localPos.x)}px;top:${String(localPos.y)}px;width:${String(g.width)}px;height:${String(g.height)}px;`;
