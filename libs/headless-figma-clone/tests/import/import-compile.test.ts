@@ -67,4 +67,27 @@ describe('import → compile parity', () => {
     expect(blob).toMatch(/left:0px;top:0px/);
     expect(blob).not.toMatch(/left:112px;top:308px;width:120px[^}]*left:112px;top:308px/);
   });
+
+  it('positions divider stripes just below title text inside nested groups', () => {
+    const envelope = loadEnvelope('group-nested-line.snapshot.json');
+    const page = envelope.document.children[0]!;
+    const frame = page.children.find((n) => n.type === 'FRAME' && n.name === 'Parent');
+    expect(frame?.type).toBe('FRAME');
+    if (frame?.type !== 'FRAME') return;
+    const title = frame.children.find((c) => c.type === 'GROUP');
+    expect(title?.type).toBe('GROUP');
+    if (title?.type !== 'GROUP') return;
+    const line = title.children.find((c) => c.type === 'GROUP' && c.name === 'Line');
+    expect(line?.type).toBe('GROUP');
+    if (line?.type !== 'GROUP') return;
+    const orange = line.children.find((c) => c.name === 'Orange');
+    expect(orange?.x).toBe(112);
+    expect(orange?.y).toBe(356);
+
+    const out = compileFrame(envelope, 'Parent');
+    const blob = `${out.html}\n${out.css}`;
+    expect(blob).toMatch(/left:0px;top:0px;width:120px;height:32px/);
+    expect(blob).toMatch(/left:0px;top:48px;width:80px;height:6px/);
+    expect(blob).not.toMatch(/top:144px/);
+  });
 });

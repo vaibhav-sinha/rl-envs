@@ -1173,10 +1173,23 @@ function emitVector(
 
 /** Local offset for a GROUP child stored in frame space (see import normalizeGroupChildrenToFrameSpace). */
 function groupChildLocalOffset(node: SceneNode, group: GroupNode): { x: number; y: number } {
-  const relX = node.x - group.x;
-  const relY = node.y - group.y;
+  let relX = node.x - group.x;
+  let relY = node.y - group.y;
   if (relY > group.height + 1 && node.y >= group.y + group.y) {
-    return { x: node.x - 2 * group.x, y: node.y - 2 * group.y };
+    relX = node.x - 2 * group.x;
+    relY = node.y - 2 * group.y;
+  }
+  if (relY > group.height + 1) {
+    for (const ch of group.children) {
+      if (ch.type !== 'GROUP') continue;
+      const nestedX = ch.x - group.x;
+      const nestedY = ch.y - group.y;
+      if (nestedY > 0) {
+        relX = node.x - 2 * group.x - 2 * nestedX;
+        relY = node.y - 2 * group.y - 2 * nestedY;
+        break;
+      }
+    }
   }
   return { x: relX, y: relY };
 }

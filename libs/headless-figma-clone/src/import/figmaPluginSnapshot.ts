@@ -210,13 +210,25 @@ function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
   return page;
 }
 
-/** Figma group children are group-relative; compiler expects frame-space when using coordLocalOrigin. */
+/**
+ * Figma group children are group-relative; compiler expects frame-space when using coordLocalOrigin.
+ * Nested groups: normalize inner descendants first, then apply this group's offset once.
+ */
 function normalizeGroupChildrenToFrameSpace(g: GroupNode): void {
   for (const ch of g.children) {
-    ch.x += g.x;
-    ch.y += g.y;
     if (ch.type === 'GROUP') {
+      const lx = ch.x;
+      const ly = ch.y;
       normalizeGroupChildrenToFrameSpace(ch);
+      for (const sub of ch.children) {
+        sub.x += g.x;
+        sub.y += g.y;
+      }
+      ch.x = g.x + lx;
+      ch.y = g.y + ly;
+    } else {
+      ch.x += g.x;
+      ch.y += g.y;
     }
   }
 }
@@ -230,7 +242,12 @@ function findComponentNode(document: DocumentNode, compId: string): SceneNode | 
   return undefined;
 }
 
-function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOrigin?: ParentPageOrigin): SceneNode | null {
+function importSceneNode(
+  node: SerializedNode,
+  ctx: ImportContext,
+  parentPageOrigin?: ParentPageOrigin,
+  parentIsGroup = false
+): SceneNode | null {
   const { idMap, imageRemap, report } = ctx;
 
   if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET' || node.type === 'TABLE') {
@@ -247,7 +264,7 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
     const importChildren = (): SceneNode[] => {
       const kids: SceneNode[] = [];
       for (const c of node.children ?? []) {
-        const n = importSceneNode(c, ctx, nodePageOrigin);
+        const n = importSceneNode(c, ctx, nodePageOrigin, node.type === 'GROUP');
         if (n) kids.push(n);
       }
       return kids;
@@ -315,7 +332,7 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
   const importChildren = (): SceneNode[] => {
     const kids: SceneNode[] = [];
     for (const c of node.children ?? []) {
-      const n = importSceneNode(c, ctx, nodePageOrigin);
+      const n = importSceneNode(c, ctx, nodePageOrigin, node.type === 'GROUP');
       if (n) kids.push(n);
     }
     return kids;
@@ -478,7 +495,9 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOri
         height: b.height,
         children: importChildren(),
       };
-      normalizeGroupChildrenToFrameSpace(group);
+      if (!parentIsGroup) {
+        normalizeGroupChildrenToFrameSpace(group);
+      }
       return group;
     }
     case 'TRANSFORM_GROUP': {
