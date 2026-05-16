@@ -23,6 +23,8 @@ import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCs
 import { frameGridInnerStyle, isGridFrame } from '../layout/gridLayout.js';
 import { allEffectsCss, type EffectResolveContext } from './effectsCss.js';
 import {
+  effectiveTextBaseFontSizePx,
+  effectiveTextMaxFontSizePx,
   fontFamilyCssFromName,
   hugTextLineHeightPxFromTypography,
   leadingTrimCss,
@@ -243,17 +245,12 @@ function fontSizeForSvgText(env: FileEnvelope, t: TextNode, fallbackPx: number):
 }
 
 function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; fontWeight: number; fills: Paint[] | undefined; fontSizeCss: string } {
-  let fontSize = t.fontSize ?? 12;
+  let fontSize = effectiveTextBaseFontSizePx(t, env);
   let fontWeight = t.fontWeight ?? 400;
   let fills = t.fills;
-  if (t.boundVariables?.fontSize) {
-    const v = resolveVariableToFloat(env, t.boundVariables.fontSize);
-    if (v !== null) fontSize = v;
-  }
   if (t.textStyleId) {
     const st = env.textStyles?.find((s) => s.id === t.textStyleId);
     if (st) {
-      if (st.fontSize !== undefined) fontSize = st.fontSize;
       if (st.fontWeight !== undefined) fontWeight = st.fontWeight;
       if (st.fills?.length) fills = st.fills;
     }
@@ -293,7 +290,7 @@ function textIsSingleLineBox(t: TextNode, env: FileEnvelope): boolean {
   if (t.textTruncation === 'ENDING' && t.maxLines != null && t.maxLines > 1) return false;
   if (t.textAutoResize === 'TRUNCATE') return true;
   if (t.textTruncation === 'ENDING' && t.maxLines === 1) return true;
-  const fs = effectiveTextBase(t, env).fontSize;
+  const fs = effectiveTextMaxFontSizePx(t, env);
   const lineH = hugTextLineHeightPxFromTypography(fs, t.lineHeight);
   const cap = Math.ceil(lineH * 1.14);
   /** Designers often pad label boxes a few px above one line (e.g. 12px type in a 20px chip). */
@@ -1340,7 +1337,7 @@ function emitScene(
     const singleLine = textIsSingleLineBox(t, env);
     const flexOuterAlign = textFlexContainerCss(t, singleLine);
     const baseTypo = effectiveTextBase(t, env);
-    const lhPx = hugTextLineHeightPxFromTypography(baseTypo.fontSize, t.lineHeight);
+    const lhPx = hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t, env), t.lineHeight);
     const textColor = paintColorCss(baseTypo.fills?.[0], env, 'rgba(0,0,0,1)', warnings, `text:${t.id}`);
     const flexTextMetrics = singleLine
       ? `line-height:${String(lhPx)}px;${leadingTrimCss(t.leadingTrim)}`

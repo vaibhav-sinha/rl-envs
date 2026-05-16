@@ -1,5 +1,5 @@
 import type { FileEnvelope, FrameNode, GridTrackSize, SceneNode } from '../model/types.js';
-import { hugTextLineHeightPxFromTypography } from '../render/typographyCss.js';
+import { effectiveTextMaxFontSizePx, hugTextLineHeightPxFromTypography } from '../render/typographyCss.js';
 import type { TextNode } from '../model/types.js';
 import { cssVarNameForVariable, resolveVariableToFloat } from '../variables/resolution.js';
 
@@ -123,8 +123,7 @@ function trackToCss(track: GridTrackSize, hugPx?: number): string {
 function measureChildMinCross(n: SceneNode, _env?: FileEnvelope): number {
   if (n.type === 'TEXT') {
     const t = n as TextNode;
-    const fs = t.fontSize ?? 12;
-    return hugTextLineHeightPxFromTypography(fs, t.lineHeight);
+    return hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t, _env), t.lineHeight);
   }
   return n.height;
 }

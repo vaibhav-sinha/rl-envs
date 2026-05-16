@@ -7,8 +7,11 @@ import type {
   TextNode,
   TransformGroupNode,
 } from '../model/types.js';
-import { hugTextLineHeightPxFromTypography } from './typographyCss.js';
-import { resolveVariableToFloat, resolveVariableToStringValue } from '../variables/resolution.js';
+import {
+  effectiveTextMaxFontSizePx,
+  hugTextLineHeightPxFromTypography,
+} from './typographyCss.js';
+import { resolveVariableToStringValue } from '../variables/resolution.js';
 
 /** Matches Figma default dimensions for `createFrame` / `createAutoLayout` before explicit resize. */
 const FIGMA_DEFAULT_FRAME_MIN_SIDE = 100;
@@ -22,20 +25,6 @@ function approximateTextWidthPx(chars: string, fontSize: number): number {
   return Math.max(0, Math.ceil(raw) + Math.ceil(fontSize * 0.35));
 }
 
-/** Match {@link DesignCompiler} `effectiveTextBase` font-size resolution for intrinsic width/height. */
-function effectiveTextFontSizePx(t: TextNode, env: FileEnvelope | undefined): number {
-  let fontSize = t.fontSize ?? 12;
-  if (env && t.boundVariables?.fontSize) {
-    const v = resolveVariableToFloat(env, t.boundVariables.fontSize);
-    if (v !== null) fontSize = v;
-  }
-  if (env && t.textStyleId) {
-    const st = env.textStyles?.find((s) => s.id === t.textStyleId);
-    if (st?.fontSize !== undefined) fontSize = st.fontSize;
-  }
-  return fontSize;
-}
-
 export function textCharactersForIntrinsicSizing(t: TextNode, env: FileEnvelope | undefined): string {
   const vid = t.boundVariables?.characters;
   if (env && vid) {
@@ -46,7 +35,7 @@ export function textCharactersForIntrinsicSizing(t: TextNode, env: FileEnvelope 
 }
 
 function textIntrinsicWidthForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
-  const fs = effectiveTextFontSizePx(t, env);
+  const fs = effectiveTextMaxFontSizePx(t, env);
   if (t.layoutSizingHorizontal === 'FIXED') {
     return Math.max(0, t.width);
   }
@@ -65,7 +54,7 @@ export function hugTextLineHeightPx(fontSize: number, lineHeight?: TextNode['lin
 }
 
 function textIntrinsicHeightForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
-  const fs = effectiveTextFontSizePx(t, env);
+  const fs = effectiveTextMaxFontSizePx(t, env);
   if (t.layoutSizingVertical === 'FIXED') {
     return Math.max(0, t.height);
   }
@@ -311,11 +300,11 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
     t.layoutSizingVertical === 'FILL' ||
     (t.layoutSizingVertical !== 'FIXED' && (t.height ?? 0) <= 0);
   if (needsIntrinsicW) {
-    const fs = effectiveTextFontSizePx(t, env);
+    const fs = effectiveTextMaxFontSizePx(t, env);
     t.width = approximateTextWidthPx(textCharactersForIntrinsicSizing(t, env), fs);
   }
   if (needsIntrinsicH) {
-    const fs = effectiveTextFontSizePx(t, env);
+    const fs = effectiveTextMaxFontSizePx(t, env);
     t.height = hugTextLineHeightPx(fs, t.lineHeight);
   }
 }

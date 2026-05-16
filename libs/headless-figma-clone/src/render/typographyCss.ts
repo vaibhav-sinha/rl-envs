@@ -214,6 +214,30 @@ export function hugTextLineHeightPxFromTypography(fontSize: number, lineHeight?:
   return Math.ceil(hugLayoutLineHeightPx(lineHeight, fontSize));
 }
 
+/** Node-level font size (variables + text style), ignoring per-range overrides. */
+export function effectiveTextBaseFontSizePx(t: TextNode, env?: FileEnvelope): number {
+  let fontSize = t.fontSize ?? 12;
+  if (env && t.boundVariables?.fontSize) {
+    const v = resolveVariableToFloat(env, t.boundVariables.fontSize);
+    if (v !== null) fontSize = v;
+  }
+  if (env && t.textStyleId) {
+    const st = env.textStyles?.find((s) => s.id === t.textStyleId);
+    if (st?.fontSize !== undefined) fontSize = st.fontSize;
+  }
+  return fontSize;
+}
+
+/** Largest font size on the text node (base + {@link TextNode.styledSegments}). */
+export function effectiveTextMaxFontSizePx(t: TextNode, env?: FileEnvelope): number {
+  let max = effectiveTextBaseFontSizePx(t, env);
+  for (const seg of t.styledSegments ?? []) {
+    const fs = seg.style.fontSize;
+    if (fs !== undefined && fs > max) max = fs;
+  }
+  return max;
+}
+
 export function leadingTrimCss(leadingTrim?: LeadingTrim): string {
   if (leadingTrim === 'CAP_HEIGHT') {
     return 'text-box-trim:trim-both;text-box-edge:cap alphabetic;';
