@@ -139,3 +139,28 @@ export function svgViewportForPathData(
     height,
   };
 }
+
+/** Union bounds of multiple subpaths in a single VECTOR node (e.g. "9:41" glyph outlines). */
+export function boundingBoxFromVectorPaths(paths: { data: string }[]): PathDataBounds | null {
+  let merged: PathDataBounds | null = null;
+  for (const p of paths) {
+    if (!p.data) continue;
+    merged = mergeAabb(merged, boundingBoxFromPathData(p.data));
+  }
+  return merged;
+}
+
+/** viewBox + pixel size spanning all subpaths without translating path coordinates. */
+export function svgViewportForVectorPaths(
+  paths: { data: string }[]
+): { viewBox: string; width: number; height: number } | null {
+  const merged = boundingBoxFromVectorPaths(paths);
+  if (!merged) return null;
+  const width = Math.max(1, merged.right - merged.left);
+  const height = Math.max(1, merged.bottom - merged.top);
+  return {
+    viewBox: `${String(merged.left)} ${String(merged.top)} ${String(width)} ${String(height)}`,
+    width,
+    height,
+  };
+}
