@@ -12,6 +12,9 @@ import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import type { Logger } from '../util/logger.js';
 import { createHeadlessMcpServer } from '../mcp/registerTools.js';
 import { ExportError } from '../import/exportHandler.js';
+import { collectPagesIndex } from '../mcp/metadata.js';
+import { renderFilesBrowserHtml } from './ui/filesBrowser.js';
+import { previewEmptyShell, wrapPreviewWithToolbar, type PreviewShellParams } from './ui/previewShell.js';
 
 type SessionEntry = {
   transport: StreamableHTTPServerTransport;
@@ -19,6 +22,8 @@ type SessionEntry = {
 };
 
 const DEFAULT_JSON_BODY_LIMIT = 200 * 1024 * 1024;
+
+const PREVIEW_REDIRECT_RE = /^\/preview(\?.*)?$/;
 
 /** Figma plugin UI iframes use a `null` origin; browsers only allow `Access-Control-Allow-Origin: *`. */
 const CORS_HEADERS: Record<string, string> = {
@@ -101,8 +106,31 @@ function httpRequestBaseUrl(req: IncomingMessage, fallbackHost: string, fallback
   return `${proto}://${fallbackHost}:${String(fallbackPort)}`;
 }
 
-function debugPreviewShell(innerHtml: string): string {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>headless-figma-clone preview</title></head><body style="margin:24px;font-family:ui-sans-serif,system-ui,sans-serif">${innerHtml}</body></html>`;
+function isAllowedPreviewRedirect(redirect: string): boolean {
+  return PREVIEW_REDIRECT_RE.test(redirect);
+}
+
+function resolvePreviewPageId(
+  env: FileEnvelope,
+  engine: DocumentEngine,
+  requestedPageId: string | null
+): string | null {
+  const pages = collectPagesIndex(env.document);
+  if (pages.length === 0) return null;
+  if (requestedPageId && pages.some((p) => p.id === requestedPageId)) {
+    return requestedPageId;
+  }
+  const current = engine.getCurrentPageId();
+  if (current && pages.some((p) => p.id === current)) return current;
+  return pages[0]!.id;
+}
+
+function shellParams(env: FileEnvelope, pageId: string | null): PreviewShellParams {
+  return {
+    fileName: env.fileName,
+    pages: collectPagesIndex(env.document),
+    currentPageId: pageId,
+  };
 }
 
 export async function createHttpServer(params: {
@@ -113,16 +141,24 @@ export async function createHttpServer(params: {
   const { config, engine, logger } = params;
   const transports: Record<string, SessionEntry> = {};
 
-  const debugPreviewStore = { html: debugPreviewShell('No active file loaded.') };
+  const previewStore = {
+    html: previewEmptyShell('<p>No active file loaded.</p>', {
+      fileName: '—',
+      pages: [],
+      currentPageId: null,
+    }),
+    pageId: null as string | null,
+  };
 
-  const refreshDebugPreview = (env: FileEnvelope): void => {
-    const currentPageId = engine.getCurrentPageId();
-    const page = currentPageId
-      ? env.document.children.find((c) => c.type === 'PAGE' && c.id === currentPageId)
-      : env.document.children[0];
+  const compilePreviewHtml = (env: FileEnvelope, pageId: string | null): string => {
+    const resolvedPageId = resolvePreviewPageId(env, engine, pageId);
+    const shell = shellParams(env, resolvedPageId);
+    if (!resolvedPageId) {
+      return previewEmptyShell('<p>Active file has no pages.</p>', shell);
+    }
+    const page = env.document.children.find((c) => c.type === 'PAGE' && c.id === resolvedPageId);
     if (!page || page.children.length === 0) {
-      debugPreviewStore.html = debugPreviewShell('Active file has no frames yet.');
-      return;
+      return previewEmptyShell('<p>Active file has no frames yet.</p>', shell);
     }
     try {
       const compiled = designCompiler.compileFirstPage({
@@ -138,18 +174,20 @@ export async function createHttpServer(params: {
           })(),
         },
       });
-      debugPreviewStore.html = compiled.html;
+      return wrapPreviewWithToolbar(compiled.html, shell);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      debugPreviewStore.html = debugPreviewShell(`<pre>${escapeHtml(msg)}</pre>`);
+      return previewEmptyShell(`<pre>${escapeHtml(msg)}</pre>`, shell);
     }
   };
 
-  if (config.allowDebug) {
-    engine.attachDebugPreviewListener(refreshDebugPreview);
-    const cur = engine.getActiveFile();
-    if (cur) refreshDebugPreview(cur);
-  }
+  const refreshPreview = (env: FileEnvelope): void => {
+    previewStore.html = compilePreviewHtml(env, previewStore.pageId);
+  };
+
+  engine.attachPreviewListener(refreshPreview);
+  const cur = engine.getActiveFile();
+  if (cur) refreshPreview(cur);
 
   const httpServer = createServer(async (req, res) => {
     try {
@@ -194,6 +232,7 @@ export async function createHttpServer(params: {
           status: 'ok',
           version: config.version,
           exportEndpoint: '/export/hfc',
+          previewEndpoint: '/preview',
         });
         return;
       }
@@ -234,16 +273,18 @@ export async function createHttpServer(params: {
         const base = httpRequestBaseUrl(req, config.httpHost, listenPort);
         const rows = await engine.listHfcFilesInWorkspace(config.workspaceDir);
         const activePath = engine.getActiveFilePath();
-        sendJson(res, 200, {
+        const html = renderFilesBrowserHtml({
           workspaceDir: resolve(config.workspaceDir),
           files: rows.map((f) => ({
             filePath: f.filePath,
             fileKey: f.fileKey,
             fileName: f.fileName,
             active: f.filePath === activePath,
-            setActiveUrl: `${base}/files/active?path=${encodeURIComponent(f.filePath)}`,
+            viewUrl: `${base}/files/active?path=${encodeURIComponent(f.filePath)}&redirect=${encodeURIComponent('/preview')}`,
           })),
         });
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(html);
         return;
       }
 
@@ -251,7 +292,9 @@ export async function createHttpServer(params: {
         const raw = req.url ?? '';
         const qIdx = raw.indexOf('?');
         const qs = qIdx >= 0 ? raw.slice(qIdx + 1) : '';
-        const pathParam = new URLSearchParams(qs).get('path');
+        const params = new URLSearchParams(qs);
+        const pathParam = params.get('path');
+        const redirectParam = params.get('redirect');
         if (!pathParam) {
           sendError(res, 400, 'BAD_REQUEST', 'Missing path query parameter');
           return;
@@ -273,6 +316,15 @@ export async function createHttpServer(params: {
           return;
         }
         await engine.loadFromDisk({ absolutePath: absoluteTarget });
+        if (redirectParam) {
+          if (!isAllowedPreviewRedirect(redirectParam)) {
+            sendError(res, 400, 'BAD_REQUEST', 'Invalid redirect target');
+            return;
+          }
+          res.writeHead(302, { Location: redirectParam });
+          res.end();
+          return;
+        }
         const f = engine.getActiveFile();
         sendJson(res, 200, {
           ok: true,
@@ -283,32 +335,25 @@ export async function createHttpServer(params: {
         return;
       }
 
-      if (req.method === 'POST' && url === '/debug/load-file') {
-        if (!config.allowDebug) {
-          sendError(res, 404, 'NOT_FOUND', 'Debug routes disabled');
+      if (req.method === 'GET' && url === '/preview') {
+        const env = engine.getActiveFile();
+        if (!env) {
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+          res.end(previewStore.html);
           return;
         }
-        const body = (await readJsonBody(req)) as { path?: string };
-        if (!body?.path || typeof body.path !== 'string') {
-          sendError(res, 400, 'BAD_REQUEST', 'Missing path');
-          return;
+        const raw = req.url ?? '';
+        const qIdx = raw.indexOf('?');
+        const qs = qIdx >= 0 ? raw.slice(qIdx + 1) : '';
+        const pageIdParam = new URLSearchParams(qs).get('pageId');
+        const resolvedPageId = resolvePreviewPageId(env, engine, pageIdParam);
+        if (resolvedPageId) {
+          engine.setCurrentPageId(resolvedPageId);
         }
-        await engine.loadFromDisk({ absolutePath: body.path });
-        const f = engine.getActiveFile();
-        sendJson(res, 200, {
-          fileKey: f?.fileKey,
-          filePath: engine.getActiveFilePath(),
-        });
-        return;
-      }
-
-      if (req.method === 'GET' && url === '/debug/preview') {
-        if (!config.allowDebug) {
-          sendError(res, 404, 'NOT_FOUND', 'Debug routes disabled');
-          return;
-        }
+        previewStore.pageId = resolvedPageId;
+        previewStore.html = compilePreviewHtml(env, resolvedPageId);
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(debugPreviewStore.html);
+        res.end(previewStore.html);
         return;
       }
 
@@ -376,9 +421,7 @@ export async function createHttpServer(params: {
   });
 
   const close = async (): Promise<void> => {
-    if (config.allowDebug) {
-      engine.attachDebugPreviewListener(null);
-    }
+    engine.attachPreviewListener(null);
     for (const sid of Object.keys(transports)) {
       const entry = transports[sid];
       if (entry) {

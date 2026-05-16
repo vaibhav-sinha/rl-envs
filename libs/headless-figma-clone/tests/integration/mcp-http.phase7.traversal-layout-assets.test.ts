@@ -38,7 +38,6 @@ describe('mcp-http Phase 7 traversal layout assets', () => {
     process.env.HFC_WORKSPACE_DIR = join(baseDir, 'ws');
     process.env.HFC_HTTP_PORT = '0';
     process.env.HFC_HTTP_HOST = '127.0.0.1';
-    process.env.HFC_ALLOW_DEBUG = '0';
     delete process.env.HFC_ALLOW_NETWORK;
     const config = loadConfig({ version: 'test', cliInitialFile: null });
     const logger = createConsoleLogger('error');

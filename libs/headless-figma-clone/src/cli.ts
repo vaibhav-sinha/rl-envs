@@ -29,10 +29,6 @@ function parseArgv(argv: string[]): {
   let initialFile: string | undefined;
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--debug') {
-      process.env.HFC_ALLOW_DEBUG = '1';
-      continue;
-    }
     if (a === '--allow-network') {
       process.env.HFC_ALLOW_NETWORK = '1';
       continue;

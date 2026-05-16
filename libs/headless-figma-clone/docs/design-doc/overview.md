@@ -58,7 +58,7 @@ These are **binding** for Phase 1. They resolve PRD ambiguities.
 |-----------|----------|---------|
 | `HFC_INITIAL_FILE` | Must | Absolute path to JSON; engine loads before accepting MCP traffic. |
 | CLI `--file <path>` | Must | Same as env; CLI wins if both set (CLI overrides env). |
-| `POST /debug/load-file` | Must when `HFC_ALLOW_DEBUG=1` | JSON body `{ "path": "<absolute>" }`; responds `{ fileKey, filePath }`; used by automated integration tests. |
+| `GET /files/active?path=…` | Must | Loads a workspace `.hfc.json` as the active file; optional `redirect=/preview`. |
 | MCP tool `open_file` | Must (Phase 2) | First-class tool for agents; see [Implementation plan](./implementation-plan-phases.md). |
 
 Internal API (shared by HTTP debug and future MCP):

@@ -13,9 +13,10 @@ Default `127.0.0.1` per NFR-SEC-002.
 - Store under `<file>.hfc.assets/` with filename **only** the sha256 + extension; reject `..` in any user-provided name.
 - Reject remote URLs in MVP (no `http://` fetch) unless explicitly added later.
 
-## Debug routes
+## File browser and preview
 
-`/debug/*` returns `404` when `HFC_ALLOW_DEBUG` is not `1`.
+- `GET /files/active` only accepts paths under `HFC_WORKSPACE_DIR` ending in `.hfc.json`.
+- `redirect` query param is allowlisted to `/preview` paths only.
 
 ## Related documents
 

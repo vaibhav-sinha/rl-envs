@@ -29,7 +29,6 @@ describe('mcp-http phase3 assets and shapes', () => {
     process.env.HFC_WORKSPACE_DIR = join(baseDir, 'ws');
     process.env.HFC_HTTP_PORT = '0';
     process.env.HFC_HTTP_HOST = '127.0.0.1';
-    process.env.HFC_ALLOW_DEBUG = '1';
     const config = loadConfig({ version: 'test', cliInitialFile: null });
     const logger = createConsoleLogger('error');
     const persistence = new JsonPersistence();

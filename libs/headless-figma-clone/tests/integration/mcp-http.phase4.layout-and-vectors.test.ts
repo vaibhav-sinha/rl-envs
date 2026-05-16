@@ -29,7 +29,6 @@ describe('mcp-http phase4 layout, mask, boolean, vector, blur', () => {
     process.env.HFC_WORKSPACE_DIR = join(baseDir, 'ws');
     process.env.HFC_HTTP_PORT = '0';
     process.env.HFC_HTTP_HOST = '127.0.0.1';
-    process.env.HFC_ALLOW_DEBUG = '1';
     const config = loadConfig({ version: 'test', cliInitialFile: null });
     const logger = createConsoleLogger('error');
     const persistence = new JsonPersistence();
@@ -84,7 +83,7 @@ describe('mcp-http phase4 layout, mask, boolean, vector, blur', () => {
     const img = getToolImage(shot);
     expect(Buffer.from(img.data, 'base64').length).toBeGreaterThan(500);
 
-    const previewRes = await fetch(`http://127.0.0.1:${String(port)}/debug/preview`);
+    const previewRes = await fetch(`http://127.0.0.1:${String(port)}/preview`);
     const previewHtml = await previewRes.text();
     expect(previewHtml).toContain('hfc-node-I3');
   });

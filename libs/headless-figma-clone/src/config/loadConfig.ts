@@ -9,10 +9,6 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function envBool01(name: string): boolean {
-  return process.env[name] === '1';
-}
-
 function envString(name: string, fallback: string): string {
   const v = process.env[name];
   return v === undefined || v === '' ? fallback : v;
@@ -49,7 +45,6 @@ export function loadConfig(params: {
     httpPort: envInt('HFC_HTTP_PORT', 3847),
     workspaceDir: envString('HFC_WORKSPACE_DIR', join(homedir(), '.headless-figma-clone', 'workspace')),
     initialFilePath,
-    allowDebug: envBool01('HFC_ALLOW_DEBUG'),
     logLevel: envLogLevel('HFC_LOG_LEVEL', 'info'),
     screenshotTimeoutMs: envInt('HFC_SCREENSHOT_TIMEOUT_MS', 30_000),
     screenshotDefaultDeviceScaleFactor: envInt('HFC_SCREENSHOT_DPR', 1),

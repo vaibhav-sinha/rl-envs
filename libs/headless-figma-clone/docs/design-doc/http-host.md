@@ -10,9 +10,11 @@
 
 | Method | Path | Auth | Body | Response |
 |--------|------|------|------|----------|
-| GET | `/health` | none | — | `200 application/json` `{"status":"ok","version":"<semver>"}` |
+| GET | `/health` | none | — | `200 application/json` `{"status":"ok","version":"<semver>","previewEndpoint":"/preview"}` |
+| GET | `/files` | none | — | `200 text/html` workspace file browser |
+| GET | `/files/active` | none | `?path=<abs>&redirect=/preview` | `200` JSON or `302` redirect |
+| GET | `/preview` | none | `?pageId=<id>` | `200 text/html` design preview with page toolbar |
 | POST | `/mcp` | none (local) | Streamable HTTP per SDK | per SDK |
-| POST | `/debug/load-file` | requires `HFC_ALLOW_DEBUG=1` | `{ "path": "<abs>" }` | `200` `{ "fileKey","filePath" }` or `4xx` error JSON |
 
 **CORS:** not required (localhost tooling). If added later, restrict origins.
 

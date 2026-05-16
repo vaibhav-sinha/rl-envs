@@ -54,12 +54,12 @@ Until that script exists, engineers use **automated test** `tests/integration/mc
 ### 3) Debug load file (tests / engineers)
 
 ```bash
-curl -sS -X POST http://127.0.0.1:3847/debug/load-file \
+curl -sS "http://127.0.0.1:3847/files/active?path=$(python3 -c 'import urllib.parse; print(urllib.parse.quote(\"/path/to/file.hfc.json\"))')" \
   -H "content-type: application/json" \
   -d "{\"path\":\"C:\\\\tmp\\\\sample.hfc.json\"}"
 ```
 
-Requires `HFC_ALLOW_DEBUG=1`.
+Use `GET /files/active` to load a workspace file before preview.
 
 ---
 
@@ -76,7 +76,7 @@ Runnable service, persisted tree, `DOCUMENT` → `PAGE` → `FRAME`, solid fills
 | `package.json` | `node>=20`, scripts: `build`, `test`, `start` |
 | `tsconfig.json` | `module: NodeNext`, `strict: true` |
 | `src/cli.ts` | argv parsing, starts http or stdio |
-| `src/server/createHttpServer.ts` | `/health`, `/mcp`, gated `/debug/load-file` |
+| `src/server/createHttpServer.ts` | `/health`, `/mcp`, `/files`, `/files/active`, `/preview` |
 | `src/mcp/registerTools.ts` | registers `create_new_file`, `get_metadata`, `get_design_context`, `get_screenshot`, `use_figma` |
 | `src/mcp/handlers/*.ts` | tool implementations |
 | `src/engine/DocumentEngine.ts` | transactions, phase=1 matrix |
@@ -185,7 +185,7 @@ Snapshot policy: normalize only **documented** unstable fields (e.g. strip trans
 
 #### Layer E — MCP HTTP integration (mirror Phase 1 smoke)
 
-Phase 1 proves the wire path with **`tests/integration/mcp-http.smoke.test.ts`**: `create_new_file` → `use_figma` **operations** → `get_metadata` → `get_design_context` → `get_screenshot`, plus a second **`use_figma`** invocation with **`skillNames` + `code`** (sandbox script) that creates a frame, then **`/debug/preview`** checks both nodes appear.
+Phase 1 proves the wire path with **`tests/integration/mcp-http.smoke.test.ts`**: `create_new_file` → `use_figma` **operations** → `get_metadata` → `get_design_context` → `get_screenshot`, plus a second **`use_figma`** invocation with **`skillNames` + `code`** (sandbox script) that creates a frame, then **`/preview`** checks both nodes appear.
 
 Add **`tests/integration/mcp-http.phase2.design-context.test.ts`** (Vitest + Streamable HTTP client, **`DocumentEngine`** wired like production in `beforeAll`):
 
@@ -199,7 +199,7 @@ Add **`tests/integration/mcp-http.phase2.design-context.test.ts`** (Vitest + Str
 5. **`use_figma` — code path**: run sandbox **`code`** that uses the Phase-2-exposed `figma` API (e.g. `figma.createText()`, set characters, mixed `setRangeFontSize`, append link, apply `effects`, set `clipsContent` / `rotation` where the shim exposes them). Capture `result.createdNodeIds` (or returned ids from script).
 6. **`get_design_context`** again for the script-created subtree root: assert **the same CSS/HTML contracts** as step 4 (so “operations” and “code” paths converge on one compiler output shape).
 7. **`get_screenshot`** for the same node (scale 1): assert decode length > threshold (and optionally compare to golden if the script tree dimensions are fixed).
-8. **`GET /debug/preview`** (when enabled): assert rendered HTML includes `hfc-node-` classes for nodes created in both step 2 and step 5 (same pattern as Phase 1 smoke).
+8. **`GET /preview`** (when enabled): assert rendered HTML includes `hfc-node-` classes for nodes created in both step 2 and step 5 (same pattern as Phase 1 smoke).
 
 Add a **narrow** companion test **`tests/integration/mcp-http.open-file.test.ts`** once `open_file` lands: resolve path to `tests/fixtures/phase2-*.json`, call tool, then `get_design_context` to ensure on-disk Phase 2 fixtures compile identically to in-memory builds.
 
@@ -291,7 +291,7 @@ Add **`tests/integration/mcp-http.phase3.assets-and-shapes.test.ts`**:
 6. **`get_design_context`**: non-empty `html`/`css`; substrings or snapshot for gradient, stroke, blend, and **`<svg>`** for polygon/star; image fill resolves (substring match for asset URL or embedded policy).
 7. **`use_figma` — code path** (if Phase-3 `figma` API exposes fills/assets): script creates rectangle + sets image fill from uploaded hash; **`get_design_context`** matches same contracts as step 6.
 8. **`get_screenshot`** on showcase frame: decode length > threshold; optional pixel-compare to harness baseline if dimensions fixed.
-9. **`GET /debug/preview`** (when enabled): `hfc-node-` classes for nodes from steps 4 and 7.
+9. **`GET /preview`** (when enabled): `hfc-node-` classes for nodes from steps 4 and 7.
 
 Companion: extend **`tests/integration/image-fill.test.ts`** or fold into above: upload → assign `ImagePaint` → screenshot non-empty; add negative “invalid hash” MCP round-trip.
 
@@ -459,7 +459,7 @@ Add **`tests/integration/mcp-http.phase5.design-system.test.ts`**:
 4. **`get_design_context`** on component instance root: CSS variables applied; instance overrides visible in HTML/CSS snapshot.
 5. **`get_metadata`** (if extended): locators for components/variables/styles for debugging.
 6. **`use_figma` — code path** (if API exposes variables/components): script reads/changes bound variable or creates instance; **`get_variable_defs`** / **`get_design_context`** reflect change; matches operations-path expectations.
-7. **`get_screenshot`** + optional **`GET /debug/preview`** parity with prior phases for nodes touched in step 6.
+7. **`get_screenshot`** + optional **`GET /preview`** parity with prior phases for nodes touched in step 6.
 
 Extend **`tests/search/design-system.text.test.ts`**: rank stability, pagination/limit if tool supports `limit`/`cursor`, and case-folding rules per binding.
 

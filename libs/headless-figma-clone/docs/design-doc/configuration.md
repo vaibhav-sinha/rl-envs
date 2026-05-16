@@ -16,7 +16,6 @@
 | `HFC_HTTP_PORT` | int | `3847` | 1 | HTTP listen port |
 | `HFC_WORKSPACE_DIR` | path | `~/.headless-figma-clone/workspace` | 1 | Default directory for `create_new_file` |
 | `HFC_INITIAL_FILE` | path | *(empty)* | 1 | If set, load this JSON file at startup |
-| `HFC_ALLOW_DEBUG` | `0`/`1` | `0` | 1 | Enables `/debug/*` routes |
 | `HFC_LOG_LEVEL` | enum | `info` | 1 | `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` |
 | `HFC_SCREENSHOT_TIMEOUT_MS` | int | `30000` | 1 | Playwright timeout for `get_screenshot` |
 | `HFC_PLAYWRIGHT_BROWSER` | string | `chromium` | 1 | `chromium` only in Phase 1 |
