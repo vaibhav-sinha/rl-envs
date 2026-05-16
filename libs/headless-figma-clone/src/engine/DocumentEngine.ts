@@ -2024,9 +2024,19 @@ export async function persistAssetBytesOnDisk(
   return { hash, assetId };
 }
 
+function firstPageId(document: DocumentNode): string | null {
+  const p = document.children.find((c): c is PageNode => c.type === 'PAGE');
+  return p?.id ?? null;
+}
+
+function pageExists(document: DocumentNode, pageId: string): boolean {
+  return document.children.some((c) => c.type === 'PAGE' && c.id === pageId);
+}
+
 export class DocumentEngine {
   private activeFile: FileEnvelope | null = null;
   private activeFilePath: string | null = null;
+  private currentPageId: string | null = null;
   private debugPreviewListener: ((envelope: FileEnvelope) => void) | null = null;
 
   constructor(
@@ -2055,6 +2065,25 @@ export class DocumentEngine {
     return this.activeFilePath;
   }
 
+  getCurrentPageId(): string | null {
+    return this.currentPageId;
+  }
+
+  setCurrentPageId(id: string): void {
+    if (!this.activeFile) {
+      throw new ValidationErr('NO_ACTIVE_FILE', 'No active file');
+    }
+    if (!pageExists(this.activeFile.document, id)) {
+      throw new ValidationErr('UNKNOWN_NODE', `Unknown page id ${id}`);
+    }
+    this.currentPageId = id;
+  }
+
+  private syncCurrentPageToDocument(document: DocumentNode): void {
+    if (this.currentPageId && pageExists(document, this.currentPageId)) return;
+    this.currentPageId = firstPageId(document);
+  }
+
   queryNode(nodeId: string): AnyTreeNode | null {
     if (!this.activeFile) return null;
     return findNode(this.activeFile.document, nodeId);
@@ -2064,6 +2093,7 @@ export class DocumentEngine {
     const env = await this.deps.persistence.load({ path: params.absolutePath });
     this.activeFile = env;
     this.activeFilePath = params.absolutePath;
+    this.syncCurrentPageToDocument(env.document);
     this.deps.logger.info('loaded file', { path: params.absolutePath, fileKey: env.fileKey });
     if (params.save) {
       await this.deps.persistence.save({ path: params.absolutePath, envelope: env });
@@ -2130,6 +2160,7 @@ export class DocumentEngine {
 
     this.activeFile = envelope;
     this.activeFilePath = filePath;
+    this.syncCurrentPageToDocument(envelope.document);
     await this.deps.persistence.save({ path: filePath, envelope });
     this.deps.logger.info('created new file', { filePath, fileKey });
     this.emitDebugPreview();
@@ -2326,6 +2357,7 @@ export class DocumentEngine {
     }
 
     this.activeFile = working;
+    this.syncCurrentPageToDocument(working.document);
     await this.deps.persistence.save({ path: this.activeFilePath, envelope: working });
     this.emitDebugPreview();
     return { success: true, touchedNodeIds: [...touched], warnings };
@@ -3583,6 +3615,9 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
         if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${g} must be number`);
         (p as unknown as Record<string, number>)[g] = v;
       }
+    }
+    if ('backgrounds' in patch) {
+      p.backgrounds = validatePaintArray(patch.backgrounds, 'backgrounds', env);
     }
     if ('isPageDivider' in patch) {
       if (typeof patch.isPageDivider !== 'boolean') {

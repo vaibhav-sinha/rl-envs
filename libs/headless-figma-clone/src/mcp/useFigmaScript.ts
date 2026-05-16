@@ -1643,6 +1643,16 @@ class RuntimePage {
       .filter((c) => !this.ctx.deletedIds.has(c.id))
       .map((c) => createHandleProxy(this.ctx, c.id));
   }
+
+  get backgrounds(): Paint[] | undefined {
+    const p = findEnvelopeNode(this.ctx.working, this.pageId);
+    if (!p || p.type !== 'PAGE') return undefined;
+    return p.backgrounds;
+  }
+
+  set backgrounds(value: Paint[] | undefined) {
+    queueUpdate(this.ctx, this.pageId, { backgrounds: value });
+  }
 }
 
 const BOOLEAN_OPERAND_TYPES = new Set(['RECTANGLE', 'ELLIPSE', 'POLYGON', 'STAR', 'VECTOR']);
@@ -1718,6 +1728,8 @@ const AsyncFunction = Object.getPrototypeOf(async function () {
 export interface RunUseFigmaScriptOk {
   kind: 'ok';
   operations: EngineOperation[];
+  /** Active page after the script completes (for engine session persistence). */
+  currentPageId: string;
   /** JSON-serializable return value from the script (Figma serializes `return` for the agent). */
   result: unknown;
 }
@@ -1780,7 +1792,10 @@ export async function runUseFigmaScript(
   if (!firstPage) {
     return { kind: 'error', errorCode: 'VALIDATION_ERROR', message: 'No PAGE in document' };
   }
-  let currentPageId = firstPage.id;
+  let currentPageId = engine.getCurrentPageId() ?? firstPage.id;
+  if (!ctx.working.document.children.some((c) => c.type === 'PAGE' && c.id === currentPageId)) {
+    currentPageId = firstPage.id;
+  }
   ctx.selectionByPageId.set(currentPageId, []);
   const networkPolicy = loadNetworkPolicyFromEnv();
   const variablesApi = createVariablesApi(ctx);
@@ -2244,5 +2259,5 @@ export async function runUseFigmaScript(
     result = null;
   }
 
-  return { kind: 'ok', operations: ctx.ops, result };
+  return { kind: 'ok', operations: ctx.ops, currentPageId, result };
 }

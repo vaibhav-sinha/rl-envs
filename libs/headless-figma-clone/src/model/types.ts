@@ -377,6 +377,8 @@ export interface PageNode extends NodeBase {
   y?: number;
   width?: number;
   height?: number;
+  /** Canvas background (Figma `PageNode.backgrounds`). */
+  backgrounds?: Paint[];
   /** Phase 7 — page divider marker (Figma `isPageDivider`). */
   isPageDivider?: boolean;
 }

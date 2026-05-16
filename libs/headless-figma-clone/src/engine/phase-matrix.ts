@@ -282,7 +282,7 @@ export const ENGINE_MATRIX = {
       'baseComponentId',
     ]),
     INSTANCE: new Set([...shapePatchKeys, 'mainComponentId', 'componentProperties', 'overrides']),
-    PAGE: new Set(['name', 'x', 'y', 'width', 'height', 'isPageDivider']),
+    PAGE: new Set(['name', 'x', 'y', 'width', 'height', 'backgrounds', 'isPageDivider']),
     DOCUMENT: new Set(['name']),
   },
 } as const;

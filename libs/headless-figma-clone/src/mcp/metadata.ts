@@ -1,11 +1,29 @@
 import type { AnyTreeNode } from '../engine/DocumentEngine.js';
 import type {
   BooleanOperationNode,
+  DocumentNode,
   Effect,
   FrameNode,
+  PageNode,
   TextNode,
   TransformGroupNode,
 } from '../model/types.js';
+
+export interface MetadataPageIndexEntry {
+  id: string;
+  name: string;
+  isPageDivider?: boolean;
+}
+
+export function collectPagesIndex(document: DocumentNode): MetadataPageIndexEntry[] {
+  return document.children
+    .filter((c): c is PageNode => c.type === 'PAGE')
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      ...(p.isPageDivider !== undefined ? { isPageDivider: p.isPageDivider } : {}),
+    }));
+}
 
 export interface MetadataNodeDTO {
   id: string;
