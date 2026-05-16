@@ -1,0 +1,3 @@
+Finder-style sheet: chrome toolbar with breadcrumbs, quick action chips, folder shortcuts, and dense file rows with type pills.
+
+Expected: navigational clarity with muted panel chrome.

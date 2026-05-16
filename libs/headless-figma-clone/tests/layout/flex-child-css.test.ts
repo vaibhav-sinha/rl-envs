@@ -129,4 +129,20 @@ describe('flexChildCss', () => {
     expect(css).toMatch(/flex:\s*1\s+1/);
     expect(css).toContain('width:100px');
   });
+
+  it('implicit layout sizing does not flex-shrink fixed-size rects (scenario 99 progress bar)', () => {
+    const parentCol: FrameNode = { ...parentRow, layoutMode: 'VERTICAL' };
+    const bar: RectangleNode = {
+      id: 'I13',
+      type: 'RECTANGLE',
+      name: 'Bar',
+      x: 0,
+      y: 0,
+      width: 108,
+      height: 5,
+    };
+    const css = flexChildLayoutCss(bar, true, { absX: 0, absY: 0, width: 108, height: 5 }, parentCol);
+    expect(css).toMatch(/flex:\s*0\s+0\s+5px/);
+    expect(css).toContain('width:108px');
+  });
 });

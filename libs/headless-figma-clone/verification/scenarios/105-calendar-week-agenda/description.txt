@@ -1,0 +1,3 @@
+Week planner: day chips with today highlight, timed grid backdrop, and stacked event pills across the week.
+
+Expected: readable mini calendar with today emphasis.

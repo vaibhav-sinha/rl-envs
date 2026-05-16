@@ -1,0 +1,3 @@
+Dashboard chrome: title with range chip, three KPI cards with delta pills, and a sparkline built from rounded bars.
+
+Expected: metrics row and warm-neutral chart legible at 480×360.

@@ -18,7 +18,8 @@ function sizingToFlexGrow(sizing: 'FIXED' | 'HUG' | 'FILL' | undefined, layoutGr
 }
 
 function sizingToFlexShrink(sizing: 'FIXED' | 'HUG' | 'FILL' | undefined): number {
-  if (sizing === 'FIXED' || sizing === 'HUG') return 0;
+  /** Undefined = implicit fixed box (Figma default for shapes / unset layout sizing); must not shrink away. */
+  if (sizing === 'FIXED' || sizing === 'HUG' || sizing === undefined) return 0;
   return 1;
 }
 

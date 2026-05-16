@@ -134,6 +134,19 @@ export function rectCornerRadii(r: RectangleNode): [number, number, number, numb
   ];
 }
 
+/** Figma rounds corners by clamping each radius to half the shorter side (same as vector rect paths). */
+export function clampRectCornerRadiiToBox(
+  w: number,
+  h: number,
+  tl: number,
+  tr: number,
+  br: number,
+  bl: number
+): [number, number, number, number] {
+  const clamp = (rad: number) => Math.max(0, Math.min(rad, w / 2, h / 2));
+  return [clamp(tl), clamp(tr), clamp(br), clamp(bl)];
+}
+
 function polygonPointsD(n: number, w: number, h: number): string {
   const cx = w / 2;
   const cy = h / 2;
@@ -169,12 +182,8 @@ function starPathD(points: number, innerR: number, w: number, h: number): string
 function rectPathD(r: RectangleNode): string {
   const w = r.width;
   const h = r.height;
-  const [tl, tr, br, bl] = rectCornerRadii(r).map((rad) => Math.max(0, Math.min(rad, w / 2, h / 2))) as [
-    number,
-    number,
-    number,
-    number,
-  ];
+  const [tl0, tr0, br0, bl0] = rectCornerRadii(r);
+  const [tl, tr, br, bl] = clampRectCornerRadiiToBox(w, h, tl0, tr0, br0, bl0);
   if (tl === 0 && tr === 0 && br === 0 && bl === 0) return `M0,0 H${String(w)} V${String(h)} H0 Z`;
   if (tl === tr && tr === br && br === bl) {
     const rad = tl;

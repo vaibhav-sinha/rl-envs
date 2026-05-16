@@ -1,0 +1,3 @@
+Three-column pricing: starter and growth flanking a visually lifted Pro tier with richer shadow, plus feature bullets as icon rows.
+
+Expected: middle column reads as featured plan.

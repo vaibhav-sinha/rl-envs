@@ -941,6 +941,117 @@
         "composite",
         "mega"
       ]
+    },
+    {
+      "id": "101-settings-workspace-shell",
+      "title": "Settings workspace shell",
+      "order": 101,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "settings",
+        "variables",
+        "autoLayout"
+      ]
+    },
+    {
+      "id": "102-analytics-kpi-strip",
+      "title": "Analytics KPI strip",
+      "order": 102,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "dashboard",
+        "autoLayout"
+      ]
+    },
+    {
+      "id": "103-checkout-order-review",
+      "title": "Checkout order review",
+      "order": 103,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "checkout",
+        "autoLayout"
+      ]
+    },
+    {
+      "id": "104-profile-identity-card",
+      "title": "Profile identity card",
+      "order": 104,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "profile",
+        "effects"
+      ]
+    },
+    {
+      "id": "105-calendar-week-agenda",
+      "title": "Calendar week agenda",
+      "order": 105,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "calendar",
+        "autoLayout"
+      ]
+    },
+    {
+      "id": "106-mail-split-inbox",
+      "title": "Mail split inbox",
+      "order": 106,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "mail",
+        "autoLayout"
+      ]
+    },
+    {
+      "id": "107-pricing-tier-cards",
+      "title": "Pricing tier cards",
+      "order": 107,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "pricing",
+        "autoLayout"
+      ]
+    },
+    {
+      "id": "108-files-browser-panel",
+      "title": "Files browser panel",
+      "order": 108,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "files",
+        "autoLayout"
+      ]
+    },
+    {
+      "id": "109-onboarding-step-wizard",
+      "title": "Onboarding step wizard",
+      "order": 109,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "onboarding",
+        "autoLayout"
+      ]
+    },
+    {
+      "id": "110-roadmap-timeline-rail",
+      "title": "Roadmap timeline rail",
+      "order": 110,
+      "tier": "advanced",
+      "tags": [
+        "composite",
+        "roadmap",
+        "layout"
+      ]
     }
   ]
 }

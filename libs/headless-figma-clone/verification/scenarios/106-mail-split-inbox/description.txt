@@ -1,0 +1,3 @@
+Mailbox UI: left stacked message list with unread affordances and a rich reading pane with metadata and body copy.
+
+Expected: clear split view with emphasis on selected thread.

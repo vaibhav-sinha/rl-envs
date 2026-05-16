@@ -275,7 +275,17 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       if (prop === 'resize') {
         return (w: number, h: number): void => {
-          queueUpdate(ctx, id, { width: w, height: h });
+          const live = findEnvelopeNode(ctx.working, id);
+          const patch =
+            live?.type === 'TEXT'
+              ? {
+                  width: w,
+                  height: h,
+                  layoutSizingHorizontal: 'FIXED' as const,
+                  layoutSizingVertical: 'FIXED' as const,
+                }
+              : { width: w, height: h };
+          queueUpdate(ctx, id, patch);
         };
       }
       if (prop === 'children') {
@@ -669,8 +679,8 @@ class RuntimeFrame extends RuntimeSceneNode {
 class RuntimeText extends RuntimeSceneNode {
   readonly type = 'TEXT' as const;
   name = 'Text';
-  width = 200;
-  height = 32;
+  width = 0;
+  height = 0;
   characters = '';
   fontSize = 12;
   fontWeight = 400;
@@ -764,6 +774,21 @@ class RuntimeText extends RuntimeSceneNode {
     const url = link.url ?? link.value;
     if (!url) return;
     this.applyRangeStyle(start, end, { hyperlink: { type: 'URL', url } });
+  }
+
+  resize(w: number, h: number): void {
+    this.width = w;
+    this.height = h;
+    this.layoutSizingHorizontal = 'FIXED';
+    this.layoutSizingVertical = 'FIXED';
+    if (this.attached && this._id !== null) {
+      queueUpdate(this.ctx, this._id, {
+        width: w,
+        height: h,
+        layoutSizingHorizontal: 'FIXED',
+        layoutSizingVertical: 'FIXED',
+      });
+    }
   }
 }
 
@@ -1808,9 +1833,22 @@ export async function runUseFigmaScript(
     },
     createAutoLayout: (direction?: 'HORIZONTAL' | 'VERTICAL'): RuntimeFrame => {
       const f = new RuntimeFrame();
-      f.layoutMode = direction === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL';
-      f.primaryAxisSizingMode = 'HUG';
-      f.counterAxisSizingMode = 'HUG';
+      if (direction === 'VERTICAL') {
+        f.layoutMode = 'VERTICAL';
+        /** Explicit vertical AL: primary (height) hugs; cross-axis width keeps default until resize (symmetric to HORIZONTAL). */
+        f.primaryAxisSizingMode = 'HUG';
+        f.counterAxisSizingMode = 'FIXED';
+      } else if (direction === 'HORIZONTAL') {
+        f.layoutMode = 'HORIZONTAL';
+        /** Explicit horizontal AL: cross-axis keeps default frame height until resize (Figma pill pattern). */
+        f.primaryAxisSizingMode = 'HUG';
+        f.counterAxisSizingMode = 'FIXED';
+      } else {
+        /** `createAutoLayout()` no-arg: both axes hug (toolbars, stacks); not the explicit-HORIZONTAL pill case. */
+        f.layoutMode = 'HORIZONTAL';
+        f.primaryAxisSizingMode = 'HUG';
+        f.counterAxisSizingMode = 'HUG';
+      }
       return wrapRuntimeNode(f.bindContext(ctx), ctx);
     },
     createSlice: (): unknown => {
