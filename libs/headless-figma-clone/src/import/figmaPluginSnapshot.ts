@@ -18,6 +18,8 @@ import { FigmaIdMap } from './idMap.js';
 import { createImportReport, importStrict, importVerbose, type ImportReport } from './importReport.js';
 import {
   boundsFromProps,
+  childPageOrigin,
+  type ParentPageOrigin,
   mapBlendOpacity,
   mapCornerRadii,
   mapEffects,
@@ -155,6 +157,7 @@ export function importFigmaPluginSnapshot(
 
 function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
   const b = boundsFromProps(node.properties);
+  const pageOrigin = childPageOrigin(undefined, b);
   const page: PageNode = {
     id: ctx.idMap.allocate(node.id),
     type: 'PAGE',
@@ -170,7 +173,7 @@ function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
   const divider = prop(node.properties, 'isPageDivider');
   if (divider === true) page.isPageDivider = true;
   for (const child of node.children ?? []) {
-    const imported = importSceneNode(child, ctx);
+    const imported = importSceneNode(child, ctx, pageOrigin);
     if (imported) page.children.push(imported);
   }
   for (const frame of ctx.componentRootFrames.values()) {
@@ -179,7 +182,7 @@ function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
   return page;
 }
 
-function importSceneNode(node: SerializedNode, ctx: ImportContext): SceneNode | null {
+function importSceneNode(node: SerializedNode, ctx: ImportContext, parentPageOrigin?: ParentPageOrigin): SceneNode | null {
   const { idMap, imageRemap, report } = ctx;
 
   if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET' || node.type === 'TABLE') {
@@ -190,11 +193,12 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext): SceneNode | 
       ...mapBlendOpacity(p),
       ...mapLayoutSelf(p),
     };
-    const b = boundsFromProps(p);
+    const b = boundsFromProps(p, parentPageOrigin);
+    const nodePageOrigin = childPageOrigin(parentPageOrigin, b);
     const importChildren = (): SceneNode[] => {
       const kids: SceneNode[] = [];
       for (const c of node.children ?? []) {
-        const n = importSceneNode(c, ctx);
+        const n = importSceneNode(c, ctx, nodePageOrigin);
         if (n) kids.push(n);
       }
       return kids;
@@ -202,7 +206,12 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext): SceneNode | 
     if (node.type === 'COMPONENT') {
       const compId = base.id;
       const rootFrameId = idMap.allocate(`${node.id}:root`);
-      const rootFrame = buildFrameFromSerialized(node, rootFrameId, ctx, importChildren());
+      const rootFrame = buildFrameFromSerialized(node, rootFrameId, ctx, importChildren(), {
+        x: 0,
+        y: 0,
+        width: b.width,
+        height: b.height,
+      });
       ctx.componentRootFrames.set(compId, rootFrame);
       return {
         ...base,
@@ -220,7 +229,7 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext): SceneNode | 
       reason: 'imported as FRAME placeholder',
     });
     if (importStrict()) return null;
-    return buildFrameFromSerialized(node, idMap.allocate(node.id), ctx, importChildren()) as SceneNode;
+    return buildFrameFromSerialized(node, idMap.allocate(node.id), ctx, importChildren(), b) as SceneNode;
   }
 
   if (SKIP_SCENE_TYPES.has(node.type)) {
@@ -242,7 +251,8 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext): SceneNode | 
     ...mapBlendOpacity(p),
     ...mapLayoutSelf(p),
   };
-  const b = boundsFromProps(p);
+  const b = boundsFromProps(p, parentPageOrigin);
+  const nodePageOrigin = childPageOrigin(parentPageOrigin, b);
   const fills = mapPaints(prop(p, 'fills'), imageRemap);
   const strokes = mapPaints(prop(p, 'strokes'), imageRemap);
   const effects = mapEffects(prop(p, 'effects'));
@@ -252,7 +262,7 @@ function importSceneNode(node: SerializedNode, ctx: ImportContext): SceneNode | 
   const importChildren = (): SceneNode[] => {
     const kids: SceneNode[] = [];
     for (const c of node.children ?? []) {
-      const n = importSceneNode(c, ctx);
+      const n = importSceneNode(c, ctx, nodePageOrigin);
       if (n) kids.push(n);
     }
     return kids;
@@ -452,10 +462,11 @@ function buildFrameFromSerialized(
   node: SerializedNode,
   frameId: string,
   ctx: ImportContext,
-  children: SceneNode[]
+  children: SceneNode[],
+  boundsOverride?: { x: number; y: number; width: number; height: number }
 ): FrameNode {
   const p = node.properties;
-  const b = boundsFromProps(p);
+  const b = boundsOverride ?? boundsFromProps(p);
   const imageRemap = ctx.imageRemap;
   return {
     id: frameId,

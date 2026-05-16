@@ -196,7 +196,26 @@ export function mapBlendOpacity(props: Record<string, unknown>): Record<string, 
   return out;
 }
 
-export function boundsFromProps(props: Record<string, unknown>): {
+/** Page/canvas origin of a parent node (sum of ancestor x/y in the HFC tree). */
+export type ParentPageOrigin = { x: number; y: number };
+
+/** Page/canvas origin for this node's children after import. */
+export function childPageOrigin(parentPageOrigin: ParentPageOrigin | undefined, bounds: ParentPageOrigin): ParentPageOrigin {
+  return {
+    x: (parentPageOrigin?.x ?? 0) + bounds.x,
+    y: (parentPageOrigin?.y ?? 0) + bounds.y,
+  };
+}
+
+/**
+ * Bounds for HFC nodes. Plugin snapshots prefer `absoluteBoundingBox` (page space);
+ * subtract `parentPageOrigin` so nested nodes get parent-relative x/y for the compiler.
+ * Fallback `x`/`y` props are already parent-relative in Figma.
+ */
+export function boundsFromProps(
+  props: Record<string, unknown>,
+  parentPageOrigin?: ParentPageOrigin
+): {
   x: number;
   y: number;
   width: number;
@@ -204,9 +223,11 @@ export function boundsFromProps(props: Record<string, unknown>): {
 } {
   const box = prop(props, 'absoluteBoundingBox') as Record<string, unknown> | undefined;
   if (box) {
+    const ox = parentPageOrigin?.x ?? 0;
+    const oy = parentPageOrigin?.y ?? 0;
     return {
-      x: num(box.x),
-      y: num(box.y),
+      x: num(box.x) - ox,
+      y: num(box.y) - oy,
       width: num(box.width),
       height: num(box.height),
     };
