@@ -204,7 +204,36 @@ function compilePageNode(page: PageNode, options: CompileHtmlOptions, envelope: 
   if (page.children.length === 0) {
     return compilePageCanvasOnly(page, options, envelope);
   }
-  return compileRootScenes(page.children, options, envelope, page.backgrounds);
+  const roots = filterPageCompileRoots(page.children, envelope);
+  return compileRootScenes(roots, options, envelope, page.backgrounds);
+}
+
+/** Component master root frames are stored for instances but must not paint as page-level scenes. */
+function collectComponentRootFrameIds(env: FileEnvelope): Set<string> {
+  const ids = new Set<string>();
+  if (env.components) {
+    for (const c of env.components) ids.add(c.root.id);
+  }
+  const walk = (nodes: SceneNode[]): void => {
+    for (const n of nodes) {
+      if (n.type === 'COMPONENT') ids.add(n.rootFrameId);
+      const ch = sceneChildList(n);
+      if (ch) walk(ch);
+    }
+  };
+  for (const page of env.document.children) {
+    if (page.type === 'PAGE') walk(page.children);
+  }
+  return ids;
+}
+
+function filterPageCompileRoots(roots: SceneNode[], env: FileEnvelope): SceneNode[] {
+  const masterRootIds = collectComponentRootFrameIds(env);
+  return roots.filter((n) => {
+    if (n.type === 'FRAME' && masterRootIds.has(n.id)) return false;
+    if (n.type === 'COMPONENT') return false;
+    return true;
+  });
 }
 
 function sceneChildList(n: SceneNode): SceneNode[] | null {
@@ -1616,6 +1645,10 @@ function emitScene(
     emitTable(n, absX, absY, zIndex, opRot, htmlParts, cssParts, imgMap, patternTiles, warnings, insideFlex, env);
     return;
   }
+  if (n.type === 'COMPONENT') {
+    emitPlacedComponent(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+    return;
+  }
   if (n.type === 'COMPONENT_INSTANCE') {
     emitComponentInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
     return;
@@ -1707,6 +1740,47 @@ function applyComponentOverrides(root: FrameNode, overrides: ComponentInstanceNo
   }
 }
 
+/** COMPONENT nodes placed on the canvas (common in plugin exports) render like instances. */
+function emitPlacedComponent(
+  comp: ComponentNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number
+): void {
+  const inst: InstanceNode = {
+    id: comp.id,
+    type: 'INSTANCE',
+    name: comp.name,
+    x: comp.x,
+    y: comp.y,
+    width: comp.width,
+    height: comp.height,
+    mainComponentId: comp.id,
+    rotation: comp.rotation,
+    opacity: comp.opacity,
+    blendMode: comp.blendMode,
+    layoutGrow: comp.layoutGrow,
+    layoutAlign: comp.layoutAlign,
+    layoutPositioning: comp.layoutPositioning,
+    layoutSizingHorizontal: comp.layoutSizingHorizontal,
+    layoutSizingVertical: comp.layoutSizingVertical,
+  };
+  emitInstance(inst, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+}
+
 function emitComponentInstance(
   inst: ComponentInstanceNode,
   absX: number,
@@ -1763,12 +1837,33 @@ function emitComponentInstance(
   htmlParts.push('</div>');
 }
 
-function findNodeInDocument(document: DocumentNode, id: string): SceneNode | PageNode | null {
+function findNodeInDocument(
+  document: DocumentNode,
+  id: string,
+  env?: FileEnvelope
+): SceneNode | PageNode | null {
   for (const p of document.children) {
     if (p.id === id) return p;
     for (const n of p.children) {
       const hit = findInSceneList(n, id);
       if (hit) return hit;
+    }
+  }
+  if (env?.components) {
+    for (const c of env.components) {
+      if (c.id === id) {
+        return {
+          id: c.id,
+          type: 'COMPONENT',
+          name: c.name,
+          x: 0,
+          y: 0,
+          width: c.root.width,
+          height: c.root.height,
+          rootFrameId: c.root.id,
+        } as ComponentNode;
+      }
+      if (c.root.id === id) return c.root;
     }
   }
   return null;
@@ -1829,7 +1924,7 @@ function emitInstance(
   shiftY: number
 ): void {
   // Resolve component graph masters.
-  const target = findNodeInDocument(env.document, inst.mainComponentId);
+  const target = findNodeInDocument(env.document, inst.mainComponentId, env);
 
   // Back-compat for legacy `env.components[]`.
   if (!target && env.components) {
@@ -1882,7 +1977,7 @@ function emitInstance(
 
   if (target.type === 'COMPONENT') {
     const component = target as ComponentNode;
-    const rootNode = findNodeInDocument(env.document, component.rootFrameId);
+    const rootNode = findNodeInDocument(env.document, component.rootFrameId, env);
     if (!rootNode || rootNode.type !== 'FRAME') {
       warnings.push(`missing_component_root:${component.rootFrameId}`);
       return;
@@ -1896,13 +1991,13 @@ function emitInstance(
     const idx = options.indexOf(String(selectedValue));
     const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];
 
-    const selectedComponent = findNodeInDocument(env.document, selectedComponentId);
+    const selectedComponent = findNodeInDocument(env.document, selectedComponentId, env);
     if (!selectedComponent || selectedComponent.type !== 'COMPONENT') {
       warnings.push(`missing_component_variant:${selectedComponentId}`);
       return;
     }
     const comp = selectedComponent as ComponentNode;
-    const rootNode = findNodeInDocument(env.document, comp.rootFrameId);
+    const rootNode = findNodeInDocument(env.document, comp.rootFrameId, env);
     if (!rootNode || rootNode.type !== 'FRAME') {
       warnings.push(`missing_component_root:${comp.rootFrameId}`);
       return;

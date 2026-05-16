@@ -207,9 +207,6 @@ function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
     const imported = importSceneNode(child, ctx, pageOrigin);
     if (imported) page.children.push(imported);
   }
-  for (const frame of ctx.componentRootFrames.values()) {
-    page.children.push(frame);
-  }
   return page;
 }
 
