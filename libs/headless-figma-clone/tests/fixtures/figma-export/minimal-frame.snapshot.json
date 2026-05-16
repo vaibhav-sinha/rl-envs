@@ -22,6 +22,10 @@
             "type": "FRAME",
             "name": "Card",
             "properties": {
+              "x": 40,
+              "y": 40,
+              "width": 200,
+              "height": 120,
               "absoluteBoundingBox": { "x": 40, "y": 40, "width": 200, "height": 120 },
               "fills": [
                 {
@@ -38,6 +42,10 @@
                 "type": "TEXT",
                 "name": "Label",
                 "properties": {
+                  "x": 16,
+                  "y": 40,
+                  "width": 80,
+                  "height": 24,
                   "absoluteBoundingBox": { "x": 56, "y": 80, "width": 80, "height": 24 },
                   "characters": "Hello",
                   "fontSize": 16,

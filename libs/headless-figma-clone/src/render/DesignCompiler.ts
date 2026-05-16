@@ -565,20 +565,47 @@ function unionBounds(a: Bounds, b: Bounds): Bounds {
   };
 }
 
-function measureScene(n: SceneNode, originX: number, originY: number): Bounds {
+function sceneNodeBounds(n: SceneNode, originX: number, originY: number): Bounds {
   const absX = originX + n.x;
   const absY = originY + n.y;
-  let b: Bounds = {
+  const rot = n.rotation ?? 0;
+  if (rot !== 0) {
+    const corners = [
+      { px: 0, py: 0 },
+      { px: n.width, py: 0 },
+      { px: n.width, py: n.height },
+      { px: 0, py: n.height },
+    ];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const c of corners) {
+      const r = rotatePointFigma(0, 0, c.px, c.py, rot);
+      minX = Math.min(minX, absX + r.x);
+      minY = Math.min(minY, absY + r.y);
+      maxX = Math.max(maxX, absX + r.x);
+      maxY = Math.max(maxY, absY + r.y);
+    }
+    return { minX, minY, maxX, maxY };
+  }
+  return {
     minX: absX,
     minY: absY,
     maxX: absX + n.width,
     maxY: absY + n.height,
   };
+}
+
+function measureScene(n: SceneNode, originX: number, originY: number): Bounds {
+  let b = sceneNodeBounds(n, originX, originY);
   if (n.type === 'SECTION') return b;
+  const childOriginX = originX + n.x;
+  const childOriginY = originY + n.y;
   const ch = sceneChildList(n);
   if (ch) {
     for (const c of ch) {
-      b = unionBounds(b, measureScene(c, absX, absY));
+      b = unionBounds(b, measureScene(c, childOriginX, childOriginY));
     }
   }
   return b;
@@ -1115,7 +1142,7 @@ function emitVector(
   );
 }
 
-/** Figma GROUP: children use frame-space x/y; the group is a layers-panel folder only. */
+/** Figma GROUP: positioned wrapper; children use coordinates relative to group origin. */
 function emitGroup(
   g: GroupNode,
   originX: number,
@@ -1136,39 +1163,13 @@ function emitGroup(
   flattenGroupPaintOrderContents(g, paintables);
   paintables.sort((a, b) => internalIdSeq(a.id) - internalIdSeq(b.id));
 
-  if (!insideFlex) {
-    for (const c of paintables) {
-      emitScene(
-        c,
-        originX,
-        originY,
-        shiftX,
-        shiftY,
-        htmlParts,
-        cssParts,
-        z,
-        imgMap,
-        patternTiles,
-        warnings,
-        false,
-        env,
-        paintables,
-        undefined,
-        false
-      );
-    }
-    return;
-  }
-
   const zIndex = z.value++;
   const opRot = transformOpacityCss(g);
-  const outerCss = flexChildLayoutCss(
-    g,
-    true,
-    { absX: g.x, absY: g.y, width: g.width, height: g.height },
-    parentFrame
-  );
-  htmlParts.push(`<div class="hfc-node-${g.id} hfc-group-flex" data-hfc-id="${g.id}" style="z-index:${String(zIndex)}">`);
+  const outerCss = insideFlex
+    ? flexChildLayoutCss(g, true, { absX: g.x, absY: g.y, width: g.width, height: g.height }, parentFrame)
+    : `position:absolute;left:${String(g.x)}px;top:${String(g.y)}px;width:${String(g.width)}px;height:${String(g.height)}px;`;
+  const groupClass = insideFlex ? `hfc-node-${g.id} hfc-group-flex` : `hfc-node-${g.id} hfc-group`;
+  htmlParts.push(`<div class="${groupClass}" data-hfc-id="${g.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`.hfc-node-${g.id}{${outerCss}box-sizing:border-box;${opRot}}`);
   const localOrigin = { x: g.x, y: g.y };
   for (const c of paintables) {

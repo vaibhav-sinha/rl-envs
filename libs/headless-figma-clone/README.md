@@ -118,6 +118,26 @@ Example base URL: `http://127.0.0.1:3847`
 
 Stop the server with **Ctrl+C** (SIGINT) or SIGTERM.
 
+## Figma plugin import → compile
+
+The **local-figma-mcp** plugin exports a JSON snapshot (`POST /export/hfc` or **Export File** in Desktop). The importer builds a `FileEnvelope` that `DesignCompiler` turns into HTML/CSS for `/preview` and `get_design_context`.
+
+### Coordinate contract
+
+- HFC `x` / `y` on scene nodes are **parent-relative** (same as Figma `node.x` / `node.y`).
+- Snapshots include **`x`, `y`, `width`, `height`** (preferred) and **`absoluteBoundingBox`** (page space, used as fallback).
+- Nested **`left` / `top`** in compiled CSS are relative to each positioned parent (frame, group wrapper, instance shell).
+
+### Supported vs unsupported on import
+
+| Supported (standard UI) | Not imported (by design) |
+|-------------------------|---------------------------|
+| `FRAME`, `TEXT`, shapes, `VECTOR`, `BOOLEAN_OPERATION`, `GROUP`, `TRANSFORM_GROUP`, `SECTION`, `COMPONENT`, `INSTANCE`, `SLICE` | FigJam nodes (`CONNECTOR`, `STICKY`, widgets, …), native `TABLE` |
+| Auto-layout, constraints, grid frames (columns guides), pattern fills, styled text segments, component instances | `vectorNetwork` (plugin WASM), full `relativeTransform` skew/matrix |
+| Variables, bound fields, paint/effect/text/grid styles (subset) | Figma `layoutGrids` GRID pattern rows (engine rejects) |
+
+Set `HFC_IMPORT_VERBOSE=1` to log skipped nodes and unmapped snapshot property keys.
+
 ## Verification (Figma vs clone screenshots)
 
 Visual parity scenarios live under `verification/`. Each scenario is a subdirectory of `verification/scenarios/` with:

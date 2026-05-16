@@ -149,6 +149,7 @@ export function mapLayoutSelf(props: Record<string, unknown>): Partial<LayoutSel
   }
   const grow = optNum(prop(props, 'layoutGrow'));
   if (grow !== undefined) out.layoutGrow = grow;
+  if (prop(props, 'isMask') === true) out.isMask = true;
   return out;
 }
 
@@ -212,6 +213,19 @@ export function childPageOrigin(parentPageOrigin: ParentPageOrigin | undefined, 
  * subtract `parentPageOrigin` so nested nodes get parent-relative x/y for the compiler.
  * Fallback `x`/`y` props are already parent-relative in Figma.
  */
+function hasLocalGeometry(props: Record<string, unknown>): boolean {
+  return (
+    typeof prop(props, 'x') === 'number' &&
+    typeof prop(props, 'y') === 'number' &&
+    typeof prop(props, 'width') === 'number' &&
+    typeof prop(props, 'height') === 'number'
+  );
+}
+
+/**
+ * Bounds for HFC nodes. Prefer Figma parent-relative `x`/`y`/`width`/`height` when present;
+ * otherwise derive from `absoluteBoundingBox` minus `parentPageOrigin`.
+ */
 export function boundsFromProps(
   props: Record<string, unknown>,
   parentPageOrigin?: ParentPageOrigin
@@ -221,6 +235,14 @@ export function boundsFromProps(
   width: number;
   height: number;
 } {
+  if (hasLocalGeometry(props)) {
+    return {
+      x: num(prop(props, 'x')),
+      y: num(prop(props, 'y')),
+      width: num(prop(props, 'width'), 1),
+      height: num(prop(props, 'height'), 1),
+    };
+  }
   const box = prop(props, 'absoluteBoundingBox') as Record<string, unknown> | undefined;
   if (box) {
     const ox = parentPageOrigin?.x ?? 0;

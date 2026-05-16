@@ -1,0 +1,57 @@
+{
+  "snapshotVersion": 1,
+  "exportedAt": "2026-05-16T12:00:00.000Z",
+  "figmaFileKey": "test-constraints",
+  "figmaFileName": "Constraints",
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "properties": {},
+    "children": [
+      {
+        "id": "0:1",
+        "type": "PAGE",
+        "name": "Page 1",
+        "properties": { "absoluteBoundingBox": { "x": 0, "y": 0, "width": 400, "height": 300 } },
+        "children": [
+          {
+            "id": "1:1",
+            "type": "FRAME",
+            "name": "Parent",
+            "properties": {
+              "x": 60,
+              "y": 60,
+              "width": 200,
+              "height": 100,
+              "absoluteBoundingBox": { "x": 60, "y": 60, "width": 200, "height": 100 },
+              "fills": [{ "type": "SOLID", "color": { "r": 0.95, "g": 0.95, "b": 0.95 } }]
+            },
+            "children": [
+              {
+                "id": "1:2",
+                "type": "RECTANGLE",
+                "name": "Pinned",
+                "properties": {
+                  "x": 150,
+                  "y": 20,
+                  "width": 40,
+                  "height": 30,
+                  "absoluteBoundingBox": { "x": 210, "y": 80, "width": 40, "height": 30 },
+                  "constraints": { "horizontal": "MAX", "vertical": "MIN" },
+                  "fills": [{ "type": "SOLID", "color": { "r": 0.2, "g": 0.6, "b": 1 } }]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "variableCollections": [],
+  "paintStyles": [],
+  "textStyles": [],
+  "effectStyles": [],
+  "gridStyles": [],
+  "assets": []
+}
