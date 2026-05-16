@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { ulid } from 'ulid';
 import type {
   ComponentDefinition,
+  ComponentPropertyValue,
   DocumentNode,
   FileEnvelope,
   FrameNode,
@@ -72,6 +73,10 @@ interface ImportContext {
   report: ImportReport;
   /** COMPONENT master frames keyed by component HFC id */
   componentRootFrames: Map<string, FrameNode>;
+  /** Figma `key` → HFC component id */
+  componentByKey: Map<string, string>;
+  /** Variant display name (e.g. `Property 1=Coffee, Property 2=6`) → HFC component id */
+  componentByVariantName: Map<string, string>;
 }
 
 const SKIP_SCENE_TYPES = new Set([
@@ -150,6 +155,8 @@ export function importFigmaPluginSnapshot(
     iconExportRemap,
     report,
     componentRootFrames: new Map(),
+    componentByKey: new Map(),
+    componentByVariantName: new Map(),
   };
 
   const variableCollections = mapVariableCollections(snapshot, idMap);
@@ -270,6 +277,68 @@ function findComponentNode(document: DocumentNode, compId: string): SceneNode | 
   return undefined;
 }
 
+function registerComponentLookup(
+  ctx: ImportContext,
+  compId: string,
+  nodeName: string,
+  props: Record<string, unknown>
+): void {
+  ctx.componentByVariantName.set(nodeName, compId);
+  const key = optStr(prop(props, 'componentKey')) ?? optStr(prop(props, 'key'));
+  if (key) ctx.componentByKey.set(key, compId);
+}
+
+/** Figma variant component names: `Property 1=Coffee, Property 2=6`. */
+function variantDisplayNameFromProperties(
+  props: Record<string, ComponentPropertyValue> | undefined
+): string | undefined {
+  if (!props) return undefined;
+  const parts: string[] = [];
+  for (const [key, val] of Object.entries(props)) {
+    if (val.type === 'VARIANT') parts.push(`${key}=${val.value}`);
+  }
+  return parts.length > 0 ? parts.join(', ') : undefined;
+}
+
+function resolveMainComponentId(
+  p: Record<string, unknown>,
+  ctx: ImportContext,
+  componentProperties: Record<string, ComponentPropertyValue> | undefined
+): string | undefined {
+  const explicitFigmaId = optStr(prop(p, 'mainComponentId'));
+  if (explicitFigmaId) {
+    const mapped = ctx.idMap.get(explicitFigmaId);
+    if (mapped) return mapped;
+  }
+
+  const mainRef = prop(p, 'mainComponent') as
+    | { id?: string; key?: string; __ref?: string }
+    | string
+    | undefined;
+
+  if (typeof mainRef === 'string') {
+    const mapped = ctx.idMap.get(mainRef);
+    if (mapped) return mapped;
+  } else if (mainRef && typeof mainRef === 'object' && mainRef.__ref !== 'cycle') {
+    if (typeof mainRef.id === 'string') {
+      const mapped = ctx.idMap.get(mainRef.id);
+      if (mapped) return mapped;
+    }
+    if (typeof mainRef.key === 'string') {
+      const byKey = ctx.componentByKey.get(mainRef.key);
+      if (byKey) return byKey;
+    }
+  }
+
+  const variantName = variantDisplayNameFromProperties(componentProperties);
+  if (variantName) {
+    const byName = ctx.componentByVariantName.get(variantName);
+    if (byName) return byName;
+  }
+
+  return undefined;
+}
+
 function importSceneNode(
   node: SerializedNode,
   ctx: ImportContext,
@@ -308,6 +377,7 @@ function importSceneNode(
         height: b.height,
       });
       ctx.componentRootFrames.set(compId, rootFrame);
+      registerComponentLookup(ctx, compId, node.name, p);
       return {
         ...base,
         type: 'COMPONENT',
@@ -565,15 +635,17 @@ function importSceneNode(
       } as SceneNode;
     }
     case 'INSTANCE': {
-      const mainRef = prop(p, 'mainComponent') as { id?: string } | string | undefined;
-      let mainComponentId: string | undefined;
-      if (typeof mainRef === 'string') {
-        mainComponentId = idMap.get(mainRef);
-      } else if (mainRef && typeof mainRef === 'object' && typeof mainRef.id === 'string') {
-        mainComponentId = idMap.get(mainRef.id);
-      }
+      const componentProperties = mapComponentProperties(prop(p, 'componentProperties'));
+      const mainComponentId = resolveMainComponentId(p, ctx, componentProperties);
       if (!mainComponentId && importStrict()) {
         throw new Error(`HFC_IMPORT_STRICT: INSTANCE ${node.id} missing mainComponent`);
+      }
+      if (!mainComponentId && importVerbose()) {
+        const variantName = variantDisplayNameFromProperties(componentProperties);
+        console.warn(
+          `[hfc-import] unresolved mainComponent for INSTANCE ${node.id}` +
+            (variantName ? ` (variant ${variantName})` : '')
+        );
       }
       return {
         ...base,
@@ -589,7 +661,7 @@ function importSceneNode(
         ...strokeExtras,
         ...corners,
         mainComponentId: mainComponentId ?? 'I0',
-        componentProperties: mapComponentProperties(prop(p, 'componentProperties')),
+        componentProperties,
         overrides: mapInstanceOverrides(prop(p, 'overrides'), idMap, imageRemap),
         effectStyleId: optStr(prop(p, 'effectStyleId')),
       } as SceneNode;
