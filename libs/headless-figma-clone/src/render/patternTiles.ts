@@ -1,5 +1,9 @@
-import type { FileEnvelope, PatternPaint, SceneNode } from '../model/types.js';
+import type { FileEnvelope, PageNode, PatternPaint, SceneNode } from '../model/types.js';
 import type { CompileHtmlOptions, CompiledDesign, DesignCompiler } from './DesignCompiler.js';
+
+function findPageById(envelope: FileEnvelope, pageId: string): PageNode | null {
+  return envelope.document.children.find((c): c is PageNode => c.type === 'PAGE' && c.id === pageId) ?? null;
+}
 import type { PlaywrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
 
 function sceneChildren(n: SceneNode): SceneNode[] | null {
@@ -41,20 +45,26 @@ function walkPaints(node: SceneNode, visit: (p: PatternPaint) => void): void {
   if (ch) for (const c of ch) walkPaints(c, visit);
 }
 
-/** Unique pattern source node ids referenced under `rootNodeId`. */
-export function collectPatternSourceIds(envelope: FileEnvelope, rootNodeId: string): string[] {
+function walkPaintsUnderRoot(envelope: FileEnvelope, rootNodeId: string, visit: (p: PatternPaint) => void): void {
+  const page = findPageById(envelope, rootNodeId);
+  if (page) {
+    for (const child of page.children) walkPaints(child, visit);
+    return;
+  }
   const root = findSceneNode(envelope, rootNodeId);
-  if (!root) return [];
+  if (root) walkPaints(root, visit);
+}
+
+/** Unique pattern source node ids referenced under `rootNodeId` (scene node or PAGE). */
+export function collectPatternSourceIds(envelope: FileEnvelope, rootNodeId: string): string[] {
   const ids = new Set<string>();
-  walkPaints(root, (p) => ids.add(p.sourceNodeId));
+  walkPaintsUnderRoot(envelope, rootNodeId, (p) => ids.add(p.sourceNodeId));
   return [...ids];
 }
 
 function maxScalingForSource(envelope: FileEnvelope, rootNodeId: string, sourceId: string): number {
-  const root = findSceneNode(envelope, rootNodeId);
-  if (!root) return 1;
   let max = 1;
-  walkPaints(root, (p) => {
+  walkPaintsUnderRoot(envelope, rootNodeId, (p) => {
     if (p.sourceNodeId === sourceId) max = Math.max(max, p.scalingFactor);
   });
   return max;
@@ -152,10 +162,8 @@ function representativePatternPaint(
   rootNodeId: string,
   sourceId: string
 ): PatternPaint | null {
-  const root = findSceneNode(envelope, rootNodeId);
-  if (!root) return null;
   let best: PatternPaint | null = null;
-  walkPaints(root, (p) => {
+  walkPaintsUnderRoot(envelope, rootNodeId, (p) => {
     if (p.sourceNodeId !== sourceId) return;
     if (!best || p.scalingFactor > best.scalingFactor) best = p;
   });

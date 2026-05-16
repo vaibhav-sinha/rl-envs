@@ -286,10 +286,10 @@ ${UA}#hfc-root{position:relative;width:10px;height:10px;isolation:isolate;}
         rootNodeId: 'I999',
         options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
       })
-    ).toThrow('compileSubtree: unknown scene node id I999');
+    ).toThrow('compileSubtree: unknown node id I999');
   });
 
-  it('throws compileFirstPage when the first page has no frames', () => {
+  it('compileFirstPage on an empty page produces a minimal canvas', () => {
     const envelope: FileEnvelope = {
       schemaVersion: 1,
       fileKey: 'k',
@@ -299,15 +299,77 @@ ${UA}#hfc-root{position:relative;width:10px;height:10px;isolation:isolate;}
         id: 'I1',
         type: 'DOCUMENT',
         name: 'Document',
-        children: [{ id: 'I2', type: 'PAGE', name: 'Page 1', x: 0, y: 0, width: 0, height: 0, children: [] }],
+        children: [
+          {
+            id: 'I2',
+            type: 'PAGE',
+            name: 'Page 1',
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            backgrounds: [{ type: 'SOLID', color: { r: 0.2, g: 0.4, b: 0.6 } }],
+            children: [],
+          },
+        ],
       },
     };
-    expect(() =>
-      designCompiler.compileFirstPage({
-        envelope,
-        options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
-      })
-    ).toThrow('compileFirstPage: no scene nodes on page');
+    const compiled = designCompiler.compileFirstPage({
+      envelope,
+      options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
+    });
+    expect(compiled.html).toContain('#hfc-root');
+    expect(compiled.html).toMatch(/background-color:rgba\(51,\s*102,\s*153/);
+  });
+
+  it('compileSubtree accepts a PAGE id like compileFirstPage', () => {
+    const envelope: FileEnvelope = {
+      schemaVersion: 1,
+      fileKey: 'k',
+      fileName: 'PageRoot',
+      nextInternalId: 4,
+      document: {
+        id: 'I1',
+        type: 'DOCUMENT',
+        name: 'Document',
+        children: [
+          {
+            id: 'I2',
+            type: 'PAGE',
+            name: 'Page 1',
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            children: [
+              {
+                id: 'I3',
+                type: 'FRAME',
+                name: 'Only',
+                x: 0,
+                y: 0,
+                width: 50,
+                height: 40,
+                fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }],
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const byPage = designCompiler.compileSubtree({
+      envelope,
+      rootNodeId: 'I2',
+      options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
+    });
+    const byFrame = designCompiler.compileSubtree({
+      envelope,
+      rootNodeId: 'I3',
+      options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
+    });
+    expect(byPage.html).toContain('hfc-node-I3');
+    expect(byFrame.html).toContain('hfc-node-I3');
   });
 });
 

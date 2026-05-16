@@ -140,6 +140,73 @@ function findPageForSceneNode(envelope: FileEnvelope, sceneNodeId: string): Page
   return null;
 }
 
+/** Resolve a PAGE by id (document direct child). */
+export function findPageById(envelope: FileEnvelope, pageId: string): PageNode | null {
+  const page = envelope.document.children.find((c): c is PageNode => c.type === 'PAGE' && c.id === pageId);
+  return page ?? null;
+}
+
+function pageCanvasDimensions(page: PageNode): { width: number; height: number } {
+  const width = typeof page.width === 'number' && page.width > 0 ? page.width : 100;
+  const height = typeof page.height === 'number' && page.height > 0 ? page.height : 100;
+  return { width, height };
+}
+
+function compilePageCanvasOnly(
+  page: PageNode,
+  options: CompileHtmlOptions,
+  envelope: FileEnvelope
+): CompiledDesign {
+  const pad = options.viewportPaddingPx;
+  const { width: contentW, height: contentH } = pageCanvasDimensions(page);
+  const W = contentW + 2 * pad;
+  const H = contentH + 2 * pad;
+  const warnings: string[] = [];
+  const cssParts: string[] = [];
+  const rootVarCss = buildRootCssVariableBlock(envelope);
+  if (rootVarCss) {
+    cssParts.push(rootVarCss);
+  }
+  const imgMap = options.imageDataUrlByHash ?? {};
+  const patternTiles = options.patternTileDataUrlByNodeId ?? {};
+  const pageBg =
+    page.backgrounds?.[0] && page.backgrounds[0].visible !== false
+      ? fillBackgroundStyles(page.backgrounds[0], imgMap, patternTiles, warnings, 'page_canvas', envelope)
+      : '';
+  const cssBlock = `${HFC_UA_RESET_CSS}\n#hfc-root{position:relative;width:${String(W)}px;height:${String(H)}px;isolation:isolate;${pageBg}}\n${cssParts.join('\n')}`;
+  const inline = options.inlineCss;
+  const html = `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style id="hfc-compiled-css">
+${inline ? cssBlock : '/* css attached separately */'}
+    </style>
+  </head>
+  <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">
+    <div id="hfc-root" style="position:relative;width:${String(W)}px;height:${String(H)}px;">
+    </div>
+  </body>
+</html>`;
+  const rootClip = { x: pad, y: pad, width: contentW, height: contentH };
+  return {
+    html,
+    css: inline ? '' : cssBlock,
+    warnings,
+    bounds: { x: 0, y: 0, width: contentW, height: contentH },
+    rootClip,
+    viewportWidth: W,
+    viewportHeight: H,
+  };
+}
+
+function compilePageNode(page: PageNode, options: CompileHtmlOptions, envelope: FileEnvelope): CompiledDesign {
+  if (page.children.length === 0) {
+    return compilePageCanvasOnly(page, options, envelope);
+  }
+  return compileRootScenes(page.children, options, envelope, page.backgrounds);
+}
+
 function sceneChildList(n: SceneNode): SceneNode[] | null {
   if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') return n.children;
   if (n.type === 'BOOLEAN_OPERATION') return n.children;
@@ -2333,27 +2400,31 @@ ${inline ? cssBlock : '/* css attached separately */'}
 
 export const designCompiler: DesignCompiler = {
   compileSubtree({ envelope, rootNodeId, options }): CompiledDesign {
-    const root = findSceneNode(envelope, rootNodeId);
-    if (!root) {
-      throw new Error(`compileSubtree: unknown scene node id ${rootNodeId}`);
-    }
     const env = structuredClone(envelope);
+    const page = findPageById(env, rootNodeId);
+    if (page) {
+      return compilePageNode(page, options, env);
+    }
+    const root = findSceneNode(env, rootNodeId);
+    if (!root) {
+      throw new Error(`compileSubtree: unknown node id ${rootNodeId}`);
+    }
     const rootCloned = findSceneNode(env, rootNodeId);
     if (!rootCloned) {
-      throw new Error(`compileSubtree: unknown scene node id ${rootNodeId} after clone`);
+      throw new Error(`compileSubtree: unknown node id ${rootNodeId} after clone`);
     }
-    const page = findPageForSceneNode(env, rootNodeId);
-    return compileRootScenes([rootCloned], options, env, page?.backgrounds);
+    const containingPage = findPageForSceneNode(env, rootNodeId);
+    return compileRootScenes([rootCloned], options, env, containingPage?.backgrounds);
   },
 
   compileFirstPage({ envelope, options, pageId }): CompiledDesign {
     const env = structuredClone(envelope);
     const page = pageId
-      ? env.document.children.find((c): c is PageNode => c.type === 'PAGE' && c.id === pageId)
+      ? findPageById(env, pageId)
       : env.document.children.find((c): c is PageNode => c.type === 'PAGE');
-    if (!page || page.children.length === 0) {
-      throw new Error('compileFirstPage: no scene nodes on page');
+    if (!page) {
+      throw new Error('compileFirstPage: unknown page');
     }
-    return compileRootScenes(page.children, options, env, page.backgrounds);
+    return compilePageNode(page, options, env);
   },
 };
