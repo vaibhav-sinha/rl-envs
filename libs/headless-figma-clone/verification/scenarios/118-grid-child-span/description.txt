@@ -1,0 +1,1 @@
+Grid with a 2×2 spanning hero cell, side tile, and footer placed via appendChildAt / setGridChildPosition.

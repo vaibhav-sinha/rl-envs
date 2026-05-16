@@ -783,6 +783,7 @@ class RuntimeText extends RuntimeSceneNode {
   listOptions?: TextNode['listOptions'];
   strokes?: Paint[];
   strokeWeight?: number;
+  strokeAlign?: TextNode['strokeAlign'];
   fillStyleId?: string;
   strokeStyleId?: string;
   effectStyleId?: string;
@@ -819,6 +820,18 @@ class RuntimeText extends RuntimeSceneNode {
       fontSize: this.fontSize,
       fontWeight: this.fontWeight,
       fills: this.fills,
+      strokes: this.strokes,
+      strokeWeight: this.strokeWeight,
+      strokeAlign: this.strokeAlign,
+      lineHeight: this.lineHeight,
+      letterSpacing: this.letterSpacing,
+      leadingTrim: this.leadingTrim,
+      paragraphIndent: this.paragraphIndent,
+      paragraphSpacing: this.paragraphSpacing,
+      listSpacing: this.listSpacing,
+      hangingPunctuation: this.hangingPunctuation,
+      hangingList: this.hangingList,
+      listOptions: this.listOptions,
       styledSegments: this.segments.length ? this.segments : undefined,
       effects: this.effects,
       visible: this.visible,
@@ -827,6 +840,9 @@ class RuntimeText extends RuntimeSceneNode {
       blendMode: this.blendMode,
       ...this.layoutSelfSpec(),
       textStyleId: this.textStyleId,
+      fillStyleId: this.fillStyleId,
+      strokeStyleId: this.strokeStyleId,
+      effectStyleId: this.effectStyleId,
       textOnPath: this.textOnPath,
     };
   }

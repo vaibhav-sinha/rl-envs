@@ -1,0 +1,1 @@
+Colorful ellipses behind a frosted panel using layer blur plus a soft drop shadow.

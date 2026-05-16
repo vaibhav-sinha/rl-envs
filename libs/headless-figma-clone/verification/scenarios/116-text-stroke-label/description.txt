@@ -1,0 +1,1 @@
+Large outlined text label with solid fill and outside stroke on dark background.

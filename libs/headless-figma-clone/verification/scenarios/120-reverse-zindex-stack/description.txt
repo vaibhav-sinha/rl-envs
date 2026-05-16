@@ -1,0 +1,1 @@
+Overlapping horizontal chips with itemReverseZIndex so first child paints on top; frame uses fill and effect styles.
