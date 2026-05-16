@@ -1,6 +1,5 @@
 import { chromium, type Browser } from 'playwright';
 import type { CompiledDesign, Rect } from '../render/DesignCompiler.js';
-
 export interface PlaywrightScreenshotService {
   capture(params: {
     compiled: CompiledDesign;
@@ -45,9 +44,6 @@ export const playwrightScreenshotService: PlaywrightScreenshotService = {
       await page.setContent(params.compiled.html, {
         waitUntil: 'load',
         timeout: params.timeoutMs,
-      });
-      await page.addStyleTag({
-        url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
       });
       await page.evaluate('document.fonts.ready');
       if (params.background === 'white') {

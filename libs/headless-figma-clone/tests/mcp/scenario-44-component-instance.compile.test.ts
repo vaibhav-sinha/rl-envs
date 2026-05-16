@@ -49,8 +49,8 @@ describe('scenario 44 component instance compile', () => {
     const close = out.html.indexOf('}', open);
     const rule = out.html.slice(open, close + 1);
     expect(rule).toMatch(/width:([1-9][0-9]+)px/);
-    /** Hugging TEXT height: 14px type + 2px slack → 16px. */
-    expect(rule).toMatch(/height:16px/);
+    /** Hugging TEXT height from Inter metrics: 14px × 1.21 line box → 17px. */
+    expect(rule).toMatch(/height:17px/);
     expect(rule).not.toContain('width:0px');
   });
 });

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, extname, join, relative, resolve } from 'node:path';
+import { setFontsDir } from '../fonts/localFontRegistry.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { FileEnvelope } from '../model/types.js';
@@ -98,6 +99,21 @@ function isResolvedPathInsideWorkspace(root: string, candidateAbsolute: string):
   return rel !== '' && !rel.startsWith('..');
 }
 
+function isPathInsideRoot(root: string, candidateAbsolute: string): boolean {
+  const rootR = resolve(root);
+  const candR = resolve(candidateAbsolute);
+  const rel = relative(rootR, candR);
+  return rel === '' || (!rel.startsWith('..') && !resolve(rel).startsWith('..'));
+}
+
+const FONT_MIME: Record<string, string> = {
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.json': 'application/json',
+};
+
 function httpRequestBaseUrl(req: IncomingMessage, fallbackHost: string, fallbackPort: number): string {
   const proto = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
   if (req.headers.host) {
@@ -139,7 +155,15 @@ export async function createHttpServer(params: {
   logger: Logger;
 }): Promise<{ server: Server; port: number; close: () => Promise<void> }> {
   const { config, engine, logger } = params;
+  setFontsDir(config.fontsDir);
   const transports: Record<string, SessionEntry> = {};
+
+  const previewFontBaseUrl = (req?: IncomingMessage): string => {
+    const base = req
+      ? httpRequestBaseUrl(req, config.httpHost, config.httpPort)
+      : `http://${config.httpHost}:${String(config.httpPort)}`;
+    return `${base}/fonts/inter/`;
+  };
 
   const previewStore = {
     html: previewEmptyShell('<p>No active file loaded.</p>', {
@@ -150,7 +174,7 @@ export async function createHttpServer(params: {
     pageId: null as string | null,
   };
 
-  const compilePreviewHtml = (env: FileEnvelope, pageId: string | null): string => {
+  const compilePreviewHtml = (env: FileEnvelope, pageId: string | null, req?: IncomingMessage): string => {
     const resolvedPageId = resolvePreviewPageId(env, engine, pageId);
     const shell = shellParams(env, resolvedPageId);
     if (!resolvedPageId) {
@@ -168,6 +192,7 @@ export async function createHttpServer(params: {
           viewportPaddingPx: 16,
           includeCss: true,
           inlineCss: true,
+          fontBaseUrl: previewFontBaseUrl(req),
           imageDataUrlByHash: (() => {
             const fp = engine.getActiveFilePath();
             return fp ? buildImageDataUrlByHash(env, fp) : {};
@@ -199,6 +224,33 @@ export async function createHttpServer(params: {
       }
 
       const url = req.url?.split('?')[0] ?? '';
+
+      if (req.method === 'GET' && url.startsWith('/fonts/')) {
+        const rel = decodeURIComponent(url.slice('/fonts/'.length));
+        if (!rel || rel.includes('..')) {
+          sendError(res, 400, 'BAD_REQUEST', 'Invalid font path');
+          return;
+        }
+        const fontsRoot = resolve(config.fontsDir);
+        const abs = resolve(join(fontsRoot, rel));
+        if (!isPathInsideRoot(fontsRoot, abs)) {
+          sendError(res, 403, 'FORBIDDEN', 'Font path outside fonts directory');
+          return;
+        }
+        if (!existsSync(abs)) {
+          sendError(res, 404, 'NOT_FOUND', 'Font file not found');
+          return;
+        }
+        const buf = readFileSync(abs);
+        const ext = extname(abs).toLowerCase();
+        res.writeHead(200, {
+          'content-type': FONT_MIME[ext] ?? 'application/octet-stream',
+          'content-length': String(buf.length),
+          'cache-control': 'public, max-age=86400',
+        });
+        res.end(buf);
+        return;
+      }
 
       if (req.method === 'GET' && url.startsWith('/assets/')) {
         const id = decodeURIComponent(url.slice('/assets/'.length).split('/')[0] ?? '');
@@ -351,7 +403,7 @@ export async function createHttpServer(params: {
           engine.setCurrentPageId(resolvedPageId);
         }
         previewStore.pageId = resolvedPageId;
-        previewStore.html = compilePreviewHtml(env, resolvedPageId);
+        previewStore.html = compilePreviewHtml(env, resolvedPageId, req);
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(previewStore.html);
         return;

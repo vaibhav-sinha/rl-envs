@@ -4,6 +4,7 @@ import {
   applyAutoLayoutIntrinsicSizingDeep,
   syncHugTextLayoutMetricsDeep,
 } from '../../src/render/autoLayoutIntrinsicSizing.js';
+import { measureTextWidthPx } from '../../src/fonts/textMetrics.js';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
 import type { FileEnvelope, FrameNode, TextNode } from '../../src/model/types.js';
 
@@ -35,8 +36,8 @@ describe('autoLayoutIntrinsicSizing — exported hug text + parent cross cap', (
     const i1172 = findNode(page.children, 'I1172') as FrameNode;
     const i1173 = findNode(page.children, 'I1173') as TextNode;
     const i1174 = findNode(page.children, 'I1174') as TextNode;
-    expect(i1173.width).toBe(37);
-    expect(i1174.width).toBe(43);
+    expect(i1173.width).toBe(39);
+    expect(i1174.width).toBe(49);
     expect(i1172.width).toBe(327);
 
     const out = designCompiler.compileSubtree({
@@ -114,5 +115,42 @@ describe('autoLayoutIntrinsicSizing — exported hug text + parent cross cap', (
     applyAutoLayoutIntrinsicSizingDeep(parent, undefined, undefined);
     syncHugTextLayoutMetricsDeep(parent);
     expect(row.width).toBe(200);
+  });
+
+  it('hug text width uses glyph metrics narrower than legacy 0.62 heuristic for narrow digits', () => {
+    const t: TextNode = {
+      id: 't',
+      name: 't',
+      type: 'TEXT',
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      characters: '1111',
+      fontSize: 16,
+      fontName: { family: 'Inter', style: 'Regular' },
+      layoutSizingHorizontal: 'HUG',
+      layoutSizingVertical: 'HUG',
+      textAutoResize: 'WIDTH_AND_HEIGHT',
+    };
+    const frame: FrameNode = {
+      id: 'f',
+      name: 'f',
+      type: 'FRAME',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+      layoutMode: 'HORIZONTAL',
+      layoutSizingHorizontal: 'HUG',
+      layoutSizingVertical: 'HUG',
+      children: [t],
+    };
+    applyAutoLayoutIntrinsicSizingDeep(frame, undefined, undefined);
+    syncHugTextLayoutMetricsDeep(frame, undefined, undefined);
+    const heuristic = Math.ceil(4 * 16 * 0.62 + Math.ceil(16 * 0.35));
+    const metrics = measureTextWidthPx('1111', 16, t.fontName);
+    expect(t.width).toBeLessThan(heuristic);
+    expect(t.width).toBe(metrics);
   });
 });

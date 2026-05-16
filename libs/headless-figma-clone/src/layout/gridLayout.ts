@@ -123,7 +123,7 @@ function trackToCss(track: GridTrackSize, hugPx?: number): string {
 function measureChildMinCross(n: SceneNode, _env?: FileEnvelope): number {
   if (n.type === 'TEXT') {
     const t = n as TextNode;
-    return hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t, _env), t.lineHeight);
+    return hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t, _env), t.lineHeight, t.fontName);
   }
   return n.height;
 }

@@ -33,6 +33,7 @@ import {
   openTypeFeaturesCss,
   paragraphTypographyCss,
 } from './typographyCss.js';
+import { injectFontFacesIntoHtml } from '../fonts/injectFonts.js';
 import { computeStrokeBorder, rgbaFromSolid as strokeRgbaFromSolid } from './strokeRender.js';
 import { svgViewportForPathData, svgViewportForVectorPaths } from './vectorPathBounds.js';
 import {
@@ -95,11 +96,18 @@ export type CompileHtmlOptions = {
   viewportPaddingPx: number;
   includeCss: boolean;
   inlineCss: boolean;
+  /** Base URL for `@font-face` src (e.g. `http://127.0.0.1:3847/fonts/inter/`). */
+  fontBaseUrl?: string;
   /** Resolved `data:` URLs for `ImagePaint.imageHash` (Playwright / offline HTML). */
   imageDataUrlByHash?: Record<string, string>;
   /** Rasterized pattern source tiles (`sourceNodeId` → data URL). */
   patternTileDataUrlByNodeId?: Record<string, string>;
 };
+
+function finalizeCompiledHtml(html: string, options: CompileHtmlOptions, envelope: FileEnvelope): string {
+  if (!options.fontBaseUrl) return html;
+  return injectFontFacesIntoHtml(html, options.fontBaseUrl, envelope);
+}
 
 /** Scoped UA reset so Playwright screenshots only show explicit compiled styles. */
 export const HFC_UA_RESET_CSS = [
@@ -212,7 +220,7 @@ ${inline ? cssBlock : '/* css attached separately */'}
 </html>`;
   const rootClip = { x: pad, y: pad, width: contentW, height: contentH };
   return {
-    html,
+    html: finalizeCompiledHtml(html, options, envelope),
     css: inline ? '' : cssBlock,
     warnings,
     bounds: { x: 0, y: 0, width: contentW, height: contentH },
@@ -428,7 +436,7 @@ function textIsSingleLineBox(t: TextNode, env: FileEnvelope): boolean {
   if (t.textAutoResize === 'TRUNCATE') return true;
   if (t.textTruncation === 'ENDING' && t.maxLines === 1) return true;
   const fs = effectiveTextMaxFontSizePx(t, env);
-  const lineH = hugTextLineHeightPxFromTypography(fs, t.lineHeight);
+  const lineH = hugTextLineHeightPxFromTypography(fs, t.lineHeight, t.fontName);
   const cap = Math.ceil(lineH * 1.14);
   /** Designers often pad label boxes a few px above one line (e.g. 12px type in a 20px chip). */
   const heightSlack = Math.min(4, Math.max(2, Math.ceil(fs * 0.25)));
@@ -1693,7 +1701,7 @@ function emitScene(
     const singleLine = textIsSingleLineBox(t, env);
     const flexOuterAlign = textFlexContainerCss(t, singleLine);
     const baseTypo = effectiveTextBase(t, env);
-    const lhPx = hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t, env), t.lineHeight);
+    const lhPx = hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t, env), t.lineHeight, t.fontName);
     const textColor = paintColorCss(baseTypo.fills?.[0], env, 'rgba(0,0,0,1)', warnings, `text:${t.id}`);
     const flexTextMetrics = singleLine
       ? `line-height:${String(lhPx)}px;${leadingTrimCss(t.leadingTrim)}`
@@ -3116,7 +3124,7 @@ ${inline ? cssBlock : '/* css attached separately */'}
 </html>`;
 
   return {
-    html,
+    html: finalizeCompiledHtml(html, options, envelope),
     css: inline ? '' : cssBlock,
     warnings,
     bounds: { x: bounds.minX, y: bounds.minY, width: contentW, height: contentH },

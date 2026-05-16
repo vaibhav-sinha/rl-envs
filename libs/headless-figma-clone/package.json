@@ -17,6 +17,8 @@
     "verify:view:dev": "node verification/viewer/server.mjs",
     "verify:run": "node dist/cli.js verify-run",
     "verify:run:dev": "node verification/scripts/verify-run.mjs",
+    "fonts:download": "node scripts/download-inter-fonts.mjs",
+    "fonts:metrics": "node scripts/generate-inter-metrics.mjs",
     "pretest": "npx playwright install chromium",
     "test": "vitest run",
     "test:layer-a": "node --test tests/document-model.phase1.test.mjs tests/document-model.phase2.test.mjs tests/document-model.phase3.test.mjs tests/document-model.phase4.test.mjs tests/document-model.phase5.test.mjs tests/document-model.phase7.test.mjs tests/document-model.phase8.test.mjs tests/document-model.phase9.test.mjs"
@@ -30,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.7.0",
+    "fontkit": "^2.0.4",
     "tsx": "4.21.1",
     "typescript": "5.7.3",
     "vitest": "4.1.6"

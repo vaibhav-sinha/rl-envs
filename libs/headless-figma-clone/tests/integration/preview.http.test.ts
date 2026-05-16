@@ -106,6 +106,9 @@ describe('HTTP /preview', () => {
     const res = await fetch(`http://127.0.0.1:${String(port)}/preview`);
     expect(res.ok).toBe(true);
     const html = await res.text();
+    expect(html).toContain('hfc-font-faces');
+    expect(html).toContain('@font-face');
+    expect(html).toContain('Inter-Regular.woff2');
     expect(html).toContain('hfc-preview-toolbar');
     expect(html).toContain('hfc-page-select');
     expect(html).toContain('Page Alpha');
@@ -121,6 +124,14 @@ describe('HTTP /preview', () => {
     expect(html).toContain('hfc-node-I4');
     expect(html).not.toContain('hfc-node-I3');
     expect(html).toContain('value="I5" selected');
+  });
+
+  it('GET /fonts/inter serves woff2 files', async () => {
+    const res = await fetch(`http://127.0.0.1:${String(port)}/fonts/inter/Inter-Regular.woff2`);
+    expect(res.ok).toBe(true);
+    expect(res.headers.get('content-type')).toBe('font/woff2');
+    const buf = await res.arrayBuffer();
+    expect(buf.byteLength).toBeGreaterThan(1000);
   });
 
   it('preview is available without debug flag', async () => {
