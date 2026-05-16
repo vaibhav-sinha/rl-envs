@@ -15,7 +15,7 @@ import type {
   EffectStyleDefinition,
   GridStyleDefinition,
 } from '../model/types.js';
-import type { FigmaPluginSnapshot, SerializedNode } from './snapshotSchema.js';
+import type { FigmaPluginSnapshot, SerializedAsset, SerializedNode } from './snapshotSchema.js';
 import { FigmaIdMap } from './idMap.js';
 import { createImportReport, importStrict, importVerbose, type ImportReport } from './importReport.js';
 import {
@@ -68,6 +68,7 @@ const SUPPORTED_SCENE_TYPES = new Set([
 interface ImportContext {
   idMap: FigmaIdMap;
   imageRemap: (h: string) => string | undefined;
+  iconSvgRemap: (figmaNodeId: string) => string | undefined;
   report: ImportReport;
   /** COMPONENT master frames keyed by component HFC id */
   componentRootFrames: Map<string, FrameNode>;
@@ -92,8 +93,27 @@ const SKIP_SCENE_TYPES = new Set([
 
 export interface ImportResult {
   envelope: FileEnvelope;
-  assetBuffers: { buf: Buffer; mime: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' }[];
+  assetBuffers: {
+    buf: Buffer;
+    mime: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'image/svg+xml';
+  }[];
   report: ImportReport;
+}
+
+function isSvgAsset(
+  asset: SerializedAsset
+): asset is Extract<SerializedAsset, { mimeType: 'image/svg+xml' }> {
+  return asset.mimeType === 'image/svg+xml';
+}
+
+function mapIconSvgFromSnapshot(
+  p: Record<string, unknown>,
+  iconSvgRemap: (figmaNodeId: string) => string | undefined
+): { iconSvgAssetHash?: string } {
+  const figmaNodeId = optStr(prop(p, 'hfcIconSvgAsset'));
+  if (!figmaNodeId) return {};
+  const hash = iconSvgRemap(figmaNodeId);
+  return hash ? { iconSvgAssetHash: hash } : {};
 }
 
 export function slugHfcFileName(fileName: string): string {
@@ -107,19 +127,26 @@ export function importFigmaPluginSnapshot(
   const report = createImportReport();
   const idMap = new FigmaIdMap(3);
   const figmaImageToSha = new Map<string, string>();
+  const figmaNodeSvgToSha = new Map<string, string>();
   const assetBuffers: ImportResult['assetBuffers'] = [];
 
   for (const asset of snapshot.assets) {
     const buf = Buffer.from(asset.base64, 'base64');
     const sha256 = createHash('sha256').update(buf).digest('hex');
-    figmaImageToSha.set(asset.figmaImageHash, sha256);
+    if (isSvgAsset(asset)) {
+      figmaNodeSvgToSha.set(asset.figmaNodeId, sha256);
+    } else {
+      figmaImageToSha.set(asset.figmaImageHash, sha256);
+    }
     assetBuffers.push({ buf, mime: asset.mimeType });
   }
 
   const imageRemap = (figmaHash: string) => figmaImageToSha.get(figmaHash);
+  const iconSvgRemap = (figmaNodeId: string) => figmaNodeSvgToSha.get(figmaNodeId);
   const ctx: ImportContext = {
     idMap,
     imageRemap,
+    iconSvgRemap,
     report,
     componentRootFrames: new Map(),
   };
@@ -258,6 +285,7 @@ function importSceneNode(
       name: node.name,
       ...mapBlendOpacity(p),
       ...mapLayoutSelf(p),
+      ...mapIconSvgFromSnapshot(p, ctx.iconSvgRemap),
     };
     const b = boundsFromProps(p, parentPageOrigin);
     const nodePageOrigin = childPageOrigin(parentPageOrigin, b);
@@ -318,6 +346,7 @@ function importSceneNode(
     ...mapBlendOpacity(p),
     ...mapLayoutSelf(p),
     ...mapLayoutExtras(p),
+    ...mapIconSvgFromSnapshot(p, ctx.iconSvgRemap),
     ...(mapBoundVariables(p, idMap) ? { boundVariables: mapBoundVariables(p, idMap) } : {}),
     ...(mapExplicitVariableModes(p, idMap) ? { explicitVariableModes: mapExplicitVariableModes(p, idMap) } : {}),
   };

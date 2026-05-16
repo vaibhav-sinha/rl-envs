@@ -1990,7 +1990,15 @@ export function registerAssetBytesInEnvelope(
   const sha256 = createHash('sha256').update(buf).digest('hex');
   if (!working.assets) working.assets = { byId: {} };
   const ext =
-    mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'gif';
+    mime === 'image/png'
+      ? 'png'
+      : mime === 'image/jpeg'
+        ? 'jpg'
+        : mime === 'image/webp'
+          ? 'webp'
+          : mime === 'image/svg+xml'
+            ? 'svg'
+            : 'gif';
   if (!working.assets.byId[sha256]) {
     working.assets.byId[sha256] = {
       id: sha256,
@@ -2012,7 +2020,15 @@ export async function persistAssetBytesOnDisk(
 ): Promise<{ hash: string; assetId: string }> {
   const { hash, assetId } = registerAssetBytesInEnvelope(working, buf, mime);
   const ext =
-    mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'gif';
+    mime === 'image/png'
+      ? 'png'
+      : mime === 'image/jpeg'
+        ? 'jpg'
+        : mime === 'image/webp'
+          ? 'webp'
+          : mime === 'image/svg+xml'
+            ? 'svg'
+            : 'gif';
   const rel = relativeAssetFile(filePath, hash, ext);
   const abs = join(dirname(filePath), rel);
   mkdirSync(sidecarDirForHfcJson(filePath), { recursive: true });

@@ -69,6 +69,7 @@ import type {
   TextNode,
   TransformGroupNode,
   GroupNode,
+  LayoutConstraints,
   VectorNode,
 } from '../model/types.js';
 
@@ -1202,6 +1203,49 @@ function groupChildLocalOffset(node: SceneNode, group: GroupNode): { x: number; 
 }
 
 /** Figma GROUP: positioned wrapper; children use coordinates relative to group origin. */
+type SvgIconEmitNode = {
+  id: string;
+  width: number;
+  height: number;
+  iconSvgAssetHash?: string;
+  layoutGrow?: number;
+  constraints?: LayoutConstraints;
+};
+
+/** Render plugin-exported SVG icon instead of compiling mask/boolean subtrees. */
+function tryEmitExportedSvgIcon(
+  n: SvgIconEmitNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  imgMap: Record<string, string>,
+  insideFlex: boolean,
+  parentFrame?: FrameNode
+): boolean {
+  if (!n.iconSvgAssetHash) return false;
+  const url = imgMap[n.iconSvgAssetHash];
+  if (!url) return false;
+
+  const pos = insideFlex
+    ? `position:relative;left:0;top:0;flex:${String(n.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : n.constraints && parentFrame
+      ? constraintPositionCss(n as FrameNode, parentFrame.width, parentFrame.height)
+      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
+
+  htmlParts.push(`<div class="hfc-node-${n.id} hfc-svg-icon" data-hfc-id="${n.id}" style="z-index:${String(zIndex)}">`);
+  cssParts.push(
+    `.hfc-node-${n.id}{${pos}width:${String(n.width)}px;height:${String(n.height)}px;box-sizing:border-box;${opRot}}`
+  );
+  htmlParts.push(
+    `<img src="${escapeAttr(url)}" alt="" width="${String(n.width)}" height="${String(n.height)}" style="display:block;width:100%;height:100%;" />`
+  );
+  htmlParts.push('</div>');
+  return true;
+}
+
 function emitGroup(
   g: GroupNode,
   originX: number,
@@ -1638,6 +1682,22 @@ function emitScene(
 
   if (n.type === 'FRAME') {
     const f = n;
+    if (
+      tryEmitExportedSvgIcon(
+        f,
+        absX,
+        absY,
+        zIndex,
+        opRot,
+        htmlParts,
+        cssParts,
+        imgMap,
+        insideFlex,
+        parentFrame
+      )
+    ) {
+      return;
+    }
     const frameFills = effectiveFrameFills(f, env);
     const fill = frameFills[0];
     const fillCss = fillBackgroundStyles(fill, imgMap, patternTiles, warnings, `frame_fill:${f.id}`, env);
@@ -1872,6 +1932,21 @@ function emitPlacedComponent(
   shiftX: number,
   shiftY: number
 ): void {
+  if (
+    tryEmitExportedSvgIcon(
+      comp,
+      absX,
+      absY,
+      zIndex,
+      opRot,
+      htmlParts,
+      cssParts,
+      imgMap,
+      insideFlex
+    )
+  ) {
+    return;
+  }
   const inst: InstanceNode = {
     id: comp.id,
     type: 'INSTANCE',
@@ -1912,6 +1987,21 @@ function emitComponentInstance(
   shiftX: number,
   shiftY: number
 ): void {
+  if (
+    tryEmitExportedSvgIcon(
+      inst,
+      absX,
+      absY,
+      zIndex,
+      opRot,
+      htmlParts,
+      cssParts,
+      imgMap,
+      insideFlex
+    )
+  ) {
+    return;
+  }
   const main = env.components?.find((c) => c.id === inst.mainComponentId);
   if (!main) {
     warnings.push(`missing_component:${inst.mainComponentId}`);
@@ -2035,6 +2125,21 @@ function emitInstance(
   shiftX: number,
   shiftY: number
 ): void {
+  if (
+    tryEmitExportedSvgIcon(
+      inst,
+      absX,
+      absY,
+      zIndex,
+      opRot,
+      htmlParts,
+      cssParts,
+      imgMap,
+      insideFlex
+    )
+  ) {
+    return;
+  }
   // Resolve component graph masters.
   const target = findNodeInDocument(env.document, inst.mainComponentId, env);
 

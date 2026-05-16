@@ -12,11 +12,19 @@ export const serializedNodeSchema: z.ZodType<SerializedNode> = z.lazy(() =>
   })
 );
 
-export const serializedAssetSchema = z.object({
+const rasterAssetSchema = z.object({
   figmaImageHash: z.string(),
   mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
   base64: z.string(),
 });
+
+const svgAssetSchema = z.object({
+  figmaNodeId: z.string(),
+  mimeType: z.literal('image/svg+xml'),
+  base64: z.string(),
+});
+
+export const serializedAssetSchema = z.union([rasterAssetSchema, svgAssetSchema]);
 
 export const figmaPluginSnapshotSchema = z.object({
   snapshotVersion: z.literal(SNAPSHOT_VERSION),
@@ -40,11 +48,19 @@ export interface SerializedNode {
   properties: Record<string, unknown>;
 }
 
-export interface SerializedAsset {
+export type SerializedRasterAsset = {
   figmaImageHash: string;
   mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
   base64: string;
-}
+};
+
+export type SerializedSvgAsset = {
+  figmaNodeId: string;
+  mimeType: 'image/svg+xml';
+  base64: string;
+};
+
+export type SerializedAsset = SerializedRasterAsset | SerializedSvgAsset;
 
 export interface FigmaPluginSnapshot {
   snapshotVersion: typeof SNAPSHOT_VERSION;
