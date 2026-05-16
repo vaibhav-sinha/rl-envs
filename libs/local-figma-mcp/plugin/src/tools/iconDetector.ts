@@ -19,6 +19,8 @@ const MAX_ICON_PX = 128;
 const MIN_ICON_PX = 8;
 const MAX_ASPECT = 3;
 
+export const ICON_RASTER_EXPORT_SCALE = 2;
+
 export interface IconTreeAnalysis {
   vectors: number;
   booleans: number;
@@ -142,6 +144,22 @@ export function isStructuralIconExportRoot(node: SerializedNode, analysis?: Icon
   return false;
 }
 
+export function prefersRasterIconExport(node: SerializedNode, analysis?: IconTreeAnalysis): boolean {
+  if (!isStructuralIconExportRoot(node, analysis)) return false;
+  const a = analysis ?? analyzeIconSubtree(node);
+  const graphicLeaves = a.vectors + a.booleans;
+  return a.hasMaskCluster && graphicLeaves === 0 && a.masks >= 1 && a.rectangles >= 1;
+}
+
+export function findSerializedNodeById(root: SerializedNode, nodeId: string): SerializedNode | undefined {
+  if (root.id === nodeId) return root;
+  for (const ch of childList(root)) {
+    const found = findSerializedNodeById(ch, nodeId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 function buildParentMap(
   node: SerializedNode,
   parentId: string | null,
@@ -192,4 +210,16 @@ export function tagSerializedIconSvgExport(
     return;
   }
   for (const ch of childList(root)) tagSerializedIconSvgExport(ch, nodeId, assetKey);
+}
+
+export function tagSerializedIconPngExport(
+  root: SerializedNode,
+  nodeId: string,
+  assetKey: string
+): void {
+  if (root.id === nodeId) {
+    root.properties = { ...root.properties, hfcIconPngAsset: assetKey };
+    return;
+  }
+  for (const ch of childList(root)) tagSerializedIconPngExport(ch, nodeId, assetKey);
 }

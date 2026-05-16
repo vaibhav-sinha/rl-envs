@@ -6,6 +6,7 @@ import {
   analyzeIconSubtree,
   findStructuralIconExportRootIds,
   isStructuralIconExportRoot,
+  prefersRasterIconExport,
 } from '../../src/import/iconDetector.js';
 import type { SerializedNode } from '../../src/import/snapshotSchema.js';
 
@@ -120,7 +121,14 @@ describe('iconDetector', () => {
     expect(analysis.booleans).toBe(0);
     expect(analysis.rectangles).toBe(2);
     expect(isStructuralIconExportRoot(icon)).toBe(true);
+    expect(prefersRasterIconExport(icon)).toBe(true);
     expect(findStructuralIconExportRootIds(icon)).toEqual(['I211']);
+  });
+
+  it('vector mask icons prefer SVG export, not raster', () => {
+    const frame = loadSearchIconFrame('group-mask-icon.snapshot.json');
+    expect(isStructuralIconExportRoot(frame)).toBe(true);
+    expect(prefersRasterIconExport(frame)).toBe(false);
   });
 
   it('keeps outermost qualifying root when nested', () => {

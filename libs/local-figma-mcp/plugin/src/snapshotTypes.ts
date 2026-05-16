@@ -21,7 +21,14 @@ export type SerializedSvgAsset = {
   base64: string;
 };
 
-export type SerializedAsset = SerializedRasterAsset | SerializedSvgAsset;
+export type SerializedIconPngAsset = {
+  figmaNodeId: string;
+  mimeType: 'image/png';
+  base64: string;
+  exportScale?: number;
+};
+
+export type SerializedAsset = SerializedRasterAsset | SerializedSvgAsset | SerializedIconPngAsset;
 
 export interface FigmaPluginSnapshot {
   snapshotVersion: typeof SNAPSHOT_VERSION;
