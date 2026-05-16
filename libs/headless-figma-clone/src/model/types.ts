@@ -332,6 +332,8 @@ export interface LayoutSelfFields {
   maxHeight?: number;
   /** When true, this node defines a vector mask for following siblings until the next mask node (compile binding). */
   isMask?: boolean;
+  /** SHA256 asset id for plugin-exported SVG icon (render as rasterized vector asset). */
+  iconSvgAssetHash?: string;
   /** Phase 7 — auto-layout child sizing (Figma parity subset). */
   layoutSizingHorizontal?: LayoutSizing;
   layoutSizingVertical?: LayoutSizing;
@@ -385,7 +387,7 @@ export interface PageNode extends NodeBase {
 
 export interface AssetRecord {
   id: string;
-  mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+  mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'image/svg+xml';
   byteLength: number;
   sha256: string;
   /** Relative to the `.hfc.json` directory (e.g. `MyFile.hfc.assets/abc.png`). */

@@ -9,11 +9,19 @@ export interface SerializedNode {
   properties: Record<string, unknown>;
 }
 
-export interface SerializedAsset {
+export type SerializedRasterAsset = {
   figmaImageHash: string;
   mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
   base64: string;
-}
+};
+
+export type SerializedSvgAsset = {
+  figmaNodeId: string;
+  mimeType: 'image/svg+xml';
+  base64: string;
+};
+
+export type SerializedAsset = SerializedRasterAsset | SerializedSvgAsset;
 
 export interface FigmaPluginSnapshot {
   snapshotVersion: typeof SNAPSHOT_VERSION;

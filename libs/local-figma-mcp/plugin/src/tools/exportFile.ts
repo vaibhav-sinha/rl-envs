@@ -1,5 +1,9 @@
 import type { FigmaPluginSnapshot, SerializedAsset, SerializedNode } from '../snapshotTypes.js';
 import { SNAPSHOT_VERSION } from '../snapshotTypes.js';
+import {
+  findStructuralIconExportRootIds,
+  tagSerializedIconSvgExport,
+} from './iconDetector.js';
 import { keysForNodeType } from './nodePropertyKeys.js';
 import { bytesToBase64, serializeValue } from './serializeValue.js';
 
@@ -81,6 +85,39 @@ async function serializeStyleRecord(style: { id: string; name: string } & Record
   return out;
 }
 
+async function buildIconSvgAssets(document: SerializedNode): Promise<SerializedAsset[]> {
+  const iconRootIds = findStructuralIconExportRootIds(document);
+  const assets: SerializedAsset[] = [];
+
+  for (const nodeId of iconRootIds) {
+    const node = await figma.getNodeByIdAsync(nodeId);
+    if (!node || !('exportAsync' in node)) continue;
+    try {
+      const bytes = await (
+        node as SceneNode & {
+          exportAsync: (settings: ExportSettingsSVG) => Promise<Uint8Array>;
+        }
+      ).exportAsync({
+        format: 'SVG',
+        contentsOnly: true,
+        svgOutlineText: true,
+        svgIdAttribute: false,
+        svgSimplifyStroke: true,
+      });
+      assets.push({
+        figmaNodeId: nodeId,
+        mimeType: 'image/svg+xml',
+        base64: bytesToBase64(bytes),
+      });
+      tagSerializedIconSvgExport(document, nodeId, nodeId);
+    } catch {
+      /* skip failed icon export */
+    }
+  }
+
+  return assets;
+}
+
 async function buildAssets(): Promise<SerializedAsset[]> {
   const assets: SerializedAsset[] = [];
   for (const hash of IMAGE_HASHES) {
@@ -156,7 +193,9 @@ export async function buildFigmaPluginSnapshot(): Promise<FigmaPluginSnapshot> {
   const variableCollections = await serializeVariableCollections();
   for (const c of variableCollections) collectImageHashes(c);
 
-  const assets = await buildAssets();
+  const rasterAssets = await buildAssets();
+  const iconSvgAssets = await buildIconSvgAssets(document);
+  const assets = [...rasterAssets, ...iconSvgAssets];
 
   return {
     snapshotVersion: SNAPSHOT_VERSION,
