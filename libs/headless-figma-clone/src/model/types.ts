@@ -903,6 +903,8 @@ export interface InstanceNode extends NodeBase, LayoutSelfFields {
   opacity?: number;
   blendMode?: BlendMode;
   mainComponentId: string;
+  /** Detached instance subtree from Figma plugin export when `mainComponent` is unresolved. */
+  children?: SceneNode[];
   /**
    * Phase 9 — variant selection (minimal subset).
    * Example shape: { variant: { type: 'VARIANT', value: 'Small' } }
