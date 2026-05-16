@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "instcss",
+  "fileName": "Instance CSS scope",
+  "nextInternalId": 200,
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 300,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Canvas",
+            "x": 0,
+            "y": 0,
+            "width": 400,
+            "height": 300,
+            "children": [
+              {
+                "id": "I10",
+                "type": "INSTANCE",
+                "name": "Small",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 80,
+                "mainComponentId": "COMP1"
+              },
+              {
+                "id": "I11",
+                "type": "INSTANCE",
+                "name": "Large",
+                "x": 120,
+                "y": 0,
+                "width": 200,
+                "height": 200,
+                "mainComponentId": "COMP1"
+              },
+              {
+                "id": "I100",
+                "type": "FRAME",
+                "name": "Box",
+                "x": 0,
+                "y": 0,
+                "width": 96,
+                "height": 96,
+                "children": [
+                  {
+                    "id": "I101",
+                    "type": "RECTANGLE",
+                    "name": "Fill",
+                    "x": 0,
+                    "y": 0,
+                    "width": 96,
+                    "height": 96,
+                    "fills": [
+                      {
+                        "type": "SOLID",
+                        "color": { "r": 0.2, "g": 0.4, "b": 0.9 }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "COMP1",
+                "type": "COMPONENT",
+                "name": "BoxComponent",
+                "x": 0,
+                "y": 0,
+                "width": 96,
+                "height": 96,
+                "rootFrameId": "I100"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
