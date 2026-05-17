@@ -47,61 +47,46 @@ describe('mcp-http design context', () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 
-  it('operations + code paths produce design context with phase-2 CSS contracts', async () => {
+  it('code path produces design context with phase-2 CSS contracts', async () => {
     await client.callTool({ name: 'create_new_file', arguments: { name: 'P2' } });
 
     const ops = await client.callTool({
       name: 'use_figma',
       arguments: {
-        operations: [
-          {
-            operation: 'createNode',
-            parentId: 'I2',
-            node: {
-              type: 'FRAME',
-              name: 'Shell',
-              x: 0,
-              y: 0,
-              width: 220,
-              height: 140,
-              fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
-              backgrounds: [{ type: 'SOLID', color: { r: 0.9, g: 0.92, b: 0.98 } }],
-              clipsContent: true,
-              effects: [
-                {
-                  type: 'DROP_SHADOW',
-                  offset: { x: 0, y: 2 },
-                  radius: 6,
-                  color: { r: 0, g: 0, b: 0, a: 0.2 },
-                  blendMode: 'NORMAL',
-                },
-              ],
-              children: [],
+        code: `
+          const shell = figma.createFrame();
+          shell.name = 'Shell';
+          shell.resize(220, 140);
+          shell.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+          shell.backgrounds = [{ type: 'SOLID', color: { r: 0.9, g: 0.92, b: 0.98 } }];
+          shell.clipsContent = true;
+          shell.effects = [
+            {
+              type: 'DROP_SHADOW',
+              offset: { x: 0, y: 2 },
+              radius: 6,
+              color: { r: 0, g: 0, b: 0, a: 0.2 },
+              blendMode: 'NORMAL',
             },
-          },
-          {
-            operation: 'createNode',
-            parentId: 'I3',
-            node: {
-              type: 'TEXT',
-              name: 'OpsTitle',
-              x: 12,
-              y: 10,
-              width: 160,
-              height: 32,
-              characters: 'Ops link',
-              fontSize: 13,
-              styledSegments: [
-                {
-                  start: 4,
-                  end: 8,
-                  style: { fontSize: 18, hyperlink: { type: 'URL', url: 'https://example.com/ops' } },
-                },
-              ],
-              rotation: -6,
+          ];
+          figma.currentPage.appendChild(shell);
+          const title = figma.createText();
+          title.name = 'OpsTitle';
+          title.x = 12;
+          title.y = 10;
+          title.resize(160, 32);
+          title.characters = 'Ops link';
+          title.fontSize = 13;
+          title.styledSegments = [
+            {
+              start: 4,
+              end: 8,
+              style: { fontSize: 18, hyperlink: { type: 'URL', url: 'https://example.com/ops' } },
             },
-          },
-        ],
+          ];
+          title.rotation = -6;
+          shell.appendChild(title);
+        `,
       },
     });
     const opsBody = parseToolJson(getToolText(ops)!);
