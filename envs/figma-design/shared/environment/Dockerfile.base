@@ -1,0 +1,36 @@
+# Build from repository root:
+#   docker build -f envs/figma-design/shared/environment/Dockerfile.base \
+#     -t metaphi/figma-design-base:latest .
+
+FROM node:20-bookworm
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
+
+WORKDIR /opt/hfc
+
+COPY libs/headless-figma-clone/package.json libs/headless-figma-clone/package-lock.json ./
+RUN npm ci
+
+COPY libs/headless-figma-clone/ ./
+RUN npm run build
+RUN npx playwright install --with-deps chromium
+
+ENV HFC_HTTP_HOST=127.0.0.1 \
+  HFC_HTTP_PORT=3847 \
+  HFC_WORKSPACE_DIR=/data/workspace \
+  HFC_FONTS_DIR=/opt/hfc/fonts
+
+WORKDIR /app
+
+COPY envs/figma-design/shared/environment/entrypoint.sh /usr/local/bin/figma-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/figma-entrypoint.sh \
+  && chmod +x /usr/local/bin/figma-entrypoint.sh
+
+EXPOSE 3847
+ENTRYPOINT ["/usr/local/bin/figma-entrypoint.sh"]
+CMD ["/bin/bash"]

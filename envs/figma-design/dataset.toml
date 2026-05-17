@@ -1,0 +1,19 @@
+# Dataset manifest for metaphi/figma-design
+# Add tasks: harbor add tasks/<task-id>
+# Build base image: node scripts/build-base.mjs
+# Refresh digests: harbor sync
+
+[dataset]
+name = "metaphi/figma-design"
+description = "Figma design RL tasks with in-container Figma MCP"
+authors = []
+keywords = [ "figma", "mcp", "rewardkit", "design", "rl",]
+
+[[tasks]]
+name = "metaphi/figma-design-hello-frame"
+digest = "sha256:edcc60b39b2848b2d64b56cdb111aa7e38b8dfb2c59ac4015c16ecb4abbe05b7"
+
+[[tasks]]
+name = "metaphi/figma-design-with-metadata"
+digest = "sha256:aba38259e0e6720796c67ad87646bf2378a5b12136bee7ab4566280af0176ef8"
+
