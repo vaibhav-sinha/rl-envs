@@ -8,7 +8,7 @@ import { designCompiler } from '../render/DesignCompiler.js';
 import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
 import { collectMetadataTree, collectPagesIndex } from './metadata.js';
-import { mapUseFigmaToEngineOperations, toolErrorJson, toolJson } from './useFigmaMap.js';
+import { toolErrorJson, toolJson } from './useFigmaMap.js';
 import { runUseFigmaScript } from './useFigmaScript.js';
 import { buildVariableDefsPayload } from '../variables/resolution.js';
 import { searchDesignSystem } from '../designSystem/searchDesignSystem.js';
@@ -353,31 +353,12 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
     }
   );
 
-  const useFigmaInput = z
-    .object({
-      /** JavaScript executed like Figma remote MCP: async-wrapped body with top-level await and `return` for output. */
-      code: z.string().optional(),
-      /** Logging only (matches Figma); does not change execution. */
-      skillNames: z.string().max(512).optional(),
-      /** Legacy batch format; mutually exclusive with `code`. */
-      operations: z.array(z.unknown()).max(200).optional(),
-    })
-    .superRefine((val, ctx) => {
-      const hasCode = typeof val.code === 'string' && val.code.trim().length > 0;
-      const hasOps = Array.isArray(val.operations) && val.operations.length > 0;
-      if (hasCode && hasOps) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Provide either `code` or legacy `operations`, not both.',
-        });
-      }
-      if (!hasCode && !hasOps) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Provide non-empty `code` (Plugin API script) or legacy `operations` array.',
-        });
-      }
-    });
+  const useFigmaInput = z.object({
+    /** JavaScript executed like Figma remote MCP: async-wrapped body with top-level await and `return` for output. */
+    code: z.string().min(1),
+    /** Logging only (matches Figma); does not change execution. */
+    skillNames: z.string().max(512).optional(),
+  });
 
   server.registerTool(
     'use_figma',
@@ -388,26 +369,15 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
     },
     async (args) => {
       try {
-        const hasCode = typeof args.code === 'string' && args.code.trim().length > 0;
-        let ops;
-        let scriptResult: unknown | undefined;
-        let scriptCurrentPageId: string | undefined;
-        if (hasCode) {
-          void args.skillNames;
-          const run = await runUseFigmaScript(args.code!.trim(), engine);
-          if (run.kind === 'error') {
-            return {
-              content: [{ type: 'text' as const, text: toolErrorJson(run.errorCode, run.message) }],
-              isError: true,
-            };
-          }
-          ops = run.operations;
-          scriptResult = run.result;
-          scriptCurrentPageId = run.currentPageId;
-        } else {
-          ops = mapUseFigmaToEngineOperations(args.operations as unknown[]);
+        void args.skillNames;
+        const run = await runUseFigmaScript(args.code.trim(), engine);
+        if (run.kind === 'error') {
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson(run.errorCode, run.message) }],
+            isError: true,
+          };
         }
-        const r = await engine.applyTransaction(ops);
+        const r = await engine.applyTransaction(run.operations);
         if (!r.success) {
           return {
             content: [
@@ -419,16 +389,14 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             isError: true,
           };
         }
-        if (scriptCurrentPageId) {
-          engine.setCurrentPageId(scriptCurrentPageId);
+        if (run.currentPageId) {
+          engine.setCurrentPageId(run.currentPageId);
         }
         const data: Record<string, unknown> = {
           touchedNodeIds: r.touchedNodeIds,
           warnings: r.warnings,
+          result: run.result,
         };
-        if (hasCode) {
-          data.result = scriptResult;
-        }
         return {
           content: [
             {

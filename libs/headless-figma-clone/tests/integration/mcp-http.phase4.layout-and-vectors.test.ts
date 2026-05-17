@@ -94,41 +94,27 @@ describe('mcp-http phase4 layout, mask, boolean, vector, blur', () => {
     const ops = await client.callTool({
       name: 'use_figma',
       arguments: {
-        operations: [
-          {
-            operation: 'createNode',
-            parentId: 'I2',
-            node: {
-              type: 'FRAME',
-              name: 'Row',
-              x: 0,
-              y: 0,
-              width: 180,
-              height: 50,
-              fills: [{ type: 'SOLID', color: { r: 0.97, g: 0.97, b: 0.98 } }],
-              layoutMode: 'HORIZONTAL',
-              itemSpacing: 10,
-              paddingLeft: 8,
-              paddingRight: 8,
-              paddingTop: 8,
-              paddingBottom: 8,
-            },
-          },
-          {
-            operation: 'createNode',
-            parentId: 'I3',
-            node: {
-              type: 'VECTOR',
-              name: 'Tri',
-              x: 4,
-              y: 4,
-              width: 32,
-              height: 28,
-              vectorPaths: [{ windingRule: 'NONZERO', data: 'M16,2 L30,26 L2,26 Z' }],
-              fills: [{ type: 'SOLID', color: { r: 0.1, g: 0.6, b: 0.4 } }],
-            },
-          },
-        ],
+        code: `
+          const row = figma.createFrame();
+          row.name = 'Row';
+          row.resize(180, 50);
+          row.fills = [{ type: 'SOLID', color: { r: 0.97, g: 0.97, b: 0.98 } }];
+          row.layoutMode = 'HORIZONTAL';
+          row.itemSpacing = 10;
+          row.paddingLeft = 8;
+          row.paddingRight = 8;
+          row.paddingTop = 8;
+          row.paddingBottom = 8;
+          figma.currentPage.appendChild(row);
+          const tri = figma.createVector();
+          tri.name = 'Tri';
+          tri.x = 4;
+          tri.y = 4;
+          tri.resize(32, 28);
+          tri.vectorPaths = [{ windingRule: 'NONZERO', data: 'M16,2 L30,26 L2,26 Z' }];
+          tri.fills = [{ type: 'SOLID', color: { r: 0.1, g: 0.6, b: 0.4 } }];
+          row.appendChild(tri);
+        `,
       },
     });
     const opsText = getToolText(ops);

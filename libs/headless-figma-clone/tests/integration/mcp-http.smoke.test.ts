@@ -73,23 +73,15 @@ describe('mcp-http smoke', () => {
     const use = await client.callTool({
       name: 'use_figma',
       arguments: {
-        operations: [
-          {
-            operation: 'createNode',
-            parentId: 'I2',
-            node: {
-              type: 'FRAME',
-              name: 'Hero',
-              x: 0,
-              y: 0,
-              width: 640,
-              height: 480,
-              fills: [{ type: 'SOLID', color: { r: 0.9, g: 0.2, b: 0.2 } }],
-              strokes: [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }],
-              strokeWeight: 2,
-            },
-          },
-        ],
+        code: `
+          const f = figma.createFrame();
+          f.name = 'Hero';
+          f.resize(640, 480);
+          f.fills = [{ type: 'SOLID', color: { r: 0.9, g: 0.2, b: 0.2 } }];
+          f.strokes = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }];
+          f.strokeWeight = 2;
+          figma.currentPage.appendChild(f);
+        `,
       },
     });
     const useText = getToolText(use);

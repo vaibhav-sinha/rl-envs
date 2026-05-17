@@ -48,13 +48,12 @@ describe('screenshot frame dimensions', () => {
     await client.callTool({
       name: 'use_figma',
       arguments: {
-        operations: [
-          {
-            operation: 'createNode',
-            parentId: 'I2',
-            node: { type: 'FRAME', name: 'Box', x: 0, y: 0, width: 100, height: 50, children: [] },
-          },
-        ],
+        code: `
+          const f = figma.createFrame();
+          f.name = 'Box';
+          f.resize(100, 50);
+          figma.currentPage.appendChild(f);
+        `,
       },
     });
     const scale = 1.75;

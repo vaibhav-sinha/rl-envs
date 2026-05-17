@@ -72,90 +72,8 @@ describe('mcp-http Phase 6 script parity', () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 
-  it('operations vs code produce equivalent design context for boolean + rects', async () => {
-    await client.callTool({ name: 'create_new_file', arguments: { name: 'ParA' } });
-
-    const opsBody = await client.callTool({
-      name: 'use_figma',
-      arguments: {
-        operations: [
-          {
-            operation: 'createNode',
-            parentId: 'I2',
-            node: {
-              type: 'FRAME',
-              name: 'ParShell',
-              x: 0,
-              y: 0,
-              width: 200,
-              height: 120,
-              fills: [{ type: 'SOLID', color: { r: 0.95, g: 0.95, b: 0.95 } }],
-            },
-          },
-          {
-            operation: 'createNode',
-            parentId: 'I3',
-            node: {
-              type: 'RECTANGLE',
-              name: 'A',
-              x: 10,
-              y: 10,
-              width: 60,
-              height: 50,
-              fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }],
-            },
-          },
-          {
-            operation: 'createNode',
-            parentId: 'I3',
-            node: {
-              type: 'RECTANGLE',
-              name: 'B',
-              x: 30,
-              y: 20,
-              width: 60,
-              height: 50,
-              fills: [{ type: 'SOLID', color: { r: 0, g: 0, b: 1 } }],
-            },
-          },
-          {
-            operation: 'createNode',
-            parentId: 'I3',
-            node: {
-              type: 'BOOLEAN_OPERATION',
-              name: 'Bool',
-              booleanOperation: 'SUBTRACT',
-              x: 0,
-              y: 0,
-              width: 100,
-              height: 100,
-            },
-          },
-          { operation: 'moveNode', nodeId: 'I4', newParentId: 'I6', index: 0 },
-          { operation: 'moveNode', nodeId: 'I5', newParentId: 'I6', index: 1 },
-        ],
-      },
-    });
-    const opsParse = parseToolJson(getToolText(opsBody)!);
-    expect(opsParse.ok).toBe(true);
-
-    const meta1 = await client.callTool({ name: 'get_metadata', arguments: { nodeId: 'I2' } });
-    const m1 = parseToolJson(getToolText(meta1)!).data as { root: MetaNode };
-    const shell1 = findNamedFrame(m1.root, 'ParShell');
-    expect(shell1).toBeTruthy();
-
-    const design1 = await client.callTool({
-      name: 'get_design_context',
-      arguments: { nodeId: shell1!, includeCss: true, inlineCss: true },
-    });
-    const d1 = parseToolJson(getToolText(design1)!).data as { html: string; css: string };
-
-    await client.callTool({ name: 'create_new_file', arguments: { name: 'ParB' } });
-
-    const codeBody = await client.callTool({
-      name: 'use_figma',
-      arguments: {
-        code: `
+  it('code produces equivalent design context for boolean + rects across runs', async () => {
+    const parityScript = `
 const shell = figma.createFrame();
 shell.name = 'ParShell';
 shell.resize(200, 120);
@@ -177,8 +95,33 @@ b.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 1 } }];
 shell.appendChild(b);
 figma.subtract([a, b], shell);
 return {};
-`.trim(),
-      },
+`.trim();
+
+    await client.callTool({ name: 'create_new_file', arguments: { name: 'ParA' } });
+
+    const opsBody = await client.callTool({
+      name: 'use_figma',
+      arguments: { code: parityScript },
+    });
+    const opsParse = parseToolJson(getToolText(opsBody)!);
+    expect(opsParse.ok).toBe(true);
+
+    const meta1 = await client.callTool({ name: 'get_metadata', arguments: { nodeId: 'I2' } });
+    const m1 = parseToolJson(getToolText(meta1)!).data as { root: MetaNode };
+    const shell1 = findNamedFrame(m1.root, 'ParShell');
+    expect(shell1).toBeTruthy();
+
+    const design1 = await client.callTool({
+      name: 'get_design_context',
+      arguments: { nodeId: shell1!, includeCss: true, inlineCss: true },
+    });
+    const d1 = parseToolJson(getToolText(design1)!).data as { html: string; css: string };
+
+    await client.callTool({ name: 'create_new_file', arguments: { name: 'ParB' } });
+
+    const codeBody = await client.callTool({
+      name: 'use_figma',
+      arguments: { code: parityScript },
     });
     const codeParse = parseToolJson(getToolText(codeBody)!);
     expect(codeParse.ok).toBe(true);

@@ -72,48 +72,28 @@ describe('mcp-http phase3 assets and shapes', () => {
     const ops = await client.callTool({
       name: 'use_figma',
       arguments: {
-        operations: [
-          {
-            operation: 'createNode',
-            parentId: 'I2',
-            node: {
-              type: 'FRAME',
-              name: 'Canvas',
-              x: 0,
-              y: 0,
-              width: 120,
-              height: 100,
-              fills: [{ type: 'SOLID', color: { r: 0.95, g: 0.95, b: 0.95 } }],
-            },
-          },
-          {
-            operation: 'createNode',
-            parentId: 'I3',
-            node: {
-              type: 'RECTANGLE',
-              name: 'ImgRect',
-              x: 4,
-              y: 4,
-              width: 40,
-              height: 36,
-              fills: [{ type: 'IMAGE', imageHash: sha, scaleMode: 'FILL' }],
-            },
-          },
-          {
-            operation: 'createNode',
-            parentId: 'I3',
-            node: {
-              type: 'POLYGON',
-              name: 'P',
-              x: 50,
-              y: 4,
-              width: 36,
-              height: 36,
-              pointCount: 6,
-              fills: [{ type: 'SOLID', color: { r: 0, g: 0.5, b: 0.2 } }],
-            },
-          },
-        ],
+        code: `
+          const canvas = figma.createFrame();
+          canvas.name = 'Canvas';
+          canvas.resize(120, 100);
+          canvas.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.95, b: 0.95 } }];
+          figma.currentPage.appendChild(canvas);
+          const imgRect = figma.createRectangle();
+          imgRect.name = 'ImgRect';
+          imgRect.x = 4;
+          imgRect.y = 4;
+          imgRect.resize(40, 36);
+          imgRect.fills = [{ type: 'IMAGE', imageHash: ${JSON.stringify(sha)}, scaleMode: 'FILL' }];
+          canvas.appendChild(imgRect);
+          const poly = figma.createPolygon();
+          poly.name = 'P';
+          poly.x = 50;
+          poly.y = 4;
+          poly.resize(36, 36);
+          poly.pointCount = 6;
+          poly.fills = [{ type: 'SOLID', color: { r: 0, g: 0.5, b: 0.2 } }];
+          canvas.appendChild(poly);
+        `,
       },
     });
     const opsText = getToolText(ops);
