@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "skills/create-task/SKILL.md",
       "computedHash": "f2001f168872b29285dcf631373963724c9f6db42fbe13047d6ec488437de5a6"
+    },
+    "rewardkit": {
+      "source": "harbor-framework/harbor",
+      "sourceType": "github",
+      "skillPath": "skills/rewardkit/SKILL.md",
+      "computedHash": "91adc3b7be038260c95cff3df48dca3251cb1bd0e1dcce1f9341444bf9f3df12"
     }
   }
 }
