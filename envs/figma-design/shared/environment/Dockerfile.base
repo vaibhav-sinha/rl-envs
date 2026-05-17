@@ -27,6 +27,9 @@ COPY libs/headless-figma-clone/ ./
 RUN npm run build
 RUN npx playwright install --with-deps chromium
 
+RUN uv pip install --system litellm pillow
+COPY libs/headless-figma-clone/eval-llm/ /opt/hfc/eval-llm/
+
 ENV HFC_HTTP_HOST=127.0.0.1 \
   HFC_HTTP_PORT=3847 \
   HFC_WORKSPACE_DIR=/data/workspace \

@@ -3,14 +3,14 @@
  * Scaffold a new task under envs/figma-design/tasks/<task-id>.
  *
  * Usage:
- *   node envs/figma-design/scripts/new-task.mjs <task-id> [--fixture <path-to.hfc.json>] [--with-metadata]
+ *   node envs/figma-design/scripts/new-task.mjs <task-id> [--fixture <path-to.hfc.json>] [--eval-spec]
  */
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { renderTaskDockerfile, sidecarDirForFixture } from './dockerfile-template.mjs';
-import { syncVerifierToTask } from './sync-verifier.mjs';
+import { EVAL_SPEC_FILE, syncVerifierToTask } from './sync-verifier.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const datasetRoot = resolve(scriptDir, '..');
@@ -25,21 +25,27 @@ const defaultFixture = join(
   'phase2-compile-harness.hfc.json',
 );
 
+const DEFAULT_EVAL_SPEC = {
+  schema_version: 1,
+  gates: { require_change: true },
+  checks: [],
+};
+
 const args = process.argv.slice(2);
 if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
-  console.log(`Usage: node scripts/new-task.mjs <task-id> [--fixture <path>] [--with-metadata]`);
+  console.log(`Usage: node scripts/new-task.mjs <task-id> [--fixture <path>] [--eval-spec]`);
   process.exit(args.length === 0 ? 1 : 0);
 }
 
 const taskId = args[0];
 let fixturePath = defaultFixture;
-let withMetadata = false;
+let withEvalSpec = false;
 
 for (let i = 1; i < args.length; i++) {
   if (args[i] === '--fixture' && args[i + 1]) {
     fixturePath = resolve(args[++i]);
-  } else if (args[i] === '--with-metadata') {
-    withMetadata = true;
+  } else if (args[i] === '--eval-spec') {
+    withEvalSpec = true;
   }
 }
 
@@ -69,12 +75,12 @@ if (hasSidecar) {
 mkdirSync(join(envDir, 'assets'), { recursive: true });
 writeFileSync(join(envDir, 'assets', '.gitkeep'), '', 'utf8');
 
-syncVerifierToTask(taskRoot, sharedVerifier, { preserveMetadata: false });
+syncVerifierToTask(taskRoot, sharedVerifier, { preserveEvalSpec: false });
 
-if (withMetadata) {
+if (withEvalSpec) {
   writeFileSync(
-    join(testsDir, 'design-metadata.json'),
-    `${JSON.stringify({ expected_node_name: 'Board', notes: 'stub metadata for verifier' }, null, 2)}\n`,
+    join(testsDir, EVAL_SPEC_FILE),
+    `${JSON.stringify(DEFAULT_EVAL_SPEC, null, 2)}\n`,
     'utf8',
   );
 }
@@ -146,8 +152,8 @@ console.log(`  fixture: ${basename(fixturePath)}`);
 if (hasSidecar) {
   console.log('  design.hfc.assets: yes');
 }
-if (withMetadata) {
-  console.log('  design-metadata.json: yes');
+if (withEvalSpec) {
+  console.log(`  ${EVAL_SPEC_FILE}: starter template`);
 }
-console.log('\nNext: edit instruction.md, rebuild base if needed, then:');
+console.log('\nNext: edit instruction.md and tests/eval-spec.json, rebuild base if needed, then:');
 console.log(`  harbor run -p ${taskRoot.replace(/\\/g, '/')} --env docker -a <agent> -m <model>`);

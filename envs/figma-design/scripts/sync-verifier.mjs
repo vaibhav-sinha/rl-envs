@@ -1,18 +1,18 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const DESIGN_METADATA_FILE = 'design-metadata.json';
+export const EVAL_SPEC_FILE = 'eval-spec.json';
 
 /**
- * Replace a task's tests/ with shared/verifier, optionally keeping design-metadata.json.
+ * Replace a task's tests/ with shared/verifier, optionally keeping eval-spec.json.
  */
-export function syncVerifierToTask(taskRoot, sharedVerifierDir, { preserveMetadata = true } = {}) {
+export function syncVerifierToTask(taskRoot, sharedVerifierDir, { preserveEvalSpec = true } = {}) {
   const testsDir = join(taskRoot, 'tests');
-  const metadataPath = join(testsDir, DESIGN_METADATA_FILE);
+  const evalSpecPath = join(testsDir, EVAL_SPEC_FILE);
 
-  let metadataContent = null;
-  if (preserveMetadata && existsSync(metadataPath)) {
-    metadataContent = readFileSync(metadataPath, 'utf8');
+  let evalSpecContent = null;
+  if (preserveEvalSpec && existsSync(evalSpecPath)) {
+    evalSpecContent = readFileSync(evalSpecPath, 'utf8');
   }
 
   if (existsSync(testsDir)) {
@@ -22,7 +22,7 @@ export function syncVerifierToTask(taskRoot, sharedVerifierDir, { preserveMetada
 
   cpSync(sharedVerifierDir, testsDir, { recursive: true });
 
-  if (metadataContent !== null) {
-    writeFileSync(join(testsDir, DESIGN_METADATA_FILE), metadataContent, 'utf8');
+  if (evalSpecContent !== null) {
+    writeFileSync(join(testsDir, EVAL_SPEC_FILE), evalSpecContent, 'utf8');
   }
 }
