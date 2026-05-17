@@ -27,6 +27,8 @@ ENV HFC_HTTP_HOST=127.0.0.1 \
 
 WORKDIR /app
 
+COPY envs/figma-design/shared/skills/ /skills/
+
 COPY envs/figma-design/shared/environment/entrypoint.sh /usr/local/bin/figma-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/figma-entrypoint.sh \
   && chmod +x /usr/local/bin/figma-entrypoint.sh
