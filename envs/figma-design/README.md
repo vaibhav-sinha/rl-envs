@@ -49,6 +49,9 @@ envs/figma-design/
         │   ├── design.hfc.assets/       # optional HFC bitmap sidecar (if fixture uses one)
         │   └── assets/                  # reference files for the agent → /app/assets/
         └── tests/
+            ├── check.py              # RewardKit → hfc eval run
+            ├── test.sh
+            └── eval-spec.json        # task grading spec (optional; preserved on sync)
 ```
 
 Tasks intentionally have **no** `solution/` directory (RL / agent-only eval).
@@ -77,10 +80,10 @@ This produces `metaphi/figma-design-base:latest` with headless-figma-clone, Play
 ```bash
 node envs/figma-design/scripts/new-task.mjs my-task-id
 
-# optional: custom fixture and metadata stub
+# optional: custom fixture and starter eval-spec
 node envs/figma-design/scripts/new-task.mjs my-task-id \
   --fixture libs/headless-figma-clone/tests/fixtures/phase2-compile-harness.hfc.json \
-  --with-metadata
+  --eval-spec
 
 cd envs/figma-design
 harbor add tasks/my-task-id
@@ -100,19 +103,21 @@ If the fixture has a sibling `*.hfc.assets/` directory (embedded bitmaps), `new-
 
 Mention agent assets in `instruction.md` as `/app/assets/<file>`. Agents typically use `upload_assets` with `filePath` relative to cwd `/app`.
 
-Verifiers diff the baseline against the post-agent workspace file (no MCP call needed). Helpers live in `tests/design/compare.py` and `tests/design/paths.py`; see `tests/design/check.py` for how to load them from a criterion:
+Grading is defined in `tests/eval-spec.json` (schema: `libs/headless-figma-clone/schemas/eval-spec.schema.json`). The verifier runs headless-figma-clone inside the container:
 
-```python
-initial = normalize_design(load_design(Path("/tests/design.initial.hfc.json")))
-current = normalize_design(load_design(Path("/data/workspace/design.hfc.json")))
-result = diff_designs(initial, current)
+```bash
+node /opt/hfc/dist/cli.js eval run \
+  --before /tests/design.initial.hfc.json \
+  --after /data/workspace/design.hfc.json \
+  --spec /tests/eval-spec.json \
+  --report /logs/verifier/eval-report.json
 ```
 
-Opt into the shared `design` RewardKit criterion by setting `"check_design_diff": true` in `tests/design-metadata.json`.
+If `eval-spec.json` is missing, the criterion returns a perfect score (useful only while scaffolding).
 
 ## Sync shared tests to existing tasks
 
-After changing `shared/verifier/`, push updates to all tasks (keeps each task's `tests/design-metadata.json` if present):
+After changing `shared/verifier/`, push updates to all tasks (keeps each task's `tests/eval-spec.json` if present):
 
 ```bash
 node envs/figma-design/scripts/sync-tests.mjs
@@ -121,18 +126,11 @@ node envs/figma-design/scripts/sync-tests.mjs
 node envs/figma-design/scripts/sync-tests.mjs hello-frame with-metadata
 ```
 
-This deletes everything under each task's `tests/` except `design-metadata.json`, then copies `shared/verifier/` again.
+This replaces each task's `tests/` with `shared/verifier/`, then restores `eval-spec.json` when it existed.
 
 ## Verifier (RewardKit)
 
-Shared criteria under `shared/verifier/`:
-
-| Reward key | Weight | Type | Description |
-|------------|--------|------|-------------|
-| `dummy_minor` | 0.2 | programmatic | Placeholder (always passes) |
-| `dummy_primary` | 0.8 | programmatic | Placeholder (always passes) |
-| `metadata` | 1.0 | programmatic | Reads `/tests/design-metadata.json` if present; skips when absent |
-| `design` | 1.0 | programmatic | Diffs baseline vs workspace design when `check_design_diff` is set in metadata |
+Single criterion `figma_design_score` (weight 1.0) in `shared/verifier/check.py` delegates to `hfc eval run`. Full breakdown is written to `/logs/verifier/eval-report-details.json`.
 
 `tests/test.sh` runs:
 
@@ -202,7 +200,7 @@ Single-container tasks work with standard Docker environments (including many cl
 | Task | Description |
 |------|-------------|
 | `hello-frame` | Add a `Hello` frame via Figma MCP |
-| `with-metadata` | Rename `Board` → `MainBoard`; includes `tests/design-metadata.json` |
+| `with-metadata` | Rename `Board` → `MainBoard`; graded via `tests/eval-spec.json` |
 
 ## Pitfalls
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Sync shared/verifier into every task under tasks/.
- * Removes all existing tests/ content except design-metadata.json, then recopies shared verifier files.
+ * Removes all existing tests/ content except eval-spec.json, then recopies shared verifier files.
  *
  * Usage:
  *   node envs/figma-design/scripts/sync-tests.mjs
@@ -56,7 +56,7 @@ for (const taskId of taskIds) {
     console.warn(`Skip ${taskId}: not a directory under tasks/`);
     continue;
   }
-  syncVerifierToTask(taskRoot, sharedVerifier, { preserveMetadata: true });
+  syncVerifierToTask(taskRoot, sharedVerifier, { preserveEvalSpec: true });
   console.log(`Synced tests → tasks/${taskId}/tests`);
   synced += 1;
 }
