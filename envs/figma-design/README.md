@@ -8,7 +8,7 @@ Harbor dataset for Figma design RL and evaluation. Each trial runs in a **single
 metaphi/figma-design-base:latest     # HFC + Playwright + entrypoint (build once)
         │
         ▼
-per-task image                       # + design.hfc.json only (~seconds to build)
+per-task image                       # + design + assets (~seconds to build)
         │
         ▼
 container start → entrypoint → MCP /health ready → agent → verifier
@@ -20,6 +20,9 @@ container start → entrypoint → MCP /health ready → agent → verifier
 | MCP URL | `http://127.0.0.1:3847/mcp` |
 | Design at startup | Loaded automatically via `HFC_INITIAL_FILE` (not mentioned to agents) |
 | Agent workdir | `/app` |
+| Agent task assets | `environment/assets/` → `/app/assets/` |
+| Verifier baseline design | Baked at build as `/tests/design.initial.hfc.json` |
+| Verifier current design | `/data/workspace/design.hfc.json` (MCP-saved after agent) |
 | Verifier | RewardKit under `/tests` |
 
 ## Layout
@@ -41,8 +44,10 @@ envs/figma-design/
         ├── instruction.md
         ├── task.toml
         ├── environment/
-        │   ├── Dockerfile               # FROM base + COPY design
-        │   └── design.hfc.json          # starting design (Docker build context)
+        │   ├── Dockerfile               # FROM base + COPY design, assets, baseline
+        │   ├── design.hfc.json          # starting design (single source of truth)
+        │   ├── design.hfc.assets/       # optional HFC bitmap sidecar (if fixture uses one)
+        │   └── assets/                  # reference files for the agent → /app/assets/
         └── tests/
 ```
 
@@ -83,6 +88,28 @@ harbor add tasks/my-task-id
 
 Edit `tasks/my-task-id/instruction.md`, then rebuild only the thin task layer (Harbor does this on `harbor run`).
 
+### Task assets and design baseline
+
+Each task image copies:
+
+- `environment/design.hfc.json` → `/data/workspace/design.hfc.json` (mutable; HFC MCP loads and saves here)
+- the same file → `/tests/design.initial.hfc.json` (immutable baseline for verifiers)
+- `environment/assets/` → `/app/assets/` (reference PNGs, copy, etc. for the agent)
+
+If the fixture has a sibling `*.hfc.assets/` directory (embedded bitmaps), `new-task.mjs` copies it into `environment/` and adds a `COPY` into `/data/workspace/`.
+
+Mention agent assets in `instruction.md` as `/app/assets/<file>`. Agents typically use `upload_assets` with `filePath` relative to cwd `/app`.
+
+Verifiers diff the baseline against the post-agent workspace file (no MCP call needed). Helpers live in `tests/design/compare.py` and `tests/design/paths.py`; see `tests/design/check.py` for how to load them from a criterion:
+
+```python
+initial = normalize_design(load_design(Path("/tests/design.initial.hfc.json")))
+current = normalize_design(load_design(Path("/data/workspace/design.hfc.json")))
+result = diff_designs(initial, current)
+```
+
+Opt into the shared `design` RewardKit criterion by setting `"check_design_diff": true` in `tests/design-metadata.json`.
+
 ## Sync shared tests to existing tasks
 
 After changing `shared/verifier/`, push updates to all tasks (keeps each task's `tests/design-metadata.json` if present):
@@ -105,6 +132,7 @@ Shared criteria under `shared/verifier/`:
 | `dummy_minor` | 0.2 | programmatic | Placeholder (always passes) |
 | `dummy_primary` | 0.8 | programmatic | Placeholder (always passes) |
 | `metadata` | 1.0 | programmatic | Reads `/tests/design-metadata.json` if present; skips when absent |
+| `design` | 1.0 | programmatic | Diffs baseline vs workspace design when `check_design_diff` is set in metadata |
 
 `tests/test.sh` runs:
 
@@ -182,3 +210,4 @@ Single-container tasks work with standard Docker environments (including many cl
 - **`FROM metaphi/figma-design-base:latest` missing** — run `build-base.mjs` first.
 - **`.hfc` without `.json`** — engine requires `*.hfc.json`.
 - **MCP URL hostname** — must be `127.0.0.1` in single-container setup, not a Compose service name.
+- **Changed `design.hfc.json`** — rebuild the task image; baseline is baked at build time.

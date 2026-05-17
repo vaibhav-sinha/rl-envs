@@ -9,6 +9,7 @@ import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { renderTaskDockerfile, sidecarDirForFixture } from './dockerfile-template.mjs';
 import { syncVerifierToTask } from './sync-verifier.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -58,6 +59,16 @@ const testsDir = join(taskRoot, 'tests');
 mkdirSync(envDir, { recursive: true });
 
 cpSync(fixturePath, join(envDir, 'design.hfc.json'));
+
+const sidecarPath = sidecarDirForFixture(fixturePath);
+const hasSidecar = sidecarPath !== null && existsSync(sidecarPath);
+if (hasSidecar) {
+  cpSync(sidecarPath, join(envDir, 'design.hfc.assets'), { recursive: true });
+}
+
+mkdirSync(join(envDir, 'assets'), { recursive: true });
+writeFileSync(join(envDir, 'assets', '.gitkeep'), '', 'utf8');
+
 syncVerifierToTask(taskRoot, sharedVerifier, { preserveMetadata: false });
 
 if (withMetadata) {
@@ -68,15 +79,7 @@ if (withMetadata) {
   );
 }
 
-writeFileSync(
-  join(envDir, 'Dockerfile'),
-  `FROM metaphi/figma-design-base:latest
-
-COPY design.hfc.json /data/workspace/design.hfc.json
-ENV HFC_INITIAL_FILE=/data/workspace/design.hfc.json
-`,
-  'utf8',
-);
+writeFileSync(join(envDir, 'Dockerfile'), renderTaskDockerfile({ hasSidecar }), 'utf8');
 
 writeFileSync(
   join(taskRoot, 'task.toml'),
@@ -131,12 +134,18 @@ A design file is already open in **Figma**. Interact with it using the **Figma**
 
 <!-- Describe the design change the agent should make. -->
 
+<!-- Optional: reference files shipped for the agent at /app/assets/ -->
+<!-- e.g. Use upload_assets with filePath assets/logo.png (cwd is /app). -->
+
 `,
   'utf8',
 );
 
 console.log(`Created task: ${taskRoot}`);
 console.log(`  fixture: ${basename(fixturePath)}`);
+if (hasSidecar) {
+  console.log('  design.hfc.assets: yes');
+}
 if (withMetadata) {
   console.log('  design-metadata.json: yes');
 }
