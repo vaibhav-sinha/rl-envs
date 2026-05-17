@@ -26,6 +26,7 @@ container start → entrypoint → MCP /health ready → agent → verifier
 
 ```text
 envs/figma-design/
+├── agents/                    # custom Harbor agents (e.g. cursor-cli + skills)
 ├── dataset.toml
 ├── shared/
 │   ├── environment/
@@ -59,9 +60,12 @@ From the repository root (first time, or when `libs/headless-figma-clone` change
 
 ```bash
 node envs/figma-design/scripts/build-base.mjs
+
+# optional: pre-install cursor-agent (faster Cursor CLI trials)
+node envs/figma-design/scripts/build-base.mjs --with-cursor-cli
 ```
 
-This produces `metaphi/figma-design-base:latest` with headless-figma-clone, Playwright Chromium, `curl`, and `uv`.
+This produces `metaphi/figma-design-base:latest` with headless-figma-clone, Playwright Chromium, `curl`, and `uv`. Pass `--with-cursor-cli` (or set `FIGMA_DESIGN_INSTALL_CURSOR_CLI=1`) to bake in `cursor-agent`.
 
 ## Add a task
 
@@ -110,6 +114,31 @@ uvx --from 'harbor-rewardkit==0.1.*' rewardkit /tests
 
 Output: `/logs/verifier/reward.json`.
 
+## Agent skills
+
+Tasks can ship skills for agents that support them:
+
+1. Add skill folders under `shared/skills/` (copied into the base image at `/skills/`).
+2. Set `skills_dir = "/skills"` in `task.toml` under `[environment]`.
+3. In a custom installed agent, implement `_build_register_skills_command()` to copy from `self.skills_dir` into the CLI’s skills location, and run that command in `run()` before launching the agent. See [Harbor PR #911](https://github.com/harbor-framework/harbor/pull/911) and upstream `ClaudeCode` for the pattern. For Cursor CLI, copy into `.cursor/skills/` in the workdir (`/app`).
+
+## Pre-installed agents (faster runs)
+
+Upstream `cursor-cli` installs `cursor-agent` on every trial. To skip that step:
+
+1. Build the base image with Cursor CLI: `node envs/figma-design/scripts/build-base.mjs --with-cursor-cli`
+2. Use the local agent (`install()` is a no-op) via `--agent-import-path`.
+
+From the repository root (set `CURSOR_API_KEY` on the host):
+
+```powershell
+$env:PYTHONPATH = "envs/figma-design"
+$env:CURSOR_API_KEY = "<key>"
+harbor run -p envs/figma-design/tasks/hello-frame --env docker `
+  --agent-import-path agents.cursor_cli:CursorCliWithSkills `
+  -m cursor/auto
+```
+
 ## Running
 
 Build the base image, then:
@@ -120,6 +149,9 @@ harbor run -p envs/figma-design/tasks/hello-frame --env docker -a terminus-2 -m 
 
 # Full dataset
 harbor run -p envs/figma-design --env docker -a terminus-2 -m anthropic/claude-sonnet-4-6
+
+# Cursor CLI with skills (requires --with-cursor-cli base build; see Pre-installed agents)
+# harbor run ... --agent-import-path agents.cursor_cli:CursorCliWithSkills -m cursor/auto
 
 # Interactive shell (MCP should already be up)
 harbor task start-env -p envs/figma-design/tasks/hello-frame --env docker -a -i
