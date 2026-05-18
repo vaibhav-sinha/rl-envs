@@ -55,11 +55,23 @@ def build_design_consistency_prompt(
     )
 
 
-def build_task_completeness_prompt(*, task_instruction: str) -> str:
+def build_task_completeness_prompt(
+    *,
+    task_instruction: str,
+    evaluation_instructions: str | None = None,
+) -> str:
+    extra = ""
+    if evaluation_instructions and evaluation_instructions.strip():
+        extra = (
+            "\n\n## Additional evaluation instructions\n"
+            f"{evaluation_instructions.strip()}\n"
+        )
+
     return (
         "You are verifying whether an agent completed a Figma design task.\n\n"
         "## Agent task\n"
-        f"{task_instruction}\n\n"
+        f"{task_instruction}\n"
+        f"{extra}\n"
         "Review the screenshot of the design region that contains all changes.\n"
         "1. List each concrete requirement implied by the task.\n"
         "2. For each requirement, state whether it is satisfied.\n"

@@ -177,7 +177,8 @@
           "properties": {
             "id": { "type": "string" },
             "type": { "const": "task_completeness" },
-            "node_id": { "type": "string" }
+            "node_id": { "type": "string" },
+            "evaluation_instructions": { "type": "string", "minLength": 1 }
           },
           "additionalProperties": false
         },

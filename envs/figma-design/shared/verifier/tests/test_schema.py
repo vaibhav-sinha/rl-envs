@@ -81,6 +81,32 @@ def test_visual_design_consistency_validates():
         Path(path).unlink(missing_ok=True)
 
 
+def test_task_completeness_with_evaluation_instructions_validates():
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(
+            {
+                "schema_version": 1,
+                "visual": [
+                    {
+                        "id": "tc1",
+                        "type": "task_completeness",
+                        "evaluation_instructions": "Ignore placeholder lorem ipsum text.",
+                    }
+                ],
+            },
+            f,
+        )
+        path = f.name
+    try:
+        spec = load_and_validate_eval_spec(path)
+        assert (
+            spec["visual"][0]["evaluation_instructions"]
+            == "Ignore placeholder lorem ipsum text."
+        )
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
 def test_compare_with_reference_visual_validates():
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump(
