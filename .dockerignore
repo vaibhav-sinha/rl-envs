@@ -1,0 +1,5 @@
+# headless-figma-clone: npm ci + build run inside the image
+libs/headless-figma-clone/node_modules
+libs/headless-figma-clone/dist
+
+.git

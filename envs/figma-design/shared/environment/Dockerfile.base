@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Build from repository root:
 #   docker build -f envs/figma-design/shared/environment/Dockerfile.base \
 #     -t metaphi/figma-design-base:latest .
@@ -23,9 +24,12 @@ WORKDIR /opt/hfc
 COPY libs/headless-figma-clone/package.json libs/headless-figma-clone/package-lock.json ./
 RUN npm ci
 
+# Depends only on package-lock; keep before HFC source so app edits do not bust this layer.
+RUN --mount=type=cache,target=/root/.cache/ms-playwright \
+  npx playwright install --with-deps chromium
+
 COPY libs/headless-figma-clone/ ./
 RUN npm run build
-RUN npx playwright install --with-deps chromium
 
 ENV HFC_CLI=/opt/hfc/dist/cli.js \
   HFC_HTTP_HOST=127.0.0.1 \
@@ -45,8 +49,11 @@ RUN sed -i 's/\r$//' /usr/local/bin/figma-entrypoint.sh \
 COPY envs/figma-design/shared/verifier/figma_eval /opt/figma-verifier/figma_eval
 COPY envs/figma-design/shared/verifier/eval-spec.schema.json /opt/figma-verifier/eval-spec.schema.json
 COPY envs/figma-design/shared/verifier/requirements.txt /opt/figma-verifier/requirements.txt
-RUN uv pip install --system -r /opt/figma-verifier/requirements.txt
-ENV PYTHONPATH="/opt/figma-verifier:${PYTHONPATH}"
+RUN uv python install 3.12 \
+  && uv venv /opt/figma-verifier/.venv --python 3.12 \
+  && uv pip install -r /opt/figma-verifier/requirements.txt --python /opt/figma-verifier/.venv
+ENV PATH="/opt/figma-verifier/.venv/bin:${PATH}" \
+  PYTHONPATH="/opt/figma-verifier"
 
 EXPOSE 3847
 ENTRYPOINT ["/usr/local/bin/figma-entrypoint.sh"]
