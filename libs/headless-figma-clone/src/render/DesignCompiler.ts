@@ -159,6 +159,11 @@ function findSceneNode(envelope: FileEnvelope, id: string): SceneNode | null {
     const hit = findSceneInList(page.children, id);
     if (hit) return hit;
   }
+  for (const comp of envelope.components ?? []) {
+    if (comp.root.id === id) return comp.root;
+    const hit = findSceneInList([comp.root], id);
+    if (hit) return hit;
+  }
   return null;
 }
 

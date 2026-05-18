@@ -30,11 +30,12 @@
     {
       "id": "design_consistency_1",
       "type": "design_consistency",
-      "node_id": "4817:799"
+      "node_id": "I653"
     },
     {
       "id": "task_completeness_2",
-      "type": "task_completeness"
+      "type": "task_completeness",
+      "node_id": "I653"
     }
   ]
 }

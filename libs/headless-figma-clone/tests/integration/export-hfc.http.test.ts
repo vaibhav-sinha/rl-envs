@@ -57,6 +57,7 @@ describe('POST /import/hfc and /export/hfc', () => {
       fileKey: string;
       fileName: string;
       slug: string;
+      figmaToHfc: Record<string, string>;
       envelope: { document: { children: { children: { name: string }[] }[] } };
     };
     expect(body.fileName).toBe('From-Figma-Import');
@@ -65,6 +66,7 @@ describe('POST /import/hfc and /export/hfc', () => {
     const page = body.envelope.document.children[0]!;
     const frame = page.children.find((n) => n.name === 'Card');
     expect(frame).toBeDefined();
+    expect(body.figmaToHfc['1:2']).toBe(frame!.id);
     expect(existsSync(join(ws, 'From-Figma-Import.hfc.json'))).toBe(false);
   });
 

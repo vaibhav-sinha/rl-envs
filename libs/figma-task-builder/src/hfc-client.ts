@@ -4,6 +4,7 @@ export interface ImportHfcResponse {
   slug: string;
   envelope: unknown;
   assets: Array<{ hash: string; mimeType: string; base64: string }>;
+  figmaToHfc: Record<string, string>;
 }
 
 export class HfcClient {

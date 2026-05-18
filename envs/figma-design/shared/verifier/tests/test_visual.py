@@ -8,6 +8,33 @@ from figma_eval.edit_graph import build_edit_graph
 from figma_eval.visual.run_visual import run_visual_check
 
 
+@patch("figma_eval.visual.run_visual.render_node_or_error")
+def test_render_failure_scores_zero(mock_render, load_fixture, tmp_path):
+    before = load_fixture("minimal", "before")
+    after = load_fixture("add-frame", "after")
+    mock_render.return_value = "hfc render timed out after 90.0s for node I1"
+
+    spec = {
+        "id": "dc_render_fail",
+        "type": "design_consistency",
+        "node_id": "I2",
+    }
+    result = run_visual_check(
+        spec=spec,
+        before=before,
+        after=after,
+        graph=build_edit_graph(before, after),
+        before_path="/tmp/before.hfc.json",
+        after_path="/tmp/after.hfc.json",
+        work_dir=tmp_path,
+        task_instruction="Add a frame",
+        skip_llm=False,
+        model="test",
+    )
+    assert result.score == 0.0
+    assert result.details["reason"] == "render_failed"
+
+
 def test_design_consistency_missing_screenshot_node(load_fixture, tmp_path):
     before = load_fixture("minimal", "before")
     after = load_fixture("minimal", "after")
@@ -56,7 +83,7 @@ def test_before_vs_after_missing_context_scores_zero(load_fixture, tmp_path):
     assert result.details["reason"] == "context_node_missing_in_after"
 
 
-@patch("figma_eval.visual.run_visual.render_node")
+@patch("figma_eval.visual.run_visual.render_node_or_error")
 @patch("figma_eval.visual.run_visual.run_llm_judge")
 def test_design_consistency_uses_context_node(mock_judge, mock_render, load_fixture, tmp_path):
     before = load_fixture("minimal", "before")
@@ -66,6 +93,7 @@ def test_design_consistency_uses_context_node(mock_judge, mock_render, load_fixt
     def fake_render(**kwargs):
         rendered["node_id"] = kwargs["node_id"]
         Path(kwargs["out"]).write_bytes(b"png")
+        return None
 
     mock_render.side_effect = fake_render
     mock_judge.return_value = {
@@ -97,7 +125,7 @@ def test_design_consistency_uses_context_node(mock_judge, mock_render, load_fixt
     mock_judge.assert_called_once()
 
 
-@patch("figma_eval.visual.run_visual.render_node")
+@patch("figma_eval.visual.run_visual.render_node_or_error")
 @patch("figma_eval.visual.run_visual.run_llm_judge")
 def test_design_consistency_without_context_uses_subtree(
     mock_judge, mock_render, load_fixture, tmp_path
@@ -109,6 +137,7 @@ def test_design_consistency_without_context_uses_subtree(
     def fake_render(**kwargs):
         rendered["node_id"] = kwargs["node_id"]
         Path(kwargs["out"]).write_bytes(b"png")
+        return None
 
     mock_render.side_effect = fake_render
     mock_judge.return_value = {"mean_score": 0.7, "consistency_scores": {}, "fit_scores": {}}
@@ -134,7 +163,7 @@ def test_design_consistency_without_context_uses_subtree(
     assert rendered["node_id"] != "I2" or mock_render.called
 
 
-@patch("figma_eval.visual.run_visual.render_node")
+@patch("figma_eval.visual.run_visual.render_node_or_error")
 @patch("figma_eval.visual.run_visual.run_llm_judge")
 def test_task_completeness_skips_llm(mock_judge, mock_render, load_fixture, tmp_path):
     before = load_fixture("minimal", "before")
@@ -142,6 +171,7 @@ def test_task_completeness_skips_llm(mock_judge, mock_render, load_fixture, tmp_
 
     def fake_render(**kwargs):
         Path(kwargs["out"]).write_bytes(b"png")
+        return None
 
     mock_render.side_effect = fake_render
 
@@ -185,7 +215,7 @@ def test_diff_check_no_images(mock_judge, load_fixture, tmp_path):
     assert mock_judge.call_args.kwargs.get("images") is None
 
 
-@patch("figma_eval.visual.run_visual.render_node")
+@patch("figma_eval.visual.run_visual.render_node_or_error")
 @patch("figma_eval.visual.run_visual.run_llm_judge")
 def test_compare_with_reference(mock_judge, mock_render, load_fixture, tmp_path):
     before = load_fixture("minimal", "before")
@@ -197,6 +227,7 @@ def test_compare_with_reference(mock_judge, mock_render, load_fixture, tmp_path)
     def fake_render(**kwargs):
         rendered["node_id"] = kwargs["node_id"]
         Path(kwargs["out"]).write_bytes(b"agent-png")
+        return None
 
     mock_render.side_effect = fake_render
     mock_judge.return_value = {"mean_score": 0.7, "preference_score": 7.0}

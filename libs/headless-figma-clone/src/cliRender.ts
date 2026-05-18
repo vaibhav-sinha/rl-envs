@@ -3,6 +3,7 @@ import { setFontsDir } from './fonts/localFontRegistry.js';
 import { getDefaultFontsDir } from './fonts/packageRoot.js';
 import type { FileEnvelope } from './model/types.js';
 import { renderNodeToFile } from './render/renderNodeToFile.js';
+import { closeSharedBrowser } from './screenshot/PlaywrightScreenshotService.js';
 
 function parseFlag(argv: string[], flag: string): string | undefined {
   const i = argv.indexOf(flag);
@@ -41,14 +42,19 @@ export async function handleRenderCli(argv: string[]): Promise<void> {
 
   setFontsDir(getDefaultFontsDir());
 
-  const envelope = loadEnvelopeFromPath(file);
-  await renderNodeToFile({
-    envelope,
-    envelopePath: file,
-    nodeId: node,
-    outPath: out,
-    scale: Number.isFinite(scale) ? scale : 1,
-    background: bgRaw,
-    viewportPaddingPx: Number.isFinite(padding) ? padding : 0,
-  });
+  try {
+    const envelope = loadEnvelopeFromPath(file);
+    await renderNodeToFile({
+      envelope,
+      envelopePath: file,
+      nodeId: node,
+      outPath: out,
+      scale: Number.isFinite(scale) ? scale : 1,
+      background: bgRaw,
+      viewportPaddingPx: Number.isFinite(padding) ? padding : 0,
+    });
+  } finally {
+    // Release Playwright so the CLI process can exit (singleton otherwise keeps the event loop alive).
+    await closeSharedBrowser();
+  }
 }

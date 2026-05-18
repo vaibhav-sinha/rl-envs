@@ -5,13 +5,6 @@
 
 FROM node:20-bookworm
 
-ARG INSTALL_CURSOR_CLI=false
-RUN if [ "$INSTALL_CURSOR_CLI" = "true" ]; then \
-      curl https://cursor.com/install -fsS | bash && \
-      install -m 0755 /root/.local/bin/cursor-agent /usr/local/bin/cursor-agent; \
-    fi
-ENV PATH="/usr/local/bin:${PATH}"
-
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
@@ -24,9 +17,15 @@ WORKDIR /opt/hfc
 COPY libs/headless-figma-clone/package.json libs/headless-figma-clone/package-lock.json ./
 RUN npm ci
 
-# Depends only on package-lock; keep before HFC source so app edits do not bust this layer.
-RUN --mount=type=cache,target=/root/.cache/ms-playwright \
-  npx playwright install --with-deps chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN npx playwright install --with-deps chromium
+
+ARG INSTALL_CURSOR_CLI=false
+RUN if [ "$INSTALL_CURSOR_CLI" = "true" ]; then \
+      curl https://cursor.com/install -fsS | bash && \
+      install -m 0755 /root/.local/bin/cursor-agent /usr/local/bin/cursor-agent; \
+    fi
+ENV PATH="/usr/local/bin:${PATH}"
 
 COPY libs/headless-figma-clone/ ./
 RUN npm run build
@@ -45,15 +44,18 @@ COPY envs/figma-design/shared/environment/entrypoint.sh /usr/local/bin/figma-ent
 RUN sed -i 's/\r$//' /usr/local/bin/figma-entrypoint.sh \
   && chmod +x /usr/local/bin/figma-entrypoint.sh
 
-# Verifier last: changes here only invalidate this layer (fast rebuilds).
-COPY envs/figma-design/shared/verifier/figma_eval /opt/figma-verifier/figma_eval
-COPY envs/figma-design/shared/verifier/eval-spec.schema.json /opt/figma-verifier/eval-spec.schema.json
-COPY envs/figma-design/shared/verifier/requirements.txt /opt/figma-verifier/requirements.txt
-RUN uv python install 3.12 \
-  && uv venv /opt/figma-verifier/.venv --python 3.12 \
-  && uv pip install -r /opt/figma-verifier/requirements.txt --python /opt/figma-verifier/.venv
+# Verifier Python: split layers so requirements changes only rerun pip install.
+WORKDIR /opt/figma-verifier
+RUN uv python install 3.12
+RUN uv venv /opt/figma-verifier/.venv --python 3.12
+COPY envs/figma-design/shared/verifier/requirements.txt ./requirements.txt
+RUN uv pip install -r /opt/figma-verifier/requirements.txt --python /opt/figma-verifier/.venv
 ENV PATH="/opt/figma-verifier/.venv/bin:${PATH}" \
   PYTHONPATH="/opt/figma-verifier"
+
+# Verifier code last: changes here only invalidate this layer (fast rebuilds).
+COPY envs/figma-design/shared/verifier/figma_eval /opt/figma-verifier/figma_eval
+COPY envs/figma-design/shared/verifier/eval-spec.schema.json /opt/figma-verifier/eval-spec.schema.json
 
 EXPOSE 3847
 ENTRYPOINT ["/usr/local/bin/figma-entrypoint.sh"]

@@ -24,6 +24,7 @@ export interface ConvertedHfc {
   fileName: string;
   envelope: FileEnvelope;
   assets: ImportHfcAsset[];
+  figmaToHfc: Record<string, string>;
 }
 
 export interface ImportHfcResponse {
@@ -32,6 +33,7 @@ export interface ImportHfcResponse {
   slug: string;
   envelope: FileEnvelope;
   assets: ImportHfcAsset[];
+  figmaToHfc: Record<string, string>;
 }
 
 export interface ExportHfcResponse {
@@ -55,7 +57,7 @@ export function convertFigmaSnapshot(body: ExportHfcRequest): ConvertedHfc {
   const snapshot: FigmaPluginSnapshot = parseFigmaPluginSnapshot(body.snapshot);
   const fileName = body.hfcFileName.trim() || snapshot.figmaFileName || 'Untitled';
   const slug = slugHfcFileName(fileName);
-  const { envelope, assetBuffers } = importFigmaPluginSnapshot(snapshot, { fileName });
+  const { envelope, assetBuffers, figmaToHfc } = importFigmaPluginSnapshot(snapshot, { fileName });
 
   const assets: ImportHfcAsset[] = [];
   for (const { buf, mime } of assetBuffers) {
@@ -73,6 +75,7 @@ export function convertFigmaSnapshot(body: ExportHfcRequest): ConvertedHfc {
     fileName: envelope.fileName,
     envelope,
     assets,
+    figmaToHfc,
   };
 }
 
@@ -84,6 +87,7 @@ export function handleImportHfc(body: ExportHfcRequest): ImportHfcResponse {
     slug: converted.slug,
     envelope: converted.envelope,
     assets: converted.assets,
+    figmaToHfc: converted.figmaToHfc,
   };
 }
 
@@ -122,6 +126,7 @@ export async function handleExportHfc(
       slug: converted.slug,
       envelope: converted.envelope,
       assets: converted.assets,
+      figmaToHfc: converted.figmaToHfc,
     };
   }
   return saveConvertedHfc(converted, params);

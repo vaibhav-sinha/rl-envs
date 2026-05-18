@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 from ..edit_graph import changed_node_ids, format_diff_summary, resolve_focus_node_id
-from ..hfc_render import render_node
+from ..hfc_render import render_node_or_error
 from ..judge import (
     parse_criteria_scores,
     parse_numeric_score,
@@ -18,6 +17,7 @@ from ..tree import (
     resolve_compare_with_reference_screenshot_node,
     resolve_minimal_enclosing_frame,
 )
+from ..log import log
 from ..types import EditGraph, Envelope, SubCheckResult
 from .prompts import (
     DEFAULT_CONSISTENCY_CRITERIA,
@@ -31,6 +31,28 @@ from .prompts import (
 )
 
 SKIP_LLM_SCORE = 0.75
+
+
+def _render_screenshot(
+    spec: dict[str, Any],
+    *,
+    file: str,
+    node_id: str,
+    out: Path,
+    hfc_cli: str | None,
+) -> SubCheckResult | None:
+    err = render_node_or_error(file=file, node_id=node_id, out=out, hfc_cli=hfc_cli)
+    if err is None:
+        return None
+    log(
+        f"visual check {spec.get('id', '?')}: screenshot render failed "
+        f"node={node_id} out={out}"
+    )
+    return _visual_result(
+        spec,
+        0.0,
+        {"reason": "render_failed", "node_id": node_id, "error": err},
+    )
 
 
 def _resolve_reference_asset_path(spec: dict[str, Any], assets_dir: str | None) -> Path:
@@ -91,7 +113,15 @@ def _run_design_consistency(
         )
 
     shot_path = work / f"{spec['id']}-design.png"
-    render_node(file=after_path, node_id=screenshot_id, out=shot_path, hfc_cli=hfc_cli)
+    render_failed = _render_screenshot(
+        spec,
+        file=after_path,
+        node_id=screenshot_id,
+        out=shot_path,
+        hfc_cli=hfc_cli,
+    )
+    if render_failed is not None:
+        return render_failed
 
     consistency_criteria = criteria_from_spec(
         spec, "consistency_criteria", DEFAULT_CONSISTENCY_CRITERIA
@@ -166,7 +196,15 @@ def _run_task_completeness(
         return _visual_result(spec, 0.0, {"reason": "enclosing_frame_missing", "node_id": frame_id})
 
     shot_path = work / f"{spec['id']}-completeness.png"
-    render_node(file=after_path, node_id=frame_id, out=shot_path, hfc_cli=hfc_cli)
+    render_failed = _render_screenshot(
+        spec,
+        file=after_path,
+        node_id=frame_id,
+        out=shot_path,
+        hfc_cli=hfc_cli,
+    )
+    if render_failed is not None:
+        return render_failed
 
     if skip_llm:
         return _visual_result(
@@ -225,8 +263,24 @@ def _run_before_vs_after(
 
     before_shot = work / f"{spec['id']}-before.png"
     after_shot = work / f"{spec['id']}-after.png"
-    render_node(file=before_path, node_id=context_id, out=before_shot, hfc_cli=hfc_cli)
-    render_node(file=after_path, node_id=context_id, out=after_shot, hfc_cli=hfc_cli)
+    render_failed = _render_screenshot(
+        spec,
+        file=before_path,
+        node_id=context_id,
+        out=before_shot,
+        hfc_cli=hfc_cli,
+    )
+    if render_failed is not None:
+        return render_failed
+    render_failed = _render_screenshot(
+        spec,
+        file=after_path,
+        node_id=context_id,
+        out=after_shot,
+        hfc_cli=hfc_cli,
+    )
+    if render_failed is not None:
+        return render_failed
 
     if skip_llm:
         return _visual_result(
@@ -289,7 +343,15 @@ def _run_compare_with_reference(
         )
 
     agent_shot = work / f"{spec['id']}-agent.png"
-    render_node(file=after_path, node_id=screenshot_id, out=agent_shot, hfc_cli=hfc_cli)
+    render_failed = _render_screenshot(
+        spec,
+        file=after_path,
+        node_id=screenshot_id,
+        out=agent_shot,
+        hfc_cli=hfc_cli,
+    )
+    if render_failed is not None:
+        return render_failed
 
     if skip_llm:
         return _visual_result(
@@ -372,67 +434,92 @@ def run_visual_check(
     work.mkdir(parents=True, exist_ok=True)
 
     check_type = spec.get("type")
+    check_id = spec.get("id", "?")
+    log(f"visual check start id={check_id} type={check_type}")
     if check_type == "design_consistency":
-        return _run_design_consistency(
-            spec=spec,
-            before=before,
-            after=after,
-            after_path=after_path,
-            work=work,
-            task_instruction=task_instruction,
-            skip_llm=skip_llm,
-            model=model,
-            hfc_cli=hfc_cli,
+        return _log_visual_done(
+            spec,
+            _run_design_consistency(
+                spec=spec,
+                before=before,
+                after=after,
+                after_path=after_path,
+                work=work,
+                task_instruction=task_instruction,
+                skip_llm=skip_llm,
+                model=model,
+                hfc_cli=hfc_cli,
+            ),
         )
     if check_type == "task_completeness":
-        return _run_task_completeness(
-            spec=spec,
-            before=before,
-            after=after,
-            after_path=after_path,
-            graph=graph,
-            work=work,
-            task_instruction=task_instruction,
-            skip_llm=skip_llm,
-            model=model,
-            hfc_cli=hfc_cli,
+        return _log_visual_done(
+            spec,
+            _run_task_completeness(
+                spec=spec,
+                before=before,
+                after=after,
+                after_path=after_path,
+                graph=graph,
+                work=work,
+                task_instruction=task_instruction,
+                skip_llm=skip_llm,
+                model=model,
+                hfc_cli=hfc_cli,
+            ),
         )
     if check_type == "before_vs_after":
-        return _run_before_vs_after(
-            spec=spec,
-            before=before,
-            after=after,
-            before_path=before_path,
-            after_path=after_path,
-            work=work,
-            task_instruction=task_instruction,
-            skip_llm=skip_llm,
-            model=model,
-            hfc_cli=hfc_cli,
+        return _log_visual_done(
+            spec,
+            _run_before_vs_after(
+                spec=spec,
+                before=before,
+                after=after,
+                before_path=before_path,
+                after_path=after_path,
+                work=work,
+                task_instruction=task_instruction,
+                skip_llm=skip_llm,
+                model=model,
+                hfc_cli=hfc_cli,
+            ),
         )
     if check_type == "diff":
-        return _run_diff_check(
-            spec=spec,
-            graph=graph,
-            task_instruction=task_instruction,
-            skip_llm=skip_llm,
-            model=model,
+        return _log_visual_done(
+            spec,
+            _run_diff_check(
+                spec=spec,
+                graph=graph,
+                task_instruction=task_instruction,
+                skip_llm=skip_llm,
+                model=model,
+            ),
         )
     if check_type == "compare_with_reference":
-        return _run_compare_with_reference(
-            spec=spec,
-            after=after,
-            after_path=after_path,
-            graph=graph,
-            work=work,
-            task_instruction=task_instruction,
-            assets_dir=assets_dir,
-            skip_llm=skip_llm,
-            model=model,
-            hfc_cli=hfc_cli,
+        return _log_visual_done(
+            spec,
+            _run_compare_with_reference(
+                spec=spec,
+                after=after,
+                after_path=after_path,
+                graph=graph,
+                work=work,
+                task_instruction=task_instruction,
+                assets_dir=assets_dir,
+                skip_llm=skip_llm,
+                model=model,
+                hfc_cli=hfc_cli,
+            ),
         )
 
     raise ValueError(f"Unknown visual check type: {check_type!r}")
+
+
+def _log_visual_done(spec: dict[str, Any], result: SubCheckResult) -> SubCheckResult:
+    log(
+        f"visual check done id={spec.get('id', '?')} type={spec.get('type')} "
+        f"score={result.score}"
+    )
+    return result
 
 
 def run_all_visual_checks(
@@ -448,35 +535,33 @@ def run_all_visual_checks(
     assets_dir: str | None = None,
     skip_llm: bool = False,
     model: str,
-    parallel: int = 4,
+    parallel: int = 1,
     hfc_cli: str | None = None,
 ) -> list[SubCheckResult]:
     if not specs:
         return []
 
-    results: list[SubCheckResult | None] = [None] * len(specs)
-
-    def run_one(idx: int, spec: dict[str, Any]) -> tuple[int, SubCheckResult]:
-        return idx, run_visual_check(
-            spec=spec,
-            before=before,
-            after=after,
-            graph=graph,
-            before_path=before_path,
-            after_path=after_path,
-            work_dir=work_dir,
-            task_instruction=task_instruction,
-            assets_dir=assets_dir,
-            skip_llm=skip_llm,
-            model=model,
-            hfc_cli=hfc_cli,
+    if parallel != 1:
+        log(f"visual batch: ignoring parallel={parallel}; running sequentially")
+    log(f"visual batch start count={len(specs)}")
+    results: list[SubCheckResult] = []
+    for spec in specs:
+        results.append(
+            run_visual_check(
+                spec=spec,
+                before=before,
+                after=after,
+                graph=graph,
+                before_path=before_path,
+                after_path=after_path,
+                work_dir=work_dir,
+                task_instruction=task_instruction,
+                assets_dir=assets_dir,
+                skip_llm=skip_llm,
+                model=model,
+                hfc_cli=hfc_cli,
+            )
         )
 
-    workers = min(parallel, len(specs))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(run_one, i, s) for i, s in enumerate(specs)]
-        for fut in as_completed(futures):
-            idx, res = fut.result()
-            results[idx] = res
-
-    return [r for r in results if r is not None]
+    log(f"visual batch done count={len(results)}")
+    return results
