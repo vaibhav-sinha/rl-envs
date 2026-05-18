@@ -10,7 +10,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { renderTaskDockerfile, sidecarDirForFixture } from './dockerfile-template.mjs';
-import { EVAL_SPEC_FILE, syncVerifierToTask } from './sync-verifier.mjs';
+import { EVAL_SPEC_FILE, syncInstructionToEnvironment, syncVerifierToTask } from './sync-verifier.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const datasetRoot = resolve(scriptDir, '..');
@@ -146,6 +146,8 @@ A design file is already open in **Figma**. Interact with it using the **Figma**
 `,
   'utf8',
 );
+
+syncInstructionToEnvironment(taskRoot);
 
 console.log(`Created task: ${taskRoot}`);
 console.log(`  fixture: ${basename(fixturePath)}`);

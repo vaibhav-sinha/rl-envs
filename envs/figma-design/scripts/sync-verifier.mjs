@@ -36,3 +36,17 @@ export function syncVerifierToTask(taskRoot, sharedVerifierDir, { preserveEvalSp
     writeFileSync(join(testsDir, EVAL_SPEC_FILE), evalSpecContent, 'utf8');
   }
 }
+
+/**
+ * Copy task-root instruction.md into environment/ for Docker build context.
+ * Harbor reads instruction from the task root; the per-task Dockerfile COPYs from environment/.
+ */
+export function syncInstructionToEnvironment(taskRoot) {
+  const instructionPath = join(taskRoot, 'instruction.md');
+  if (!existsSync(instructionPath)) {
+    throw new Error(`Missing instruction.md: ${instructionPath}`);
+  }
+  const envDir = join(taskRoot, 'environment');
+  mkdirSync(envDir, { recursive: true });
+  cpSync(instructionPath, join(envDir, 'instruction.md'));
+}
