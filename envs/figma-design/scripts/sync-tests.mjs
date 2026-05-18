@@ -11,7 +11,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { syncVerifierToTask } from './sync-verifier.mjs';
+import { syncInstructionToEnvironment, syncVerifierToTask } from './sync-verifier.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const datasetRoot = resolve(scriptDir, '..');
@@ -57,6 +57,10 @@ for (const taskId of taskIds) {
     continue;
   }
   syncVerifierToTask(taskRoot, sharedVerifier, { preserveEvalSpec: true });
+  if (existsSync(join(taskRoot, 'instruction.md'))) {
+    syncInstructionToEnvironment(taskRoot);
+    console.log(`Synced instruction → tasks/${taskId}/environment/instruction.md`);
+  }
   console.log(`Synced thin tests → tasks/${taskId}/tests`);
   synced += 1;
 }

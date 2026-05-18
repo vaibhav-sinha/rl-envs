@@ -109,6 +109,7 @@ export function finalizeTask(config: TaskBuilderConfig, taskId: string): void {
 
   cpSync(join(draftRoot, 'environment'), join(harborRoot, 'environment'), { recursive: true });
   cpSync(instructionPath, join(harborRoot, 'instruction.md'));
+  cpSync(instructionPath, join(harborRoot, 'environment', 'instruction.md'));
 
   for (const name of TASK_TEST_FILES) {
     cpSync(join(config.sharedVerifierDir, name), join(harborRoot, 'tests', name));
