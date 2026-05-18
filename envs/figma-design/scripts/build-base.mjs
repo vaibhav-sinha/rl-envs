@@ -41,7 +41,11 @@ if (withCursorCli) {
   );
 }
 
-const result = spawnSync('docker', args, { stdio: 'inherit', cwd: repoRoot });
+const result = spawnSync('docker', args, {
+  stdio: 'inherit',
+  cwd: repoRoot,
+  env: { ...process.env, DOCKER_BUILDKIT: '1' },
+});
 if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
