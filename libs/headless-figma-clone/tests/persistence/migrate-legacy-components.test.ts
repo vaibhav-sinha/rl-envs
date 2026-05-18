@@ -63,7 +63,9 @@ describe('JsonPersistence legacy component migration', () => {
           if (Array.isArray(n.children)) walk(n.children as { type?: string; children?: unknown[] }[]);
         }
       };
-      walk(loaded.document.children[0]!.children as { type?: string; children?: unknown[] }[]);
+      for (const page of loaded.document.children) {
+        walk(page.children as { type?: string; children?: unknown[] }[]);
+      }
       expect(types.has('COMPONENT')).toBe(true);
       expect(types.has('INSTANCE')).toBe(true);
       expect(types.has('COMPONENT_INSTANCE')).toBe(false);

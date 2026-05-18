@@ -13,6 +13,7 @@ import type { TaskBuilderConfig } from './config.js';
 import { defaultEvalSpec, validateEvalSpec } from './eval-spec-validator.js';
 import { HfcClient } from './hfc-client.js';
 import { cloneHarborToDraft, finalizeTask } from './finalize.js';
+import { remapEvalSpecIds } from './remap-eval-spec.js';
 import type {
   BuilderState,
   EvalSpec,
@@ -265,6 +266,14 @@ export class TasksStore {
                 : 'gif';
       const buf = Buffer.from(asset.base64, 'base64');
       writeFileSync(join(sidecarDir, `${asset.hash}.${ext}`), buf);
+    }
+
+    const evalSpecPath = join(root, 'tests', EVAL_SPEC_FILE);
+    if (existsSync(evalSpecPath) && imported.figmaToHfc) {
+      const spec = JSON.parse(readFileSync(evalSpecPath, 'utf8')) as EvalSpec;
+      const remapped = remapEvalSpecIds(spec, imported.figmaToHfc);
+      validateEvalSpec(this.config.evalSpecSchemaPath, remapped);
+      writeFileSync(evalSpecPath, JSON.stringify(remapped, null, 2) + '\n', 'utf8');
     }
 
     const state = this.readBuilderState(id);

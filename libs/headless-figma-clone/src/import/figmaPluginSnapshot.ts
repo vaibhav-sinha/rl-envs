@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ulid } from 'ulid';
+import { COMPONENT_MASTERS_PAGE_NAME } from '../persistence/componentGraphNormalize.js';
 import type {
-  ComponentDefinition,
   ComponentPropertyValue,
   DocumentNode,
   FileEnvelope,
@@ -103,6 +103,8 @@ export interface ImportResult {
     mime: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'image/svg+xml';
   }[];
   report: ImportReport;
+  /** Figma node/variable/style ids from the snapshot → ids stored in the envelope. */
+  figmaToHfc: Record<string, string>;
 }
 
 function isFigmaNodeIconAsset(
@@ -185,15 +187,7 @@ export function importFigmaPluginSnapshot(
     document.children.push(importPage(pageNode, ctx));
   }
 
-  const components: ComponentDefinition[] = [];
-  for (const [compId, root] of ctx.componentRootFrames) {
-    const compNode = findComponentNode(document, compId);
-    components.push({
-      id: compId,
-      name: compNode?.name ?? root.name,
-      root,
-    });
-  }
+  attachComponentMasterRoots(document, ctx.componentRootFrames, idMap);
 
   const envelope: FileEnvelope = {
     schemaVersion: 1,
@@ -201,7 +195,6 @@ export function importFigmaPluginSnapshot(
     fileName: params.fileName,
     nextInternalId: idMap.nextInternalId,
     document,
-    components: components.length > 0 ? components : undefined,
     variableCollections: variableCollections.length > 0 ? variableCollections : undefined,
     textStyles: textStyles.length > 0 ? textStyles : undefined,
     paintStyles: paintStyles.length > 0 ? paintStyles : undefined,
@@ -218,7 +211,7 @@ export function importFigmaPluginSnapshot(
     }
   }
 
-  return { envelope, assetBuffers, report };
+  return { envelope, assetBuffers, report, figmaToHfc: idMap.toFigmaToHfcRecord() };
 }
 
 function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
@@ -268,13 +261,31 @@ function normalizeGroupChildrenToFrameSpace(g: GroupNode): void {
   }
 }
 
-function findComponentNode(document: DocumentNode, compId: string): SceneNode | undefined {
-  for (const page of document.children) {
-    for (const ch of page.children) {
-      if (ch.id === compId && ch.type === 'COMPONENT') return ch;
-    }
+function attachComponentMasterRoots(
+  document: DocumentNode,
+  componentRootFrames: Map<string, FrameNode>,
+  idMap: FigmaIdMap
+): void {
+  if (componentRootFrames.size === 0) return;
+
+  let mastersPage = document.children.find((p) => p.name === COMPONENT_MASTERS_PAGE_NAME);
+  if (!mastersPage) {
+    mastersPage = {
+      id: idMap.allocate('__hfc:component-masters-page'),
+      type: 'PAGE',
+      name: COMPONENT_MASTERS_PAGE_NAME,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      children: [],
+    };
+    document.children.push(mastersPage);
   }
-  return undefined;
+
+  for (const root of componentRootFrames.values()) {
+    mastersPage.children.push(root);
+  }
 }
 
 function registerComponentLookup(

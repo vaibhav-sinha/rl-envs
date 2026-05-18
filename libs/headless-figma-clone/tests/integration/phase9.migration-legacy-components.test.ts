@@ -15,7 +15,7 @@ function collectNodeTypes(env: FileEnvelope): Set<string> {
     }
   };
   for (const p of env.document.children) {
-    walk(p.children as any[]);
+    walk((p.children ?? []) as any[]);
   }
   return out;
 }

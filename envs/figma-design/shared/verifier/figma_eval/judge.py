@@ -8,7 +8,13 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from .log import log
+
 ScoreMap = dict[str, float]
+
+
+def llm_timeout_sec() -> float:
+    return float(os.environ.get("EVAL_LLM_TIMEOUT_SEC", "120"))
 
 
 def _strip_json_fence(text: str) -> str:
@@ -121,13 +127,19 @@ def _build_messages(payload: dict[str, Any]) -> list[dict[str, Any]]:
 def _call_litellm(model: str, messages: list[dict[str, Any]]) -> str:
     import litellm
 
+    timeout = llm_timeout_sec()
+    log(f"LLM request model={model} timeout={timeout}s")
     response = litellm.completion(
         model=model,
         messages=messages,
         num_retries=0,
         temperature=0,
+        timeout=timeout,
+        request_timeout=timeout,
     )
-    return response.choices[0].message.content or ""
+    text = response.choices[0].message.content or ""
+    log(f"LLM response received ({len(text)} chars)")
+    return text
 
 
 def run_llm_judge(
@@ -147,31 +159,42 @@ def run_llm_judge(
         )
 
     payload: dict[str, Any] = {
-        "model": model or os.environ.get("EVAL_JUDGE_MODEL", "anthropic/claude-sonnet-4-6"),
+        "model": model or os.environ.get("EVAL_JUDGE_MODEL", "gemini/gemini-3-flash-preview"),
         "prompt": prompt,
         "images": payload_images,
     }
     retries = num_retries if num_retries is not None else int(os.environ.get("EVAL_JUDGE_RETRIES", "1"))
+    image_count = len(payload_images)
+    log(f"LLM judge start model={payload['model']} images={image_count} retries={retries}")
 
     messages = _build_messages(payload)
     last_err: Exception | None = None
 
-    for _attempt in range(retries + 1):
+    for attempt in range(retries + 1):
         try:
+            if attempt > 0:
+                log(f"LLM judge retry {attempt}/{retries}")
             text = _call_litellm(payload["model"], messages)
-            return parse_fn(text)
+            parsed = parse_fn(text)
+            log(f"LLM judge parsed mean_score={parsed.get('mean_score')}")
+            return parsed
         except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
             last_err = e
+            log(f"LLM judge parse error: {e}")
             messages = [
                 {
                     "role": "user",
                     "content": retry_hint + "\n\n" + prompt,
                 }
             ]
+        except Exception as e:
+            last_err = e
+            log(f"LLM judge error: {type(e).__name__}: {e}")
+            break
 
     if last_err:
-        raise last_err
-    return {"mean_score": 0.0}
+        log(f"LLM judge failed after {retries + 1} attempt(s): {last_err}")
+    return {"mean_score": 0.0, "error": str(last_err) if last_err else "unknown"}
 
 
 def run_visual_judge(

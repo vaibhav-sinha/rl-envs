@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--instruction", required=True)
     run_p.add_argument("--report", required=True)
     run_p.add_argument("--assets-dir")
-    run_p.add_argument("--parallel", type=int, default=4)
+    run_p.add_argument("--parallel", type=int, default=1)
     run_p.add_argument("--skip-llm", action="store_true")
 
     diff_p = sub.add_parser("diff")

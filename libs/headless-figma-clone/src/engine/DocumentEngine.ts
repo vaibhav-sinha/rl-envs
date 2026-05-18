@@ -32,6 +32,7 @@ import type {
   TransformModifier,
 } from '../model/types.js';
 import type { StyledSegment } from '../model/types.js';
+import { componentIdExistsInEnvelope } from '../persistence/componentGraphNormalize.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
 import { atomicWriteFileBinary } from '../persistence/atomicWriteFile.js';
 import { relativeAssetFile, sidecarDirForHfcJson } from '../persistence/assetPaths.js';
@@ -1141,7 +1142,7 @@ function normalizeNewComponentInstance(
   env: FileEnvelope
 ): ComponentInstanceNode {
   const mid = spec.mainComponentId;
-  if (typeof mid !== 'string' || !env.components?.some((c) => c.id === mid)) {
+  if (typeof mid !== 'string' || !componentIdExistsInEnvelope(env, mid)) {
     throw new ValidationErr('VALIDATION_ERROR', 'COMPONENT_INSTANCE.mainComponentId must reference an existing component');
   }
   let overrides: ComponentInstanceNode['overrides'];
@@ -3412,7 +3413,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     if ('mainComponentId' in patch) {
       const mid = patch.mainComponentId;
-      if (typeof mid !== 'string' || !env.components?.some((c) => c.id === mid)) {
+      if (typeof mid !== 'string' || !componentIdExistsInEnvelope(env, mid)) {
         throw new ValidationErr('VALIDATION_ERROR', 'mainComponentId must reference an existing component');
       }
       ci.mainComponentId = mid;

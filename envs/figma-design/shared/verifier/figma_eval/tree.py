@@ -39,6 +39,16 @@ def find_node(envelope: Envelope, node_id: str) -> TreeNode | None:
         found = walk(page)
         if found is not None:
             return found
+    for comp in envelope.get("components") or []:
+        root = comp.get("root")
+        if comp.get("id") == node_id:
+            return root if isinstance(root, dict) else None
+        if isinstance(root, dict):
+            if root.get("id") == node_id:
+                return root
+            found = walk(root)
+            if found is not None:
+                return found
     return None
 
 
@@ -102,6 +112,10 @@ def parent_id_map(envelope: Envelope) -> dict[str, str]:
         return parents
     for page in doc.get("children") or []:
         walk(page, None)
+    for comp in envelope.get("components") or []:
+        root = comp.get("root")
+        if isinstance(root, dict):
+            walk(root, None)
     return parents
 
 
@@ -163,6 +177,19 @@ def resolve_minimal_enclosing_frame(envelope: Envelope, node_ids: set[str]) -> s
             containing_frames.append((nid, len(scope)))
 
     if not containing_frames:
+        parents = parent_id_map(envelope)
+        nearest_frames: list[tuple[str, int]] = []
+        for nid in node_ids:
+            cur: str | None = nid
+            while cur:
+                node = find_node(envelope, cur)
+                if node and node.get("type") in ENCLOSING_FRAME_TYPES:
+                    nearest_frames.append((cur, len(descendant_ids(envelope, cur))))
+                    break
+                cur = parents.get(cur)
+        if nearest_frames:
+            nearest_frames.sort(key=lambda item: item[1])
+            return nearest_frames[0][0]
         return next(iter(node_ids))
 
     containing_frames.sort(key=lambda item: item[1])

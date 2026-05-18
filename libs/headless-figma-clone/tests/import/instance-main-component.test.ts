@@ -36,7 +36,16 @@ describe('INSTANCE mainComponent import', () => {
     if (inst?.type !== 'INSTANCE') return;
 
     expect(inst.mainComponentId).not.toBe('I0');
-    const comp = envelope.components?.find((c) => c.id === inst.mainComponentId);
+    const findComponent = (componentId: string) => {
+      const stack = envelope.document.children.flatMap((p) => p.children);
+      while (stack.length) {
+        const n = stack.pop()!;
+        if (n.type === 'COMPONENT' && n.id === componentId) return n;
+        if ('children' in n && Array.isArray(n.children)) stack.push(...n.children);
+      }
+      return undefined;
+    };
+    const comp = findComponent(inst.mainComponentId);
     expect(comp?.name).toBe('Property 1=Coffee, Property 2=6');
   });
 

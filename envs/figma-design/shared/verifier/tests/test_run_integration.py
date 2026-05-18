@@ -43,10 +43,20 @@ def test_run_eval_no_visual(load_fixture):
             spec_path=spec_path,
             instruction_path=instruction_path,
             report_path=report_path,
+            work_dir=Path(tmp) / "screenshots",
             skip_llm=True,
         )
 
         assert 0 <= report["score"] <= 10
         assert report_path.is_file()
+
+        details_path = Path(tmp) / "eval-report-details.json"
+        assert details_path.is_file()
+        details = json.loads(details_path.read_text(encoding="utf-8"))
+        assert "reward" in details
+        assert "categories" in details
+        assert details["checks"][0]["id"] == "gates.require_change"
+        assert details["checks"][0]["reward"] == 1.0
+
         ids = {s["id"] for s in report["subchecks"]}
         assert "check.added" in ids

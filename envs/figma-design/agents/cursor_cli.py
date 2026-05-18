@@ -1,5 +1,7 @@
+import json
 import os
 import shlex
+from typing import Any
 
 from harbor.agents.installed.cursor_cli import CursorCli
 from harbor.environments.base import BaseEnvironment
@@ -35,3 +37,20 @@ class CursorCliWithSkills(CursorCli):
                 env["CURSOR_API_KEY"] = os.environ["CURSOR_API_KEY"]
             await self.exec_as_agent(environment, command=skills_command, env=env)
         await super().run(instruction, environment, context)
+
+    def _parse_stdout(self) -> list[dict[str, Any]]:
+        """Parse cursor-cli JSONL; force UTF-8 (Windows locale defaults to cp1252)."""
+        output_path = self.logs_dir / self._OUTPUT_FILENAME
+        if not output_path.exists():
+            return []
+
+        events: list[dict[str, Any]] = []
+        for line in output_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return events

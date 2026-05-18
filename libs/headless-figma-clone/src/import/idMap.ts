@@ -20,6 +20,11 @@ export class FigmaIdMap {
     return this.figmaToHfc.get(figmaId);
   }
 
+  /** Serializable Figma id → HFC id map (for eval-spec remapping after import). */
+  toFigmaToHfcRecord(): Record<string, string> {
+    return Object.fromEntries(this.figmaToHfc);
+  }
+
   get nextInternalId(): number {
     return this.nextId;
   }

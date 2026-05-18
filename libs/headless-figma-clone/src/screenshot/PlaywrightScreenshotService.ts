@@ -21,13 +21,16 @@ async function getBrowser(): Promise<Browser> {
   return browserSingleton;
 }
 
-/** Visible test hook to close shared browser */
-export async function __closeTestBrowser(): Promise<void> {
+/** Close the shared Playwright browser (CLI render and tests). */
+export async function closeSharedBrowser(): Promise<void> {
   if (browserSingleton) {
     await browserSingleton.close();
     browserSingleton = null;
   }
 }
+
+/** @deprecated Use closeSharedBrowser */
+export const __closeTestBrowser = closeSharedBrowser;
 
 export const playwrightScreenshotService: PlaywrightScreenshotService = {
   async capture(params) {
@@ -45,7 +48,16 @@ export const playwrightScreenshotService: PlaywrightScreenshotService = {
         waitUntil: 'load',
         timeout: params.timeoutMs,
       });
-      await page.evaluate('document.fonts.ready');
+      const fontsReady = page.evaluate('document.fonts.ready');
+      await Promise.race([
+        fontsReady,
+        new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error(`document.fonts.ready timed out after ${params.timeoutMs}ms`)),
+            params.timeoutMs,
+          );
+        }),
+      ]);
       if (params.background === 'white') {
         await page.addStyleTag({ content: 'body { background: #fff !important; }' });
       }
