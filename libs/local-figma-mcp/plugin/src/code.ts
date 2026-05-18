@@ -5,14 +5,18 @@ import { runGetVariableDefs } from './tools/getVariableDefs.js';
 import { runSearchDesignSystem } from './tools/searchDesignSystem.js';
 import { runUseFigma } from './tools/useFigma.js';
 import { buildFigmaPluginSnapshot, chunkSnapshotJson } from './tools/exportFile.js';
+import { getSelectedNodeIds, getSingleSelectedNode } from './selection.js';
 
-figma.showUI(__html__, { width: 420, height: 560, themeColors: true });
+figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
 
 type UiToMain =
   | { type: 'request_hello' }
   | { type: 'tool_request'; id: string; tool: string; args: Record<string, unknown> }
   | { type: 'ui_log'; line: string }
-  | { type: 'export_file'; hfcFileName: string };
+  | { type: 'export_file'; hfcFileName: string; excludeNodeIds?: string[] }
+  | { type: 'get_selection_node_id' }
+  | { type: 'get_selection_node_ids' }
+  | { type: 'capture_selection_screenshot' };
 
 type MainToUi =
   | { type: 'hello_data'; fileKey: string; fileName: string; pluginVersion: string }
@@ -26,7 +30,17 @@ type MainToUi =
   | { type: 'log'; line: string }
   | { type: 'export_progress'; phase: string; detail?: string }
   | { type: 'export_file_result'; ok: boolean; hfcFileName?: string; snapshotJson?: string; error?: string }
-  | { type: 'export_file_chunk'; index: number; total: number; data: string; hfcFileName: string };
+  | { type: 'export_file_chunk'; index: number; total: number; data: string; hfcFileName: string }
+  | { type: 'selection_node_id'; nodeId: string; name: string }
+  | { type: 'selection_node_ids'; nodeIds: string[] }
+  | { type: 'selection_error'; message: string }
+  | {
+      type: 'selection_screenshot';
+      ok: boolean;
+      data?: string;
+      mimeType?: string;
+      error?: string;
+    };
 
 async function dispatchTool(
   tool: string,
@@ -64,7 +78,7 @@ async function dispatchTool(
   }
 }
 
-async function runExportFile(hfcFileName: string): Promise<void> {
+async function runExportFile(hfcFileName: string, excludeNodeIds?: string[]): Promise<void> {
   try {
     figma.ui.postMessage({
       type: 'export_progress',
@@ -72,7 +86,7 @@ async function runExportFile(hfcFileName: string): Promise<void> {
       detail: 'Reading document…',
     } satisfies MainToUi);
 
-    const snapshot = await buildFigmaPluginSnapshot();
+    const snapshot = await buildFigmaPluginSnapshot({ excludeNodeIds });
     const json = JSON.stringify(snapshot);
     const chunks = chunkSnapshotJson(json);
     const name = hfcFileName.trim() || figma.root.name;
@@ -130,7 +144,64 @@ figma.ui.onmessage = async (msg: UiToMain) => {
   }
 
   if (msg.type === 'export_file') {
-    void runExportFile(msg.hfcFileName);
+    void runExportFile(msg.hfcFileName, msg.excludeNodeIds);
+    return;
+  }
+
+  if (msg.type === 'get_selection_node_id') {
+    try {
+      const node = getSingleSelectedNode();
+      figma.ui.postMessage({
+        type: 'selection_node_id',
+        nodeId: node.id,
+        name: node.name,
+      } satisfies MainToUi);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      figma.ui.postMessage({
+        type: 'selection_error',
+        message,
+      } satisfies MainToUi);
+    }
+    return;
+  }
+
+  if (msg.type === 'get_selection_node_ids') {
+    try {
+      const nodeIds = getSelectedNodeIds();
+      figma.ui.postMessage({
+        type: 'selection_node_ids',
+        nodeIds,
+      } satisfies MainToUi);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      figma.ui.postMessage({
+        type: 'selection_error',
+        message,
+      } satisfies MainToUi);
+    }
+    return;
+  }
+
+  if (msg.type === 'capture_selection_screenshot') {
+    try {
+      const node = getSingleSelectedNode();
+      const content = await runGetScreenshot({ nodeId: node.id });
+      const img = content[0];
+      figma.ui.postMessage({
+        type: 'selection_screenshot',
+        ok: true,
+        data: img?.data,
+        mimeType: img?.mimeType,
+      } satisfies MainToUi);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      figma.ui.postMessage({
+        type: 'selection_screenshot',
+        ok: false,
+        error: message,
+      } satisfies MainToUi);
+    }
     return;
   }
 

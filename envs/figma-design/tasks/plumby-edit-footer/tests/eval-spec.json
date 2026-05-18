@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "gates": {
+    "require_change": true
+  },
+  "checks": [
+    {
+      "id": "must_contain_text_1",
+      "type": "must_contain_text",
+      "required": true,
+      "contains": "Terms",
+      "scope": "new_frames"
+    },
+    {
+      "id": "must_contain_text_2",
+      "type": "must_contain_text",
+      "required": true,
+      "contains": "Privacy",
+      "scope": "new_frames"
+    }
+  ],
+  "weights": {
+    "gates": 1,
+    "checks": 0.35,
+    "design_system": 0.2,
+    "visual": 0.35,
+    "heuristics": 0.1
+  },
+  "visual": [
+    {
+      "id": "design_consistency_1",
+      "type": "design_consistency",
+      "node_id": "4817:799"
+    },
+    {
+      "id": "task_completeness_2",
+      "type": "task_completeness"
+    }
+  ]
+}

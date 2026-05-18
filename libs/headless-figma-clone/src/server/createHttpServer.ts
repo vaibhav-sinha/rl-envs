@@ -12,7 +12,7 @@ import { designCompiler } from '../render/DesignCompiler.js';
 import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import type { Logger } from '../util/logger.js';
 import { createHeadlessMcpServer } from '../mcp/registerTools.js';
-import { ExportError } from '../import/exportHandler.js';
+import { ExportError, handleImportHfc } from '../import/exportHandler.js';
 import { collectPagesIndex } from '../mcp/metadata.js';
 import { renderFilesBrowserHtml } from './ui/filesBrowser.js';
 import { previewEmptyShell, wrapPreviewWithToolbar, type PreviewShellParams } from './ui/previewShell.js';
@@ -283,13 +283,17 @@ export async function createHttpServer(params: {
         sendJson(res, 200, {
           status: 'ok',
           version: config.version,
+          importEndpoint: '/import/hfc',
           exportEndpoint: '/export/hfc',
           previewEndpoint: '/preview',
         });
         return;
       }
 
-      if (req.method === 'POST' && url === '/export/hfc') {
+      const importOrExportMatch =
+        req.method === 'POST' &&
+        (url === '/import/hfc' || url.startsWith('/export/hfc'));
+      if (importOrExportMatch) {
         let body: unknown;
         try {
           body = await readJsonBody(req);
@@ -301,7 +305,18 @@ export async function createHttpServer(params: {
           throw e;
         }
         const reqBody = body as { hfcFileName?: string; snapshot?: unknown };
+        const save =
+          url === '/export/hfc' &&
+          new URL(req.url ?? '', 'http://localhost').searchParams.get('save') === 'true';
         try {
+          if (url === '/import/hfc' || !save) {
+            const result = handleImportHfc({
+              hfcFileName: reqBody.hfcFileName ?? '',
+              snapshot: reqBody.snapshot,
+            });
+            sendJson(res, 200, result);
+            return;
+          }
           const result = await engine.exportFromFigmaSnapshot(
             { hfcFileName: reqBody.hfcFileName ?? '', snapshot: reqBody.snapshot },
             config.workspaceDir

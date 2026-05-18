@@ -18,7 +18,9 @@
       "http://localhost:3855",
       "ws://localhost:3855",
       "http://localhost:3847",
-      "https://upload.wikimedia.org"
+      "http://localhost:3856",
+      "https://upload.wikimedia.org",
+      "https://www.gravatar.com"
     ],
     "reasoning": "Connect to the local-figma-mcp server on the developer machine."
   }

@@ -82,10 +82,33 @@ MCP client → HTTP /mcp → local-figma-mcp (Node)
 - Plugin `devAllowedDomains` must use `localhost` (not `127.0.0.1`) per Figma manifest validation. Update port in `plugin/manifest.json` and `plugin/src/ui.html` if you change `LFM_HTTP_PORT`.
 - **`fileKey` in tool args is ignored** — all tools run against whichever file is open in Figma Desktop when the plugin is running.
 
+## Task Builder UI
+
+The plugin UI has three tabs: **Connection** (MCP logs), **Export** (standalone HFC export via Task Builder), and **Task Builder** (wizard for Harbor `figma-design` tasks).
+
+### Services required
+
+```bash
+# HFC — snapshot import API
+cd libs/headless-figma-clone && npm run build && npm run start
+
+# Task Builder — drafts + finalize
+cd libs/figma-task-builder && npm install && npm run dev
+
+# Rebuild plugin after UI changes
+cd libs/local-figma-mcp && npm run build:plugin
+```
+
+- Task Builder: `http://127.0.0.1:3856`
+- Drafts: `envs/figma-design/task-drafts/`
+- Finalized tasks: `envs/figma-design/tasks/`
+
+See [libs/figma-task-builder/README.md](../figma-task-builder/README.md).
+
 ## Development
 
 ```bash
 npm run typecheck
 npm test
-npm run build:plugin   # after plugin/src changes
+npm run build:plugin   # Vite UI + esbuild main thread
 ```
