@@ -175,7 +175,14 @@ def _run_task_completeness(
             {"check": "task_completeness", "screenshot_node_id": frame_id, "llm": "skipped"},
         )
 
-    prompt = build_task_completeness_prompt(task_instruction=task_instruction)
+    raw_instructions = spec.get("evaluation_instructions")
+    evaluation_instructions = (
+        str(raw_instructions).strip() if raw_instructions is not None else None
+    )
+    prompt = build_task_completeness_prompt(
+        task_instruction=task_instruction,
+        evaluation_instructions=evaluation_instructions or None,
+    )
     llm = run_llm_judge(
         prompt=prompt,
         images=[{"role": "after", "path": str(shot_path)}],
