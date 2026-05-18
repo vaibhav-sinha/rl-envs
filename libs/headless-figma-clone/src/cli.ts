@@ -88,9 +88,9 @@ function runVerifyRun(argv: string[]): void {
 }
 
 async function main(): Promise<void> {
-  if (process.argv[2] === 'eval') {
-    const { handleEvalCli } = await import('./eval/cliEval.js');
-    await handleEvalCli(process.argv);
+  if (process.argv[2] === 'render') {
+    const { handleRenderCli } = await import('./cliRender.js');
+    await handleRenderCli(process.argv);
     return;
   }
 

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HFC Eval Spec",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "gates": {
+      "type": "object",
+      "properties": {
+        "require_change": { "type": "boolean" },
+        "preserve_ids": { "type": "array", "items": { "type": "string" } },
+        "forbid_delete_ids": { "type": "array", "items": { "type": "string" } },
+        "max_change_outside_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "visual": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/visual" }
+    },
+    "weights": {
+      "type": "object",
+      "properties": {
+        "gates": { "type": "number" },
+        "checks": { "type": "number" },
+        "design_system": { "type": "number" },
+        "visual": { "type": "number" },
+        "heuristics": { "type": "number" }
+      }
+    }
+  },
+  "$defs": {
+    "check": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["id", "type", "node_id"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "node_exists" },
+            "node_id": { "type": "string" },
+            "required": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "parent_id", "min"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "min_added_under" },
+            "parent_id": { "type": "string" },
+            "min": { "type": "number", "exclusiveMinimum": 0 },
+            "required": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "parent_id", "min"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "min_modified_under" },
+            "parent_id": { "type": "string" },
+            "min": { "type": "number", "exclusiveMinimum": 0 },
+            "required": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "scope_id", "component_id", "min_instances"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "component_instances_under" },
+            "scope_id": { "type": "string" },
+            "component_id": { "type": "string" },
+            "min_instances": { "type": "integer", "minimum": 1 },
+            "required": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "parent_id"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "metadata_only_under" },
+            "parent_id": { "type": "string" },
+            "required": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "node_id", "property", "equals"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "property_on_node" },
+            "node_id": { "type": "string" },
+            "property": { "type": "string" },
+            "equals": {},
+            "required": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "visual": {
+      "type": "object",
+      "required": ["id", "region_id", "mode", "instruction"],
+      "properties": {
+        "id": { "type": "string" },
+        "region_id": { "type": "string" },
+        "mode": {
+          "enum": ["relative_to_siblings", "region_stable", "match_asset"]
+        },
+        "instruction": { "type": "string" },
+        "focus": { "enum": ["largest_added", "added", "all"] },
+        "reference_asset": { "type": "string" }
+      }
+    }
+  }
+}

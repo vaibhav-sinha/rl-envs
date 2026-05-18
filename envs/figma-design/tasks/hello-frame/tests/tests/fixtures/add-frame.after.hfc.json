@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "eval-min",
+  "fileName": "EvalMinimal",
+  "nextInternalId": 21,
+  "components": [
+    { "id": "COMP1", "name": "Button", "rootFrameId": "I10" }
+  ],
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page 1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Board",
+            "x": 0,
+            "y": 0,
+            "width": 200,
+            "height": 100,
+            "fills": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 } }],
+            "children": [
+              {
+                "id": "I4",
+                "type": "TEXT",
+                "name": "Label",
+                "x": 8,
+                "y": 10,
+                "width": 80,
+                "height": 20,
+                "characters": "Hi",
+                "fontSize": 12,
+                "fontWeight": 400,
+                "fills": [{ "type": "SOLID", "color": { "r": 0, "g": 0, "b": 0 } }]
+              }
+            ]
+          },
+          {
+            "id": "I20",
+            "type": "FRAME",
+            "name": "Hello",
+            "x": 40,
+            "y": 40,
+            "width": 200,
+            "height": 100,
+            "fills": [{ "type": "SOLID", "color": { "r": 0.9, "g": 0.9, "b": 0.9 } }],
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}

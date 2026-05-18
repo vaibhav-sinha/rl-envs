@@ -49,7 +49,8 @@ envs/figma-design/
         │   ├── design.hfc.assets/       # optional HFC bitmap sidecar (if fixture uses one)
         │   └── assets/                  # reference files for the agent → /app/assets/
         └── tests/
-            ├── check.py              # RewardKit → hfc eval run
+            ├── check.py              # RewardKit → figma_eval (Python)
+            ├── figma_eval/           # grading engine (incl. LiteLLM visual judge)
             ├── test.sh
             └── eval-spec.json        # task grading spec (optional; preserved on sync)
 ```
@@ -103,14 +104,18 @@ If the fixture has a sibling `*.hfc.assets/` directory (embedded bitmaps), `new-
 
 Mention agent assets in `instruction.md` as `/app/assets/<file>`. Agents typically use `upload_assets` with `filePath` relative to cwd `/app`.
 
-Grading is defined in `tests/eval-spec.json` (schema: `libs/headless-figma-clone/schemas/eval-spec.schema.json`). The verifier runs headless-figma-clone inside the container:
+Grading is defined in `tests/eval-spec.json` (schema: `shared/verifier/eval-spec.schema.json`). The verifier runs the Python `figma_eval` package in-process; screenshots use the HFC core CLI:
 
 ```bash
-node /opt/hfc/dist/cli.js eval run \
-  --before /tests/design.initial.hfc.json \
-  --after /data/workspace/design.hfc.json \
-  --spec /tests/eval-spec.json \
-  --report /logs/verifier/eval-report.json
+node /opt/hfc/dist/cli.js render --file <path.hfc.json> --node <id> --out <png>
+```
+
+Local debugging:
+
+```bash
+cd envs/figma-design/shared/verifier
+pip install -r requirements.txt jsonschema
+PYTHONPATH=. python -m figma_eval.cli run --before ... --after ... --spec ... --report /tmp/report.json
 ```
 
 If `eval-spec.json` is missing, the criterion returns a perfect score (useful only while scaffolding).
@@ -130,7 +135,7 @@ This replaces each task's `tests/` with `shared/verifier/`, then restores `eval-
 
 ## Verifier (RewardKit)
 
-Single criterion `figma_design_score` (weight 1.0) in `shared/verifier/check.py` delegates to `hfc eval run`. Full breakdown is written to `/logs/verifier/eval-report-details.json`.
+Single criterion `figma_design_score` (weight 1.0) in `shared/verifier/check.py` calls `figma_eval.run()`. Full breakdown is written to `/logs/verifier/eval-report-details.json`.
 
 `tests/test.sh` runs:
 
