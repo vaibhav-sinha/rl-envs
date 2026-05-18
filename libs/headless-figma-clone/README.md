@@ -100,7 +100,8 @@ Replace the host and port with your listen address (for example `http://127.0.0.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | JSON: `status`, `version`, `exportEndpoint`, `previewEndpoint`. Always available. |
-| `POST` | `/export/hfc` | JSON body `{ "hfcFileName": "…", "snapshot": { … } }` — imports a Figma plugin export snapshot and writes `{slug}.hfc.json` under **`HFC_WORKSPACE_DIR`**. Response: `filePath`, `fileKey`, `fileName`. Used by the **local-figma-mcp** plugin UI (Figma Desktop → HFC, port **3847**). |
+| `POST` | `/import/hfc` | JSON body `{ "hfcFileName", "snapshot" }` — converts snapshot to envelope + inline assets (**no disk write**). |
+| `POST` | `/export/hfc` | Same body; returns import response by default. Use `?save=true` to persist `{slug}.hfc.json` under **`HFC_WORKSPACE_DIR`** (legacy). |
 | `GET` | `/files` | HTML file browser listing workspace `.hfc.json` files. Each row has a **View** link that activates the file and opens the preview. Always available. |
 | `GET` | `/files/active?path=…` | Loads the given absolute path as the active document. Query **`path`** must be URL-encoded, resolve under **`HFC_WORKSPACE_DIR`**, and end with **`.hfc.json`**. Returns JSON (`ok`, `fileKey`, `filePath`, `fileName`) unless **`redirect`** is set (e.g. `redirect=/preview` → **302** to preview). Always available. |
 | `GET` | `/preview?pageId=…` | HTML design preview of the active file with a floating page selector toolbar. Optional **`pageId`** selects which page to render. Updates when the active document changes. Always available. |

@@ -2121,13 +2121,23 @@ export class DocumentEngine {
     this.emitPreview();
   }
 
-  /** Lists `.hfc.json` envelopes in the given workspace directory (non-recursive). */
+  /** Convert Figma plugin snapshot to HFC envelope (no disk write). */
+  async importFromFigmaSnapshot(body: {
+    hfcFileName: string;
+    snapshot: unknown;
+  }): Promise<import('../import/exportHandler.js').ImportHfcResponse> {
+    const { handleImportHfc } = await import('../import/exportHandler.js');
+    return handleImportHfc(body);
+  }
+
+  /** Import snapshot, persist under workspace, and activate the new file. */
   async exportFromFigmaSnapshot(
     body: { hfcFileName: string; snapshot: unknown },
     workspaceDir: string
   ): Promise<{ filePath: string; fileKey: string; fileName: string }> {
-    const { handleExportHfc } = await import('../import/exportHandler.js');
-    const result = await handleExportHfc(body, {
+    const { convertFigmaSnapshot, saveConvertedHfc } = await import('../import/exportHandler.js');
+    const converted = convertFigmaSnapshot(body);
+    const result = await saveConvertedHfc(converted, {
       workspaceDir,
       persistence: this.deps.persistence,
     });

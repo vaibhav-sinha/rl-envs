@@ -83,7 +83,16 @@ function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Reco
   return props;
 }
 
-function serializeTree(node: BaseNode): SerializedNode {
+export interface BuildSnapshotOptions {
+  excludeNodeIds?: string[];
+}
+
+function serializeTree(node: BaseNode, excludeIds: Set<string>, ancestorExcluded: boolean): SerializedNode | null {
+  const selfExcluded = ancestorExcluded || excludeIds.has(node.id);
+  if (selfExcluded && node.type !== 'DOCUMENT') {
+    return null;
+  }
+
   const props =
     node.type === 'DOCUMENT' && !('absoluteBoundingBox' in node)
       ? {}
@@ -95,7 +104,12 @@ function serializeTree(node: BaseNode): SerializedNode {
     properties: props,
   };
   if ('children' in node && Array.isArray(node.children)) {
-    out.children = node.children.map((c) => serializeTree(c));
+    const children: SerializedNode[] = [];
+    for (const c of node.children) {
+      const child = serializeTree(c, excludeIds, selfExcluded);
+      if (child) children.push(child);
+    }
+    if (children.length > 0) out.children = children;
   }
   return out;
 }
@@ -268,10 +282,17 @@ async function serializeVariableCollections(): Promise<Record<string, unknown>[]
   return out;
 }
 
-export async function buildFigmaPluginSnapshot(): Promise<FigmaPluginSnapshot> {
+export async function buildFigmaPluginSnapshot(
+  options: BuildSnapshotOptions = {}
+): Promise<FigmaPluginSnapshot> {
   IMAGE_HASHES.clear();
 
-  const document = serializeTree(figma.root);
+  const excludeIds = new Set(options.excludeNodeIds ?? []);
+  const documentNode = serializeTree(figma.root, excludeIds, false);
+  if (!documentNode) {
+    throw new Error('EXPORT_ERROR: document tree empty after exclusions');
+  }
+  const document = documentNode;
   collectImageHashes(document);
 
   const paintStyles = await Promise.all(
