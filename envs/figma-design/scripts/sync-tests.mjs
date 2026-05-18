@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Sync shared/verifier into every task under tasks/.
- * Removes all existing tests/ content except eval-spec.json, then recopies shared verifier files.
+ * Sync thin task tests/ (check.py, test.sh) from shared/verifier into every task under tasks/.
+ * Preserves each task's eval-spec.json. figma_eval is baked into the base image.
  *
  * Usage:
  *   node envs/figma-design/scripts/sync-tests.mjs
@@ -57,7 +57,7 @@ for (const taskId of taskIds) {
     continue;
   }
   syncVerifierToTask(taskRoot, sharedVerifier, { preserveEvalSpec: true });
-  console.log(`Synced tests → tasks/${taskId}/tests`);
+  console.log(`Synced thin tests → tasks/${taskId}/tests`);
   synced += 1;
 }
 

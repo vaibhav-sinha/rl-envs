@@ -27,8 +27,6 @@ COPY libs/headless-figma-clone/ ./
 RUN npm run build
 RUN npx playwright install --with-deps chromium
 
-RUN uv pip install --system litellm pillow jsonschema
-
 ENV HFC_CLI=/opt/hfc/dist/cli.js \
   HFC_HTTP_HOST=127.0.0.1 \
   HFC_HTTP_PORT=3847 \
@@ -42,6 +40,13 @@ COPY envs/figma-design/shared/skills/ /skills/
 COPY envs/figma-design/shared/environment/entrypoint.sh /usr/local/bin/figma-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/figma-entrypoint.sh \
   && chmod +x /usr/local/bin/figma-entrypoint.sh
+
+# Verifier last: changes here only invalidate this layer (fast rebuilds).
+COPY envs/figma-design/shared/verifier/figma_eval /opt/figma-verifier/figma_eval
+COPY envs/figma-design/shared/verifier/eval-spec.schema.json /opt/figma-verifier/eval-spec.schema.json
+COPY envs/figma-design/shared/verifier/requirements.txt /opt/figma-verifier/requirements.txt
+RUN uv pip install --system -r /opt/figma-verifier/requirements.txt
+ENV PYTHONPATH="/opt/figma-verifier:${PYTHONPATH}"
 
 EXPOSE 3847
 ENTRYPOINT ["/usr/local/bin/figma-entrypoint.sh"]
