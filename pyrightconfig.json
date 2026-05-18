@@ -1,0 +1,6 @@
+{
+  "include": ["envs/figma-design"],
+  "extraPaths": ["envs/figma-design/shared/verifier"],
+  "venvPath": "envs/figma-design/shared/verifier",
+  "venv": ".venv"
+}
