@@ -17,6 +17,7 @@ from .heuristics import run_heuristics
 from .schema import load_and_validate_eval_spec
 from .types import EvalReport, Envelope, SubCheckResult
 from .visual import run_all_visual_checks
+from .visual.instruction import load_task_instruction
 
 
 def load_envelope(path: str | Path) -> Envelope:
@@ -36,6 +37,7 @@ def run_eval(
     before_path: str | Path,
     after_path: str | Path,
     spec_path: str | Path,
+    instruction_path: str | Path,
     report_path: str | Path,
     assets_dir: str | None = None,
     parallel: int = 4,
@@ -57,17 +59,23 @@ def run_eval(
     model = os.environ.get("EVAL_JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     gate_results = run_gates(before, after, graph, spec.get("gates"))
-    check_results = run_all_checks(spec.get("checks"), before, after, catalog)
-    design_results = run_design_system_checks(before, after, graph, catalog)
+    check_results = run_all_checks(spec.get("checks"), before, after, graph, catalog)
+    design_results = run_design_system_checks(
+        before, after, graph, catalog, spec.get("design_system")
+    )
     heuristic_results = run_heuristics(before, after, graph)
+
+    task_instruction = load_task_instruction(instruction_path)
 
     visual_results = run_all_visual_checks(
         specs=spec.get("visual"),
         before=before,
         after=after,
+        graph=graph,
         before_path=str(before_path),
         after_path=str(after_path),
         work_dir=work,
+        task_instruction=task_instruction,
         assets_dir=assets_dir,
         skip_llm=skip_llm,
         model=model,

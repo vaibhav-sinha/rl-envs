@@ -1,29 +1,132 @@
 from __future__ import annotations
 
-from .types import DesignCatalog, Envelope
+from .tokens import (
+    TokenOccurrence,
+    TokenRole,
+    VariableResolver,
+    canonical_color,
+    canonical_effect,
+    canonical_float,
+    canonical_font_family,
+    canonical_font_weight,
+    canonical_layout_grid,
+    canonical_paint,
+    extract_node_tokens,
+)
+from .tree import find_all_nodes
+from .types import CanonicalValue, DesignCatalog, Envelope, TreeNode
 
 
-def _collect_solid_colors(envelope: Envelope) -> list[dict[str, float]]:
-    colors: list[dict[str, float]] = []
-    seen: set[str] = set()
+def _role_key(role: TokenRole) -> str:
+    return role.value
 
-    def add(color: dict[str, float]) -> None:
-        key = f"{color.get('r')},{color.get('g')},{color.get('b')}"
-        if key not in seen:
-            seen.add(key)
-            colors.append(color)
+
+def _add_to_set(target: dict[str, set[CanonicalValue]], role: TokenRole, value: CanonicalValue) -> None:
+    key = _role_key(role)
+    target.setdefault(key, set()).add(value)
+
+
+def _merge_occurrences(
+    target: dict[str, set[CanonicalValue]], occurrences: list[TokenOccurrence]
+) -> None:
+    for role, value in occurrences:
+        _add_to_set(target, role, value)
+
+
+def _tokens_from_text_style(style: TreeNode, resolver: VariableResolver) -> list[TokenOccurrence]:
+    out: list[TokenOccurrence] = []
+    for paint in style.get("fills") or []:
+        canon = canonical_paint(paint, resolver)
+        if canon:
+            out.append((TokenRole.TEXT_COLOR, canon))
+    fs = style.get("fontSize")
+    if isinstance(fs, (int, float)):
+        out.append((TokenRole.TEXT_FONT_SIZE, canonical_float(float(fs))))
+    ff = canonical_font_family(style.get("fontName"))
+    if ff:
+        out.append((TokenRole.TEXT_FONT_FAMILY, ff))
+    fw = canonical_font_weight(style.get("fontWeight"))
+    if fw:
+        out.append((TokenRole.TEXT_FONT_WEIGHT, fw))
+    return out
+
+
+def _tokens_from_paint_style(style: TreeNode, resolver: VariableResolver) -> list[TokenOccurrence]:
+    out: list[TokenOccurrence] = []
+    for paint in style.get("paints") or []:
+        canon = canonical_paint(paint, resolver)
+        if canon:
+            out.append((TokenRole.FILL_PAINT, canon))
+            out.append((TokenRole.STROKE_PAINT, canon))
+    return out
+
+
+def _tokens_from_effect_style(style: TreeNode) -> list[TokenOccurrence]:
+    out: list[TokenOccurrence] = []
+    for effect in style.get("effects") or []:
+        canon = canonical_effect(effect)
+        if canon:
+            out.append((TokenRole.EFFECT, canon))
+    return out
+
+
+def _tokens_from_grid_style(style: TreeNode) -> list[TokenOccurrence]:
+    out: list[TokenOccurrence] = []
+    for grid in style.get("layoutGrids") or []:
+        canon = canonical_layout_grid(grid)
+        if canon:
+            out.append((TokenRole.LAYOUT_GRID, canon))
+    return out
+
+
+def _tokens_from_variable_value(raw: dict[str, object]) -> list[TokenOccurrence]:
+    out: list[TokenOccurrence] = []
+    vtype = raw.get("type")
+    if vtype == "COLOR" and isinstance(raw.get("color"), dict):
+        canon: CanonicalValue = ("paint", "SOLID", canonical_color(raw["color"]))
+        for role in (
+            TokenRole.TEXT_COLOR,
+            TokenRole.FILL_PAINT,
+            TokenRole.BACKGROUND_PAINT,
+            TokenRole.STROKE_PAINT,
+        ):
+            out.append((role, canon))
+    elif vtype == "FLOAT" and isinstance(raw.get("value"), (int, float)):
+        fv = canonical_float(float(raw["value"]))
+        for role in (
+            TokenRole.TEXT_FONT_SIZE,
+            TokenRole.LAYOUT_ITEM_SPACING,
+            TokenRole.LAYOUT_COUNTER_AXIS_SPACING,
+            TokenRole.LAYOUT_PADDING_LEFT,
+            TokenRole.LAYOUT_PADDING_RIGHT,
+            TokenRole.LAYOUT_PADDING_TOP,
+            TokenRole.LAYOUT_PADDING_BOTTOM,
+            TokenRole.STROKE_WEIGHT,
+            TokenRole.CORNER_RADIUS,
+        ):
+            out.append((role, fv))
+    return out
+
+
+def _build_bindable(envelope: Envelope, resolver: VariableResolver) -> dict[str, set[CanonicalValue]]:
+    bindable: dict[str, set[CanonicalValue]] = {}
 
     for ts in envelope.get("textStyles") or []:
-        for fill in ts.get("fills") or []:
-            if fill.get("type") == "SOLID":
-                add(fill["color"])
+        _merge_occurrences(bindable, _tokens_from_text_style(ts, resolver))
 
     for ps in envelope.get("paintStyles") or []:
-        for paint in ps.get("paints") or []:
-            if paint.get("type") == "SOLID":
-                add(paint["color"])
+        _merge_occurrences(bindable, _tokens_from_paint_style(ps, resolver))
 
-    return colors
+    for es in envelope.get("effectStyles") or []:
+        _merge_occurrences(bindable, _tokens_from_effect_style(es))
+
+    for gs in envelope.get("gridStyles") or []:
+        _merge_occurrences(bindable, _tokens_from_grid_style(gs))
+
+    for raw in resolver._values.values():
+        _merge_occurrences(bindable, _tokens_from_variable_value(raw))
+
+    return bindable
 
 
 def build_catalog(envelope: Envelope) -> DesignCatalog:
@@ -32,11 +135,14 @@ def build_catalog(envelope: Envelope) -> DesignCatalog:
     paint_style_ids = {p["id"] for p in envelope.get("paintStyles") or [] if p.get("id")}
     effect_style_ids = {e["id"] for e in envelope.get("effectStyles") or [] if e.get("id")}
     grid_style_ids = {g["id"] for g in envelope.get("gridStyles") or [] if g.get("id")}
-    font_sizes: list[float] = []
-    for ts in envelope.get("textStyles") or []:
-        fs = ts.get("fontSize")
-        if isinstance(fs, (int, float)):
-            font_sizes.append(float(fs))
+
+    resolver = VariableResolver(envelope)
+    allowlists: dict[str, set[CanonicalValue]] = {}
+
+    for node in find_all_nodes(envelope):
+        _merge_occurrences(allowlists, extract_node_tokens(node, envelope, resolver))
+
+    bindable = _build_bindable(envelope, resolver)
 
     return DesignCatalog(
         component_ids=component_ids,
@@ -44,11 +150,11 @@ def build_catalog(envelope: Envelope) -> DesignCatalog:
         paint_style_ids=paint_style_ids,
         effect_style_ids=effect_style_ids,
         grid_style_ids=grid_style_ids,
-        colors=_collect_solid_colors(envelope),
-        font_sizes=font_sizes,
         has_text_styles=len(text_style_ids) > 0,
         has_variables=len(envelope.get("variableCollections") or []) > 0,
         has_components=len(component_ids) > 0,
+        allowlists=allowlists,
+        bindable_by_role=bindable,
     )
 
 

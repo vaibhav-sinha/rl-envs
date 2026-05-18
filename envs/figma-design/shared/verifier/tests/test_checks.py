@@ -3,18 +3,98 @@ from figma_eval.checks.handlers import run_spec_check
 from figma_eval.edit_graph import build_edit_graph
 
 
-def test_node_exists(load_fixture):
+def test_must_contain_text_node_id(load_fixture):
     before = load_fixture("minimal", "before")
     after = load_fixture("minimal", "after")
     graph = build_edit_graph(before, after)
     r = run_spec_check(
-        {"id": "x", "type": "node_exists", "node_id": "I3"},
+        {
+            "id": "x",
+            "type": "must_contain_text",
+            "scope": "node_id",
+            "node_id": "I3",
+            "contains": "Hi",
+        },
         before,
         after,
         graph,
         build_catalog(before),
     )
     assert r.score == 1.0
+
+
+def test_must_contain_text_new_frames(load_fixture):
+    before = load_fixture("minimal", "before")
+    after = load_fixture("hello-text", "after")
+    graph = build_edit_graph(before, after)
+    r = run_spec_check(
+        {
+            "id": "x",
+            "type": "must_contain_text",
+            "scope": "new_frames",
+            "contains": "Hello",
+        },
+        before,
+        after,
+        graph,
+        build_catalog(before),
+    )
+    assert r.score == 1.0
+    assert "I21" in r.details["matched_node_ids"]
+
+
+def test_must_contain_image_any(load_fixture):
+    before = load_fixture("minimal", "before")
+    after = load_fixture("with-image", "after")
+    graph = build_edit_graph(before, after)
+    r = run_spec_check(
+        {
+            "id": "x",
+            "type": "must_contain_image",
+            "scope": "node_id",
+            "node_id": "I3",
+        },
+        before,
+        after,
+        graph,
+        build_catalog(before),
+    )
+    assert r.score == 1.0
+
+
+def test_must_contain_image_hash(load_fixture):
+    before = load_fixture("minimal", "before")
+    after = load_fixture("with-image", "after")
+    graph = build_edit_graph(before, after)
+    r = run_spec_check(
+        {
+            "id": "x",
+            "type": "must_contain_image",
+            "scope": "node_id",
+            "node_id": "I3",
+            "image_hash": "hero-hash-abc",
+        },
+        before,
+        after,
+        graph,
+        build_catalog(before),
+    )
+    assert r.score == 1.0
+
+    r_wrong = run_spec_check(
+        {
+            "id": "y",
+            "type": "must_contain_image",
+            "scope": "node_id",
+            "node_id": "I3",
+            "image_hash": "wrong-hash",
+        },
+        before,
+        after,
+        graph,
+        build_catalog(before),
+    )
+    assert r_wrong.score == 0.0
 
 
 def test_min_added_under(load_fixture):

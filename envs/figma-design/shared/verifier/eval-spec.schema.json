@@ -10,8 +10,8 @@
       "properties": {
         "require_change": { "type": "boolean" },
         "preserve_ids": { "type": "array", "items": { "type": "string" } },
-        "forbid_delete_ids": { "type": "array", "items": { "type": "string" } },
-        "max_change_outside_ids": { "type": "array", "items": { "type": "string" } }
+        "allowed_change_inside_ids": { "type": "array", "items": { "type": "string" } },
+        "additions_only": { "type": "boolean" }
       }
     },
     "checks": {
@@ -21,6 +21,13 @@
     "visual": {
       "type": "array",
       "items": { "$ref": "#/$defs/visual" }
+    },
+    "design_system": {
+      "type": "object",
+      "properties": {
+        "allow_novelty": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
     },
     "weights": {
       "type": "object",
@@ -38,11 +45,49 @@
       "oneOf": [
         {
           "type": "object",
-          "required": ["id", "type", "node_id"],
+          "required": ["id", "type", "contains", "scope", "node_id"],
           "properties": {
             "id": { "type": "string" },
-            "type": { "const": "node_exists" },
+            "type": { "const": "must_contain_text" },
+            "contains": { "type": "string", "minLength": 1 },
+            "scope": { "const": "node_id" },
             "node_id": { "type": "string" },
+            "case_sensitive": { "type": "boolean" },
+            "required": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "contains", "scope"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "must_contain_text" },
+            "contains": { "type": "string", "minLength": 1 },
+            "scope": { "const": "new_frames" },
+            "case_sensitive": { "type": "boolean" },
+            "required": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "scope", "node_id"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "must_contain_image" },
+            "scope": { "const": "node_id" },
+            "node_id": { "type": "string" },
+            "image_hash": { "type": "string" },
+            "required": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "scope"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "must_contain_image" },
+            "scope": { "const": "new_frames" },
+            "image_hash": { "type": "string" },
             "required": { "type": "boolean" }
           }
         },
@@ -105,18 +150,67 @@
       ]
     },
     "visual": {
-      "type": "object",
-      "required": ["id", "region_id", "mode", "instruction"],
-      "properties": {
-        "id": { "type": "string" },
-        "region_id": { "type": "string" },
-        "mode": {
-          "enum": ["relative_to_siblings", "region_stable", "match_asset"]
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["id", "type", "node_id"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "design_consistency" },
+            "node_id": { "type": "string" },
+            "surrounding_context_node_id": { "type": "string" },
+            "consistency_criteria": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "fit_criteria": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "focus": { "enum": ["largest_added", "added", "all"] }
+          },
+          "additionalProperties": false
         },
-        "instruction": { "type": "string" },
-        "focus": { "enum": ["largest_added", "added", "all"] },
-        "reference_asset": { "type": "string" }
-      }
+        {
+          "type": "object",
+          "required": ["id", "type"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "task_completeness" },
+            "node_id": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "surrounding_context_node_id"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "before_vs_after" },
+            "surrounding_context_node_id": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["id", "type"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "diff" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["id", "type", "reference_asset"],
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "const": "compare_with_reference" },
+            "reference_asset": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
     }
   }
 }

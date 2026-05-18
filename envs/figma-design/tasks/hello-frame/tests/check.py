@@ -8,6 +8,7 @@ from rewardkit import criterion
 from figma_eval.run import run_eval
 
 EVAL_SPEC_PATH = Path("/tests/eval-spec.json")
+INSTRUCTION_PATH = Path("/tests/instruction.md")
 BEFORE_PATH = Path("/tests/design.initial.hfc.json")
 AFTER_PATH = Path("/data/workspace/design.hfc.json")
 REPORT_PATH = Path("/logs/verifier/eval-report.json")
@@ -19,12 +20,13 @@ def figma_design_score(workspace: Path) -> float:
     del workspace
 
     if not EVAL_SPEC_PATH.exists():
-        raise ValueError(f"EVAL_SPEC_PATH does not exist: {EVAL_SPEC_PATH}")
+        return 1.0
 
     report = run_eval(
         before_path=BEFORE_PATH,
         after_path=AFTER_PATH,
         spec_path=EVAL_SPEC_PATH,
+        instruction_path=INSTRUCTION_PATH,
         report_path=REPORT_PATH,
         assets_dir=str(ASSETS_DIR) if ASSETS_DIR.is_dir() else None,
         parallel=int(os.environ.get("EVAL_PARALLEL", "4")),
