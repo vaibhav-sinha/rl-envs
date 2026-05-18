@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "edited-regression",
+  "fileName": "Edited Regression",
+  "nextInternalId": 20,
+  "textStyles": [
+    {
+      "id": "TS1",
+      "name": "Body",
+      "fontSize": 14,
+      "fills": [{ "type": "SOLID", "color": { "r": 0, "g": 0, "b": 0 } }]
+    }
+  ],
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page",
+        "children": [
+          {
+            "id": "I4",
+            "type": "TEXT",
+            "name": "Label",
+            "x": 8,
+            "y": 8,
+            "width": 100,
+            "height": 20,
+            "characters": "Hi",
+            "fontSize": 14,
+            "fills": [{ "type": "SOLID", "color": { "r": 0, "g": 0, "b": 0 } }]
+          }
+        ]
+      }
+    ]
+  }
+}

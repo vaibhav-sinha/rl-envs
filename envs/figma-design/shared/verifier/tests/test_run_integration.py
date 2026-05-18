@@ -34,11 +34,14 @@ def test_run_eval_no_visual(load_fixture):
             ),
             encoding="utf-8",
         )
+        instruction_path = Path(tmp) / "instruction.md"
+        instruction_path.write_text("Add a frame", encoding="utf-8")
 
         report = run_eval(
             before_path=before_path,
             after_path=after_path,
             spec_path=spec_path,
+            instruction_path=instruction_path,
             report_path=report_path,
             skip_llm=True,
         )

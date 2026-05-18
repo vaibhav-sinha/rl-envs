@@ -108,6 +108,27 @@ def is_metadata_only_change(changed_properties: list[str] | None) -> bool:
     return all(p in METADATA_PROPERTY_KEYS for p in changed_properties)
 
 
+def format_diff_summary(graph: EditGraph, *, max_changes: int = 200) -> str:
+    lines = [
+        f"equal: {graph.equal}",
+        f"added: {sorted(graph.added_ids)}",
+        f"deleted: {sorted(graph.deleted_ids)}",
+        f"modified: {sorted(graph.modified_ids)}",
+        "changes:",
+    ]
+    for change in graph.changes[:max_changes]:
+        props = change.changed_properties or []
+        prop_suffix = f" props={props}" if props else ""
+        lines.append(f"- {change.operation} {change.node_id}{prop_suffix}")
+    if len(graph.changes) > max_changes:
+        lines.append(f"... ({len(graph.changes) - max_changes} more changes truncated)")
+    return "\n".join(lines)
+
+
+def changed_node_ids(graph: EditGraph) -> set[str]:
+    return set(graph.added_ids) | set(graph.deleted_ids) | set(graph.modified_ids)
+
+
 def resolve_focus_node_id(
     before: Envelope,
     after: Envelope,

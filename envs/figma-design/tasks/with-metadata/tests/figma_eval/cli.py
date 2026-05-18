@@ -19,6 +19,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--before", required=True)
     run_p.add_argument("--after", required=True)
     run_p.add_argument("--spec", required=True)
+    run_p.add_argument("--instruction", required=True)
     run_p.add_argument("--report", required=True)
     run_p.add_argument("--assets-dir")
     run_p.add_argument("--parallel", type=int, default=4)
@@ -39,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
             before_path=args.before,
             after_path=args.after,
             spec_path=args.spec,
+            instruction_path=args.instruction,
             report_path=args.report,
             assets_dir=args.assets_dir,
             parallel=args.parallel,

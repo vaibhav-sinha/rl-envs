@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+CanonicalValue = tuple[Any, ...]
+
 CheckType = Literal[
-    "node_exists",
+    "must_contain_text",
+    "must_contain_image",
     "min_added_under",
     "min_modified_under",
     "component_instances_under",
@@ -12,7 +15,15 @@ CheckType = Literal[
     "property_on_node",
 ]
 
-VisualMode = Literal["relative_to_siblings", "region_stable", "match_asset"]
+CheckScope = Literal["node_id", "new_frames"]
+
+VisualCheckType = Literal[
+    "design_consistency",
+    "task_completeness",
+    "before_vs_after",
+    "diff",
+    "compare_with_reference",
+]
 VisualFocus = Literal["largest_added", "added", "all"]
 SubCheckCategory = Literal["gates", "checks", "design_system", "visual", "heuristics"]
 
@@ -55,11 +66,19 @@ class DesignCatalog:
     paint_style_ids: set[str]
     effect_style_ids: set[str]
     grid_style_ids: set[str]
-    colors: list[dict[str, float]]
-    font_sizes: list[float]
     has_text_styles: bool
     has_variables: bool
     has_components: bool
+    allowlists: dict[str, set[CanonicalValue]] = field(default_factory=dict)
+    bindable_by_role: dict[str, set[CanonicalValue]] = field(default_factory=dict)
+
+    @property
+    def has_allowlists(self) -> bool:
+        return any(bool(v) for v in self.allowlists.values())
+
+    @property
+    def has_bindable_tokens(self) -> bool:
+        return any(bool(v) for v in self.bindable_by_role.values())
 
 
 @dataclass

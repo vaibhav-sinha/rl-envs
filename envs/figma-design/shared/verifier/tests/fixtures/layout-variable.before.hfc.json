@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "layout-variable",
+  "fileName": "Layout Variable",
+  "nextInternalId": 20,
+  "variableCollections": [
+    {
+      "id": "VCOL1",
+      "name": "Spacing",
+      "defaultModeId": "VM1",
+      "modes": [{ "id": "VM1", "name": "Default" }],
+      "variables": [
+        {
+          "id": "VV_PAD",
+          "name": "padding/md",
+          "resolvedType": "FLOAT",
+          "valuesByMode": { "VM1": { "type": "FLOAT", "value": 24 } }
+        }
+      ]
+    }
+  ],
+  "activeModeByCollectionId": { "VCOL1": "VM1" },
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page",
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Layout",
+            "x": 0,
+            "y": 0,
+            "width": 200,
+            "height": 120,
+            "layoutMode": "VERTICAL",
+            "paddingTop": 24,
+            "boundVariables": { "paddingTop": "VV_PAD" },
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}
