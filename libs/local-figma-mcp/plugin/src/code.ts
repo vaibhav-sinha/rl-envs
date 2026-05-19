@@ -4,7 +4,8 @@ import { runGetScreenshot } from './tools/getScreenshot.js';
 import { runGetVariableDefs } from './tools/getVariableDefs.js';
 import { runSearchDesignSystem } from './tools/searchDesignSystem.js';
 import { runUseFigma } from './tools/useFigma.js';
-import { buildFigmaPluginSnapshot, chunkSnapshotJson } from './tools/exportFile.js';
+import { streamFigmaExportLines } from './tools/streamExport.js';
+import { exportPercent } from './streamProtocol.js';
 import { getSelectedNodeIds, getSingleSelectedNode } from './selection.js';
 
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
@@ -13,7 +14,13 @@ type UiToMain =
   | { type: 'request_hello' }
   | { type: 'tool_request'; id: string; tool: string; args: Record<string, unknown> }
   | { type: 'ui_log'; line: string }
-  | { type: 'export_file'; hfcFileName: string; excludeNodeIds?: string[] }
+  | {
+      type: 'export_file';
+      hfcFileName: string;
+      exportId: string;
+      excludeNodeIds?: string[];
+    }
+  | { type: 'export_stream_ack'; seq: number }
   | { type: 'get_selection_node_id' }
   | { type: 'get_selection_node_ids' }
   | { type: 'capture_selection_screenshot' };
@@ -28,9 +35,16 @@ type MainToUi =
       error?: { code: string; message: string };
     }
   | { type: 'log'; line: string }
-  | { type: 'export_progress'; phase: string; detail?: string }
-  | { type: 'export_file_result'; ok: boolean; hfcFileName?: string; snapshotJson?: string; error?: string }
-  | { type: 'export_file_chunk'; index: number; total: number; data: string; hfcFileName: string }
+  | {
+      type: 'export_progress';
+      phase: 'count' | 'serialize' | 'icons' | 'images' | 'upload';
+      current: number;
+      total: number;
+      percent: number;
+      detail?: string;
+    }
+  | { type: 'export_stream_part'; exportId: string; seq: number; line: string }
+  | { type: 'export_stream_done'; ok: boolean; exportId?: string; error?: string }
   | { type: 'selection_node_id'; nodeId: string; name: string }
   | { type: 'selection_node_ids'; nodeIds: string[] }
   | { type: 'selection_error'; message: string }
@@ -41,6 +55,35 @@ type MainToUi =
       mimeType?: string;
       error?: string;
     };
+
+let ackWaiter: ((seq: number) => void) | null = null;
+
+function waitForStreamAck(seq: number): Promise<void> {
+  return new Promise((resolve) => {
+    ackWaiter = (acked) => {
+      if (acked >= seq) {
+        ackWaiter = null;
+        resolve();
+      }
+    };
+  });
+}
+
+function postProgress(
+  phase: 'count' | 'serialize' | 'icons' | 'images' | 'upload',
+  current: number,
+  total: number,
+  detail?: string
+): void {
+  figma.ui.postMessage({
+    type: 'export_progress',
+    phase,
+    current,
+    total,
+    percent: exportPercent(current, total),
+    detail,
+  } satisfies MainToUi);
+}
 
 async function dispatchTool(
   tool: string,
@@ -78,48 +121,47 @@ async function dispatchTool(
   }
 }
 
-async function runExportFile(hfcFileName: string, excludeNodeIds?: string[]): Promise<void> {
+async function runExportFile(
+  exportId: string,
+  hfcFileName: string,
+  excludeNodeIds?: string[]
+): Promise<void> {
   try {
-    figma.ui.postMessage({
-      type: 'export_progress',
-      phase: 'serialize',
-      detail: 'Reading document…',
-    } satisfies MainToUi);
+    let seq = 0;
+    let uploadTotal = 0;
 
-    const snapshot = await buildFigmaPluginSnapshot({ excludeNodeIds });
-    const json = JSON.stringify(snapshot);
-    const chunks = chunkSnapshotJson(json);
-    const name = hfcFileName.trim() || figma.root.name;
-
-    if (chunks.length === 1) {
-      figma.ui.postMessage({
-        type: 'export_file_result',
-        ok: true,
-        hfcFileName: name,
-        snapshotJson: chunks[0],
-      } satisfies MainToUi);
-    } else {
-      for (let i = 0; i < chunks.length; i++) {
-        figma.ui.postMessage({
-          type: 'export_file_chunk',
-          index: i,
-          total: chunks.length,
-          data: chunks[i]!,
-          hfcFileName: name,
-        } satisfies MainToUi);
+    for await (const line of streamFigmaExportLines(
+      exportId,
+      hfcFileName,
+      { excludeNodeIds },
+      {
+        onProgress: (phase, current, total, detail) => {
+          postProgress(phase, current, total, detail);
+        },
       }
+    )) {
+      seq += 1;
+      uploadTotal = seq;
+      postProgress('upload', seq, uploadTotal || 1);
       figma.ui.postMessage({
-        type: 'export_file_result',
-        ok: true,
-        hfcFileName: name,
+        type: 'export_stream_part',
+        exportId,
+        seq,
+        line,
       } satisfies MainToUi);
+      await waitForStreamAck(seq);
     }
 
-    figma.notify('Export snapshot ready — uploading to HFC…');
+    figma.ui.postMessage({
+      type: 'export_stream_done',
+      ok: true,
+      exportId,
+    } satisfies MainToUi);
+    figma.notify('Export streamed — finalizing…');
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     figma.ui.postMessage({
-      type: 'export_file_result',
+      type: 'export_stream_done',
       ok: false,
       error: message,
     } satisfies MainToUi);
@@ -143,8 +185,21 @@ figma.ui.onmessage = async (msg: UiToMain) => {
     return;
   }
 
+  if (msg.type === 'export_stream_ack') {
+    ackWaiter?.(msg.seq);
+    return;
+  }
+
   if (msg.type === 'export_file') {
-    void runExportFile(msg.hfcFileName, msg.excludeNodeIds);
+    if (!msg.exportId?.trim()) {
+      figma.ui.postMessage({
+        type: 'export_stream_done',
+        ok: false,
+        error: 'exportId required for streaming export',
+      } satisfies MainToUi);
+      return;
+    }
+    void runExportFile(msg.exportId, msg.hfcFileName, msg.excludeNodeIds);
     return;
   }
 

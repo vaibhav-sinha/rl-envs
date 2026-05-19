@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ulid } from 'ulid';
 import type { AssetRecord, FileEnvelope } from '../model/types.js';
@@ -7,9 +7,20 @@ import { persistAssetBytesOnDisk, registerAssetBytesInEnvelope } from '../engine
 import { parseFigmaPluginSnapshot, type FigmaPluginSnapshot } from './snapshotSchema.js';
 import { importFigmaPluginSnapshot, slugHfcFileName } from './figmaPluginSnapshot.js';
 
+/** On-disk asset bytes (Task Builder streaming finish). Paths are read server-side. */
+export interface ExportHfcAssetFile {
+  path: string;
+  mimeType: string;
+  figmaNodeId?: string;
+  figmaImageHash?: string;
+  exportScale?: number;
+}
+
 export interface ExportHfcRequest {
   hfcFileName: string;
   snapshot: unknown;
+  /** When set, asset bytes are read from disk instead of `snapshot.assets[].base64`. */
+  assetFiles?: ExportHfcAssetFile[];
 }
 
 export interface ImportHfcAsset {
@@ -54,7 +65,10 @@ export function convertFigmaSnapshot(body: ExportHfcRequest): ConvertedHfc {
     throw new ExportError('BAD_REQUEST', 'Missing snapshot');
   }
 
-  const snapshot: FigmaPluginSnapshot = parseFigmaPluginSnapshot(body.snapshot);
+  const snapshot: FigmaPluginSnapshot = mergeSnapshotAssetFiles(
+    parseFigmaPluginSnapshot(body.snapshot),
+    body.assetFiles
+  );
   const fileName = body.hfcFileName.trim() || snapshot.figmaFileName || 'Untitled';
   const slug = slugHfcFileName(fileName);
   const { envelope, assetBuffers, figmaToHfc } = importFigmaPluginSnapshot(snapshot, { fileName });
@@ -77,6 +91,37 @@ export function convertFigmaSnapshot(body: ExportHfcRequest): ConvertedHfc {
     assets,
     figmaToHfc,
   };
+}
+
+function mergeSnapshotAssetFiles(
+  snapshot: FigmaPluginSnapshot,
+  assetFiles?: ExportHfcAssetFile[]
+): FigmaPluginSnapshot {
+  if (!assetFiles?.length) return snapshot;
+  const assets = assetFiles.map((f) => {
+    const base64 = readFileSync(f.path).toString('base64');
+    if (f.figmaImageHash) {
+      return {
+        figmaImageHash: f.figmaImageHash,
+        mimeType: f.mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+        base64,
+      };
+    }
+    if (f.mimeType === 'image/png') {
+      return {
+        figmaNodeId: f.figmaNodeId!,
+        mimeType: 'image/png' as const,
+        base64,
+        exportScale: f.exportScale,
+      };
+    }
+    return {
+      figmaNodeId: f.figmaNodeId!,
+      mimeType: 'image/svg+xml' as const,
+      base64,
+    };
+  });
+  return { ...snapshot, assets };
 }
 
 export function handleImportHfc(body: ExportHfcRequest): ImportHfcResponse {

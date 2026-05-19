@@ -1,5 +1,6 @@
 import type { FigmaPluginSnapshot, SerializedAsset, SerializedNode } from '../snapshotTypes.js';
 import { SNAPSHOT_VERSION } from '../snapshotTypes.js';
+import type { SerializedNodeWire } from '../streamProtocol.js';
 import {
   findStructuralIconExportRootIds,
   findSerializedNodeById,
@@ -17,17 +18,25 @@ const IMAGE_HASHES = new Set<string>();
 /** Reading these can abort the plugin WASM runtime (not catchable in JS). */
 const UNSAFE_PROPERTY_KEYS = new Set(['vectorNetwork']);
 
-function collectImageHashes(value: unknown): void {
+export function collectImageHashesForExport(value: unknown): void {
   if (!value || typeof value !== 'object') return;
   if (Array.isArray(value)) {
-    for (const v of value) collectImageHashes(v);
+    for (const v of value) collectImageHashesForExport(v);
     return;
   }
   const o = value as Record<string, unknown>;
   if (o.type === 'IMAGE' && typeof o.imageHash === 'string') {
     IMAGE_HASHES.add(o.imageHash);
   }
-  for (const v of Object.values(o)) collectImageHashes(v);
+  for (const v of Object.values(o)) collectImageHashesForExport(v);
+}
+
+export function getImageHashesSet(): Set<string> {
+  return IMAGE_HASHES;
+}
+
+export function clearImageHashesForExport(): void {
+  IMAGE_HASHES.clear();
 }
 
 function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Record<string, unknown> {
@@ -57,7 +66,6 @@ function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Reco
     enrichTextNodeExport(node as TextNode, props, visited);
   }
 
-  // Stable string ids — `mainComponent` object graphs can truncate to `{ __ref: 'cycle' }`.
   if (node.type === 'INSTANCE') {
     try {
       const mc = (node as InstanceNode).mainComponent;
@@ -86,31 +94,74 @@ export interface BuildSnapshotOptions {
   excludeNodeIds?: string[];
 }
 
-function serializeTree(node: BaseNode, excludeIds: Set<string>, ancestorExcluded: boolean): SerializedNode | null {
+export type TreeStreamEvent =
+  | { kind: 'tree_enter'; node: SerializedNodeWire }
+  | { kind: 'tree_exit' };
+
+export function* serializeTreeEvents(
+  node: BaseNode,
+  excludeIds: Set<string>,
+  ancestorExcluded: boolean
+): Generator<TreeStreamEvent> {
   const selfExcluded = ancestorExcluded || excludeIds.has(node.id);
   if (selfExcluded && node.type !== 'DOCUMENT') {
-    return null;
+    return;
   }
 
   const props =
     node.type === 'DOCUMENT' && !('absoluteBoundingBox' in node)
       ? {}
       : serializeNodeProperties(node as BaseNode & Record<string, unknown>);
-  const out: SerializedNode = {
-    id: node.id,
-    type: node.type,
-    name: node.name,
-    properties: props,
+
+  yield {
+    kind: 'tree_enter',
+    node: {
+      id: node.id,
+      type: node.type,
+      name: node.name,
+      properties: props,
+    },
   };
+
   if ('children' in node && Array.isArray(node.children)) {
-    const children: SerializedNode[] = [];
     for (const c of node.children) {
-      const child = serializeTree(c, excludeIds, selfExcluded);
-      if (child) children.push(child);
+      yield* serializeTreeEvents(c, excludeIds, selfExcluded);
     }
-    if (children.length > 0) out.children = children;
   }
-  return out;
+
+  yield { kind: 'tree_exit' };
+}
+
+function serializeTree(node: BaseNode, excludeIds: Set<string>, ancestorExcluded: boolean): SerializedNode | null {
+  const stack: SerializedNode[] = [];
+  let root: SerializedNode | null = null;
+
+  for (const ev of serializeTreeEvents(node, excludeIds, ancestorExcluded)) {
+    if (ev.kind === 'tree_enter') {
+      const sn: SerializedNode = {
+        id: ev.node.id,
+        type: ev.node.type,
+        name: ev.node.name,
+        properties: ev.node.properties,
+        children: [],
+      };
+      const parent = stack[stack.length - 1];
+      if (parent) {
+        parent.children = parent.children ?? [];
+        parent.children.push(sn);
+      } else {
+        root = sn;
+      }
+      stack.push(sn);
+    } else {
+      stack.pop();
+    }
+  }
+
+  if (root && root.children && root.children.length === 0) {
+    delete root.children;
+  }
+  return root;
 }
 
 async function serializeStyleRecord(style: { id: string; name: string } & Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -128,6 +179,38 @@ async function serializeStyleRecord(style: { id: string; name: string } & Record
     }
   }
   return out;
+}
+
+export async function serializeMetaAndStyles(): Promise<{
+  variableCollections: Record<string, unknown>[];
+  paintStyles: Record<string, unknown>[];
+  textStyles: Record<string, unknown>[];
+  effectStyles: Record<string, unknown>[];
+  gridStyles: Record<string, unknown>[];
+  styleRecords: Record<string, unknown>[];
+}> {
+  const paintStyles = await Promise.all(
+    (await figma.getLocalPaintStylesAsync()).map((s) => serializeStyleRecord(s as unknown as { id: string; name: string } & Record<string, unknown>))
+  );
+  const textStyles = await Promise.all(
+    (await figma.getLocalTextStylesAsync()).map((s) => serializeStyleRecord(s as unknown as { id: string; name: string } & Record<string, unknown>))
+  );
+  const effectStyles = await Promise.all(
+    (await figma.getLocalEffectStylesAsync()).map((s) => serializeStyleRecord(s as unknown as { id: string; name: string } & Record<string, unknown>))
+  );
+  const gridStyles = await Promise.all(
+    (await figma.getLocalGridStylesAsync()).map((s) => serializeStyleRecord(s as unknown as { id: string; name: string } & Record<string, unknown>))
+  );
+  const variableCollections = await serializeVariableCollections();
+
+  return {
+    variableCollections,
+    paintStyles,
+    textStyles,
+    effectStyles,
+    gridStyles,
+    styleRecords: [...paintStyles, ...textStyles, ...effectStyles, ...gridStyles, ...variableCollections],
+  };
 }
 
 async function buildIconExportAssets(document: SerializedNode, dedup: ExportAssetDedup): Promise<void> {
@@ -262,7 +345,7 @@ async function serializeVariableCollections(): Promise<Record<string, unknown>[]
 export async function buildFigmaPluginSnapshot(
   options: BuildSnapshotOptions = {}
 ): Promise<FigmaPluginSnapshot> {
-  IMAGE_HASHES.clear();
+  clearImageHashesForExport();
 
   const excludeIds = new Set(options.excludeNodeIds ?? []);
   const documentNode = serializeTree(figma.root, excludeIds, false);
@@ -270,27 +353,12 @@ export async function buildFigmaPluginSnapshot(
     throw new Error('EXPORT_ERROR: document tree empty after exclusions');
   }
   const document = documentNode;
-  collectImageHashes(document);
+  collectImageHashesForExport(document);
 
-  const paintStyles = await Promise.all(
-    (await figma.getLocalPaintStylesAsync()).map((s) => serializeStyleRecord(s as unknown as { id: string; name: string } & Record<string, unknown>))
-  );
-  const textStyles = await Promise.all(
-    (await figma.getLocalTextStylesAsync()).map((s) => serializeStyleRecord(s as unknown as { id: string; name: string } & Record<string, unknown>))
-  );
-  const effectStyles = await Promise.all(
-    (await figma.getLocalEffectStylesAsync()).map((s) => serializeStyleRecord(s as unknown as { id: string; name: string } & Record<string, unknown>))
-  );
-  const gridStyles = await Promise.all(
-    (await figma.getLocalGridStylesAsync()).map((s) => serializeStyleRecord(s as unknown as { id: string; name: string } & Record<string, unknown>))
-  );
-
-  for (const s of [...paintStyles, ...textStyles, ...effectStyles, ...gridStyles]) {
-    collectImageHashes(s);
+  const meta = await serializeMetaAndStyles();
+  for (const s of meta.styleRecords) {
+    collectImageHashesForExport(s);
   }
-
-  const variableCollections = await serializeVariableCollections();
-  for (const c of variableCollections) collectImageHashes(c);
 
   const rasterAssets = await buildAssets();
   const iconDedup = new ExportAssetDedup();
@@ -304,11 +372,11 @@ export async function buildFigmaPluginSnapshot(
     figmaFileKey: figma.fileKey ?? null,
     figmaFileName: figma.root.name,
     document,
-    variableCollections,
-    paintStyles,
-    textStyles,
-    effectStyles,
-    gridStyles,
+    variableCollections: meta.variableCollections,
+    paintStyles: meta.paintStyles,
+    textStyles: meta.textStyles,
+    effectStyles: meta.effectStyles,
+    gridStyles: meta.gridStyles,
     assets,
   };
 }

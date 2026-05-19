@@ -11,7 +11,15 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Textarea } from '../components/ui/textarea';
-import { captureScreenshot, exportSnapshot, pickExcludeNodeIds, pickNodeId } from '../lib/plugin-bridge';
+import {
+  captureScreenshot,
+  exportSnapshotStreaming,
+  finishExportStreamSession,
+  pickExcludeNodeIds,
+  pickNodeId,
+  type ExportProgressState,
+} from '../lib/plugin-bridge';
+import { ExportProgressBar } from '../components/ExportProgress';
 import { WIZARD_STEPS, stepMeta } from './catalog-helpers';
 import { CheckCard } from './components/CheckCard';
 import { FieldHelp } from './components/FieldHelp';
@@ -55,6 +63,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     weights: { gates: 1, checks: 0.35, design_system: 0.2, visual: 0.35, heuristics: 0.1 },
   });
 
+  const [exportProgress, setExportProgress] = useState<ExportProgressState | null>(null);
   const [showExcludeDialog, setShowExcludeDialog] = useState(false);
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [copyFromTaskId, setCopyFromTaskId] = useState<string | null>(null);
@@ -171,10 +180,19 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
   const runExport = async (mode: 'full' | 'exclude', excludeNodeIds?: string[]) => {
     if (!taskId) return;
     setBusy(true);
+    setExportProgress(null);
     try {
-      onLog('Serializing Figma document…');
-      const snapshot = await exportSnapshot(taskId, excludeNodeIds);
-      await taskBuilderApi.exportTask(taskId, snapshot, mode, excludeNodeIds);
+      onLog('Streaming Figma export…');
+      const { exportId } = await exportSnapshotStreaming(taskId, {
+        excludeNodeIds,
+        onProgress: setExportProgress,
+      });
+      onLog('Finalizing on Task Builder…');
+      await finishExportStreamSession(exportId, {
+        taskId,
+        mode,
+        excludeNodeIds,
+      });
       const updated = await taskBuilderApi.getTask(taskId);
       setTask(updated);
       onLog('Design exported to draft');
@@ -183,6 +201,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
       onLog(e instanceof Error ? e.message : String(e), true);
     } finally {
       setBusy(false);
+      setExportProgress(null);
       setShowExcludeDialog(false);
     }
   };
@@ -466,6 +485,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
               title="Baseline export"
               description="Captures the current Figma file as design.hfc.json — the before state agents are graded against."
             />
+            {busy ? <ExportProgressBar progress={exportProgress} /> : null}
             <Button variant="primary" disabled={busy} onClick={() => void runExport('full')}>
               Export entire file
             </Button>

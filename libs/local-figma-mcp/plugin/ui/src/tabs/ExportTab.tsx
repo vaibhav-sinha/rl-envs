@@ -1,9 +1,13 @@
 import { useState } from 'react';
-import { taskBuilderApi } from '../api/taskBuilder';
+import {
+  exportSnapshotStreaming,
+  finishExportStreamSession,
+  type ExportProgressState,
+} from '../lib/plugin-bridge';
+import { ExportProgressBar } from '../components/ExportProgress';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { exportSnapshot } from '../lib/plugin-bridge';
 
 export function ExportTab({
   onLog,
@@ -14,16 +18,23 @@ export function ExportTab({
 }) {
   const [fileName, setFileName] = useState(defaultFileName);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<ExportProgressState | null>(null);
 
   const runExport = async () => {
     const name = fileName.trim() || defaultFileName;
     setBusy(true);
-    onLog('Reading document…');
+    setProgress(null);
+    onLog('Starting streaming export…');
     try {
-      const snapshot = await exportSnapshot(name);
-      onLog('Uploading via Task Builder…');
-      const result = await taskBuilderApi.standaloneExport(name, snapshot);
-      onLog(`Saved: ${result.filePath}`);
+      const { exportId } = await exportSnapshotStreaming(name, {
+        onProgress: setProgress,
+      });
+      onLog('Finalizing on Task Builder…');
+      const result = await finishExportStreamSession(exportId, {
+        standaloneFileName: name,
+      });
+      onLog(`Saved: ${result.filePath ?? 'ok'}`);
+      setProgress({ phase: 'upload', current: 1, total: 1, percent: 100 });
     } catch (e) {
       onLog(e instanceof Error ? e.message : String(e), true);
     } finally {
@@ -34,12 +45,14 @@ export function ExportTab({
   return (
     <div className="p-3 flex flex-col gap-3">
       <p className="text-[11px] text-muted m-0">
-        Export the current Figma file to HFC workspace via Task Builder (port 3856).
+        Export the current Figma file to HFC workspace via Task Builder (port 3856). Large files stream
+        incrementally to avoid memory limits.
       </p>
       <div>
         <Label htmlFor="export-name">File name</Label>
         <Input id="export-name" value={fileName} onChange={(e) => setFileName(e.target.value)} className="mt-1" />
       </div>
+      {busy && <ExportProgressBar progress={progress} />}
       <Button variant="primary" disabled={busy} onClick={() => void runExport()}>
         {busy ? 'Exporting…' : 'Export File'}
       </Button>

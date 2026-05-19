@@ -7,14 +7,26 @@ export interface ImportHfcResponse {
   figmaToHfc: Record<string, string>;
 }
 
+export interface HfcAssetFileRef {
+  path: string;
+  mimeType: string;
+  figmaNodeId?: string;
+  figmaImageHash?: string;
+  exportScale?: number;
+}
+
 export class HfcClient {
   constructor(private readonly baseUrl: string) {}
 
-  async importSnapshot(hfcFileName: string, snapshot: unknown): Promise<ImportHfcResponse> {
+  async importSnapshot(
+    hfcFileName: string,
+    snapshot: unknown,
+    assetFiles?: HfcAssetFileRef[]
+  ): Promise<ImportHfcResponse> {
     const res = await fetch(`${this.baseUrl}/import/hfc`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hfcFileName, snapshot }),
+      body: JSON.stringify({ hfcFileName, snapshot, assetFiles }),
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };

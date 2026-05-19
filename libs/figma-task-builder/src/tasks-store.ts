@@ -12,7 +12,7 @@ import { basename, join } from 'node:path';
 import { CHECK_CATALOG } from './check-catalog.js';
 import type { TaskBuilderConfig } from './config.js';
 import { defaultEvalSpec, validateEvalSpec } from './eval-spec-validator.js';
-import { HfcClient } from './hfc-client.js';
+import { HfcClient, type ImportHfcResponse } from './hfc-client.js';
 import { cloneHarborToDraft, finalizeTask } from './finalize.js';
 import { envelopeHasSourceFigmaIds, pruneEnvelopeBySourceFigmaIds } from './prune-hfc.js';
 import { remapEvalSpecIds } from './remap-eval-spec.js';
@@ -381,6 +381,10 @@ export class TasksStore {
 
   async standaloneExport(hfcFileName: string, snapshot: unknown): Promise<{ filePath: string }> {
     const imported = await this.hfc.importSnapshot(hfcFileName, snapshot);
+    return this.persistStandaloneImport(imported);
+  }
+
+  persistStandaloneImport(imported: ImportHfcResponse): { filePath: string } {
     mkdirSync(this.config.exportDir, { recursive: true });
     const filePath = join(this.config.exportDir, `${imported.slug}.hfc.json`);
     writeFileSync(filePath, JSON.stringify(imported.envelope, null, 2) + '\n', 'utf8');
@@ -402,6 +406,37 @@ export class TasksStore {
     }
 
     return { filePath };
+  }
+
+  applyTaskExportImport(
+    taskId: string,
+    imported: ImportHfcResponse,
+    mode: 'full' | 'exclude',
+    excludeNodeIds?: string[]
+  ): { saved: boolean } {
+    const root = draftPath(this.config, taskId);
+    if (!existsSync(root)) throw new Error(`NOT_FOUND: draft ${taskId}`);
+
+    this.writeDesignFromImport(root, imported.envelope, imported.assets);
+
+    const evalSpecPath = join(root, 'tests', EVAL_SPEC_FILE);
+    if (existsSync(evalSpecPath) && imported.figmaToHfc) {
+      const spec = JSON.parse(readFileSync(evalSpecPath, 'utf8')) as EvalSpec;
+      const remapped = remapEvalSpecIds(spec, imported.figmaToHfc);
+      validateEvalSpec(this.config.evalSpecSchemaPath, remapped);
+      writeFileSync(evalSpecPath, JSON.stringify(remapped, null, 2) + '\n', 'utf8');
+    }
+
+    const state = this.readBuilderState(taskId);
+    state.export = {
+      completed: true,
+      mode,
+      excludeNodeIds,
+    };
+    state.current_step = 'gates';
+    this.writeBuilderState(taskId, state);
+
+    return { saved: true };
   }
 
   saveAsset(id: string, filename: string, dataBase64: string): TaskAssetInfo {
