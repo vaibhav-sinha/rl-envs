@@ -28,8 +28,10 @@ export interface BuilderState {
   metadata: TaskMetadata;
   export: {
     completed: boolean;
-    mode: 'full' | 'exclude' | null;
+    mode: 'full' | 'exclude' | 'copy' | null;
     excludeNodeIds?: string[];
+    copyFromTaskId?: string;
+    excludeFigmaNodeIds?: string[];
   };
 }
 
@@ -39,6 +41,7 @@ export interface TaskListItem {
   status: TaskStatus;
   created_at: string;
   updated_at: string;
+  has_design_export: boolean;
 }
 
 export interface EvalSpec {

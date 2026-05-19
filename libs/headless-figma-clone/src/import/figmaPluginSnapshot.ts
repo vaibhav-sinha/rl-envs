@@ -172,6 +172,7 @@ export function importFigmaPluginSnapshot(
     id: docId,
     type: 'DOCUMENT',
     name: snapshot.document.name,
+    sourceFigmaId: snapshot.document.id,
     children: [],
   };
 
@@ -221,6 +222,7 @@ function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
     id: ctx.idMap.allocate(node.id),
     type: 'PAGE',
     name: node.name,
+    sourceFigmaId: node.id,
     x: b.x,
     y: b.y,
     width: b.width,
@@ -364,6 +366,7 @@ function importSceneNode(
     const base = {
       id: idMap.allocate(node.id),
       name: node.name,
+      sourceFigmaId: node.id,
       ...mapBlendOpacity(p),
       ...mapLayoutSelf(p),
       ...mapIconExportFromSnapshot(p, ctx.iconExportRemap),
@@ -425,6 +428,7 @@ function importSceneNode(
   const base = {
     id: idMap.allocate(node.id),
     name: node.name,
+    sourceFigmaId: node.id,
     ...mapBlendOpacity(p),
     ...mapLayoutSelf(p),
     ...mapLayoutExtras(p),
@@ -696,6 +700,7 @@ function buildFrameFromSerialized(
     id: frameId,
     type: 'FRAME',
     name: node.name,
+    sourceFigmaId: node.id,
     x: b.x,
     y: b.y,
     width: b.width,

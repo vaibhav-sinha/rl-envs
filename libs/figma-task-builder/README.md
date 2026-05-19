@@ -30,12 +30,12 @@ Default URL: `http://127.0.0.1:3856`
 ## API
 
 - `GET /health` — status and paths
-- `GET /tasks` — list drafts + harbor tasks (`created_at` desc)
+- `GET /tasks` — list drafts + harbor tasks (`created_at` desc); each item includes `has_design_export`
 - `POST /tasks` — `{ "name": "my-task" }` or `{ "name": "my-task", "copyFrom": "existing-harbor-id" }`
 - `GET /tasks/:id` — full draft payload + check catalog
 - `PATCH /tasks/:id` — update instruction, metadata, eval-spec, wizard step
 - `DELETE /tasks/:id` — discard draft
-- `POST /tasks/:id/export` — `{ snapshot, mode, excludeNodeIds? }`
+- `POST /tasks/:id/export` — Figma export: `{ snapshot, mode: "full"|"exclude", excludeNodeIds? }`; copy export: `{ mode: "copy", copyFromTaskId, excludeFigmaNodeIds? }` (copies `design.hfc.json` + assets; does not copy eval-spec)
 - `POST /tasks/:id/assets` — `{ filename, dataBase64 }`
 - `POST /tasks/:id/complete` — finalize into `tasks/`
 - `POST /export` — standalone export (Export tab)

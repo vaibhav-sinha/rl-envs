@@ -31,6 +31,7 @@ export interface TaskListItem {
   status: 'draft' | 'complete';
   created_at: string;
   updated_at: string;
+  has_design_export: boolean;
 }
 
 export interface EvalSpec {
@@ -81,6 +82,15 @@ export const taskBuilderApi = {
     tbFetch<{ saved: boolean }>(`/tasks/${id}/export`, {
       method: 'POST',
       body: JSON.stringify({ snapshot, mode, excludeNodeIds }),
+    }),
+  copyExportTask: (id: string, copyFromTaskId: string, excludeFigmaNodeIds?: string[]) =>
+    tbFetch<{
+      saved: boolean;
+      has_source_figma_ids: boolean;
+      exclusions_applied: boolean;
+    }>(`/tasks/${id}/export`, {
+      method: 'POST',
+      body: JSON.stringify({ mode: 'copy', copyFromTaskId, excludeFigmaNodeIds }),
     }),
   uploadAsset: (id: string, filename: string, dataBase64: string) =>
     tbFetch<{ asset: { filename: string } }>(`/tasks/${id}/assets`, {
