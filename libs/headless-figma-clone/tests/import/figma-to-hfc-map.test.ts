@@ -20,6 +20,9 @@ describe('importFigmaPluginSnapshot figmaToHfc', () => {
     const page = envelope.document.children[0]!;
     const card = page.children.find((n) => n.name === 'Card');
     expect(card?.id).toBe(figmaToHfc['1:2']);
+    expect(card?.sourceFigmaId).toBe('1:2');
     expect(figmaToHfc['1:2']).toMatch(/^I[0-9]+$/);
+    expect(envelope.document.sourceFigmaId).toBe('0:0');
+    expect(page.sourceFigmaId).toBe('0:1');
   });
 });

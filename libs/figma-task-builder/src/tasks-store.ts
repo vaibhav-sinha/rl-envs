@@ -1,4 +1,5 @@
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -13,6 +14,7 @@ import type { TaskBuilderConfig } from './config.js';
 import { defaultEvalSpec, validateEvalSpec } from './eval-spec-validator.js';
 import { HfcClient } from './hfc-client.js';
 import { cloneHarborToDraft, finalizeTask } from './finalize.js';
+import { envelopeHasSourceFigmaIds, pruneEnvelopeBySourceFigmaIds } from './prune-hfc.js';
 import { remapEvalSpecIds } from './remap-eval-spec.js';
 import type {
   BuilderState,
@@ -34,6 +36,26 @@ function nowIso(): string {
 
 function draftPath(config: TaskBuilderConfig, id: string): string {
   return join(config.tasksDir, id);
+}
+
+function designHfcPath(config: TaskBuilderConfig, taskId: string): string | null {
+  const draft = join(draftPath(config, taskId), 'environment', 'design.hfc.json');
+  if (existsSync(draft)) return draft;
+  const harbor = join(config.harborTasksDir, taskId, 'environment', 'design.hfc.json');
+  if (existsSync(harbor)) return harbor;
+  return null;
+}
+
+function designAssetsDir(config: TaskBuilderConfig, taskId: string): string | null {
+  const draft = join(draftPath(config, taskId), 'environment', 'design.hfc.assets');
+  if (existsSync(draft)) return draft;
+  const harbor = join(config.harborTasksDir, taskId, 'environment', 'design.hfc.assets');
+  if (existsSync(harbor)) return harbor;
+  return null;
+}
+
+function hasDesignExport(config: TaskBuilderConfig, taskId: string): boolean {
+  return designHfcPath(config, taskId) !== null;
 }
 
 export class TasksStore {
@@ -74,6 +96,7 @@ export class TasksStore {
           status,
           created_at: state.created_at,
           updated_at: state.updated_at,
+          has_design_export: hasDesignExport(this.config, state.id),
         });
       }
     }
@@ -90,6 +113,7 @@ export class TasksStore {
           status: 'complete',
           created_at: st.birthtime.toISOString(),
           updated_at: st.mtime.toISOString(),
+          has_design_export: hasDesignExport(this.config, name),
         });
       }
     }
@@ -231,29 +255,22 @@ export class TasksStore {
     rmSync(root, { recursive: true, force: true });
   }
 
-  async exportTask(
-    id: string,
-    body: {
-      snapshot: unknown;
-      mode: 'full' | 'exclude';
-      excludeNodeIds?: string[];
-    }
-  ): Promise<{ saved: boolean }> {
-    const root = draftPath(this.config, id);
-    if (!existsSync(root)) throw new Error(`NOT_FOUND: draft ${id}`);
-
-    const imported = await this.hfc.importSnapshot(id, body.snapshot);
+  private writeDesignFromImport(
+    root: string,
+    envelope: unknown,
+    assets: Array<{ hash: string; mimeType: string; base64: string }>
+  ): void {
     const envDir = join(root, 'environment');
     mkdirSync(envDir, { recursive: true });
 
     const designPath = join(envDir, 'design.hfc.json');
-    writeFileSync(designPath, JSON.stringify(imported.envelope, null, 2) + '\n', 'utf8');
+    writeFileSync(designPath, JSON.stringify(envelope, null, 2) + '\n', 'utf8');
 
     const sidecarName = `${basename(designPath, '.hfc.json')}.hfc.assets`;
     const sidecarDir = join(envDir, sidecarName);
     mkdirSync(sidecarDir, { recursive: true });
 
-    for (const asset of imported.assets) {
+    for (const asset of assets) {
       const ext =
         asset.mimeType === 'image/png'
           ? 'png'
@@ -267,6 +284,30 @@ export class TasksStore {
       const buf = Buffer.from(asset.base64, 'base64');
       writeFileSync(join(sidecarDir, `${asset.hash}.${ext}`), buf);
     }
+  }
+
+  private copyDesignAssetsSidecar(sourceTaskId: string, targetRoot: string): void {
+    const sourceAssets = designAssetsDir(this.config, sourceTaskId);
+    if (!sourceAssets) return;
+
+    const targetDir = join(targetRoot, 'environment', 'design.hfc.assets');
+    mkdirSync(join(targetRoot, 'environment'), { recursive: true });
+    cpSync(sourceAssets, targetDir, { recursive: true });
+  }
+
+  async exportTask(
+    id: string,
+    body: {
+      snapshot: unknown;
+      mode: 'full' | 'exclude';
+      excludeNodeIds?: string[];
+    }
+  ): Promise<{ saved: boolean }> {
+    const root = draftPath(this.config, id);
+    if (!existsSync(root)) throw new Error(`NOT_FOUND: draft ${id}`);
+
+    const imported = await this.hfc.importSnapshot(id, body.snapshot);
+    this.writeDesignFromImport(root, imported.envelope, imported.assets);
 
     const evalSpecPath = join(root, 'tests', EVAL_SPEC_FILE);
     if (existsSync(evalSpecPath) && imported.figmaToHfc) {
@@ -286,6 +327,56 @@ export class TasksStore {
     this.writeBuilderState(id, state);
 
     return { saved: true };
+  }
+
+  async copyExportTask(
+    id: string,
+    body: {
+      copyFromTaskId: string;
+      excludeFigmaNodeIds?: string[];
+    }
+  ): Promise<{ saved: boolean; has_source_figma_ids: boolean; exclusions_applied: boolean }> {
+    const root = draftPath(this.config, id);
+    if (!existsSync(root)) throw new Error(`NOT_FOUND: draft ${id}`);
+
+    const copyFrom = body.copyFromTaskId.trim();
+    this.validateSlug(copyFrom);
+    if (copyFrom === id) {
+      throw new Error('INVALID_COPY: cannot copy design export from the same task');
+    }
+
+    const sourcePath = designHfcPath(this.config, copyFrom);
+    if (!sourcePath) {
+      throw new Error(`NO_DESIGN_EXPORT: task "${copyFrom}" has no design.hfc.json`);
+    }
+
+    let envelope = JSON.parse(readFileSync(sourcePath, 'utf8')) as Parameters<
+      typeof pruneEnvelopeBySourceFigmaIds
+    >[0];
+    const hasSourceFigmaIds = envelopeHasSourceFigmaIds(envelope);
+    const excludeIds = body.excludeFigmaNodeIds ?? [];
+    const exclusionsApplied = excludeIds.length > 0 && hasSourceFigmaIds;
+
+    if (exclusionsApplied) {
+      envelope = pruneEnvelopeBySourceFigmaIds(envelope, excludeIds);
+    }
+
+    const envDir = join(root, 'environment');
+    mkdirSync(envDir, { recursive: true });
+    writeFileSync(join(envDir, 'design.hfc.json'), JSON.stringify(envelope, null, 2) + '\n', 'utf8');
+    this.copyDesignAssetsSidecar(copyFrom, root);
+
+    const state = this.readBuilderState(id);
+    state.export = {
+      completed: true,
+      mode: 'copy',
+      copyFromTaskId: copyFrom,
+      excludeFigmaNodeIds: excludeIds.length > 0 ? excludeIds : undefined,
+    };
+    state.current_step = 'gates';
+    this.writeBuilderState(id, state);
+
+    return { saved: true, has_source_figma_ids: hasSourceFigmaIds, exclusions_applied: exclusionsApplied };
   }
 
   async standaloneExport(hfcFileName: string, snapshot: unknown): Promise<{ filePath: string }> {

@@ -305,6 +305,8 @@ export interface NodeBase {
   type: string;
   name: string;
   visible?: boolean;
+  /** Original Figma node id from import (e.g. "123:456"). Used for copy-export exclusions. */
+  sourceFigmaId?: string;
 }
 
 export type LayoutSizing = 'FIXED' | 'HUG' | 'FILL';

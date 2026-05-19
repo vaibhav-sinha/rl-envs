@@ -140,11 +140,29 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
         if (req.method === 'POST' && url === `/tasks/${taskId}/export`) {
           const body = (await readJsonBody(req)) as {
             snapshot?: unknown;
-            mode?: 'full' | 'exclude';
+            mode?: 'full' | 'exclude' | 'copy';
             excludeNodeIds?: string[];
+            copyFromTaskId?: string;
+            excludeFigmaNodeIds?: string[];
           };
-          if (body.snapshot === undefined || !body.mode) {
-            sendError(res, 400, 'snapshot and mode required');
+          if (!body.mode) {
+            sendError(res, 400, 'mode required');
+            return;
+          }
+          if (body.mode === 'copy') {
+            if (!body.copyFromTaskId?.trim()) {
+              sendError(res, 400, 'copyFromTaskId required for copy mode');
+              return;
+            }
+            const result = await store.copyExportTask(taskId, {
+              copyFromTaskId: body.copyFromTaskId.trim(),
+              excludeFigmaNodeIds: body.excludeFigmaNodeIds,
+            });
+            sendJson(res, 200, result);
+            return;
+          }
+          if (body.snapshot === undefined) {
+            sendError(res, 400, 'snapshot required for full/exclude export');
             return;
           }
           const result = await store.exportTask(taskId, {

@@ -56,6 +56,8 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
   });
 
   const [showExcludeDialog, setShowExcludeDialog] = useState(false);
+  const [showCopyDialog, setShowCopyDialog] = useState(false);
+  const [copyFromTaskId, setCopyFromTaskId] = useState<string | null>(null);
   const [newCheckType, setNewCheckType] = useState('must_contain_text');
   const [newVisualType, setNewVisualType] = useState('task_completeness');
 
@@ -183,6 +185,45 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
       setBusy(false);
       setShowExcludeDialog(false);
     }
+  };
+
+  const exportableTasks = useMemo(
+    () => tasks.filter((t) => t.has_design_export && t.id !== taskId),
+    [tasks, taskId]
+  );
+
+  const runCopyExport = async (excludeFigmaNodeIds?: string[]) => {
+    if (!taskId || !copyFromTaskId) return;
+    setBusy(true);
+    try {
+      const result = await taskBuilderApi.copyExportTask(taskId, copyFromTaskId, excludeFigmaNodeIds);
+      if (
+        excludeFigmaNodeIds &&
+        excludeFigmaNodeIds.length > 0 &&
+        !result.exclusions_applied
+      ) {
+        onLog(
+          'Source export has no Figma layer mapping; exclusions were ignored. Re-export the source task to enable exclusions.',
+          true
+        );
+      }
+      const updated = await taskBuilderApi.getTask(taskId);
+      setTask(updated);
+      onLog(`Design copied from ${copyFromTaskId}`);
+      setStep('gates');
+    } catch (e) {
+      onLog(e instanceof Error ? e.message : String(e), true);
+    } finally {
+      setBusy(false);
+      setShowCopyDialog(false);
+      setCopyFromTaskId(null);
+    }
+  };
+
+  const openCopyDialog = async () => {
+    setShowCopyDialog(true);
+    setCopyFromTaskId(null);
+    await refreshList();
   };
 
   const complete = async () => {
@@ -431,6 +472,9 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
             <Button disabled={busy} onClick={() => setShowExcludeDialog(true)}>
               Export with exclusions
             </Button>
+            <Button disabled={busy} onClick={() => void openCopyDialog()}>
+              Copy from existing task
+            </Button>
             {showExcludeDialog ? (
               <div className="rounded-md border border-[#555] p-2.5 space-y-2 bg-[#252525]">
                 <p className="text-[10px] m-0 text-muted">
@@ -451,6 +495,77 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
                   Pick exclusions & export
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setShowExcludeDialog(false)}>
+                  Cancel
+                </Button>
+              </div>
+            ) : null}
+            {showCopyDialog ? (
+              <div className="rounded-md border border-[#555] p-2.5 space-y-2 bg-[#252525]">
+                {!copyFromTaskId ? (
+                  <>
+                    <p className="text-[10px] m-0 text-muted">
+                      Select a task that already has a design export.
+                    </p>
+                    {exportableTasks.length === 0 ? (
+                      <p className="text-[10px] m-0 text-muted">No other tasks with design exports found.</p>
+                    ) : (
+                      <div className="max-h-[140px] overflow-auto space-y-1">
+                        {exportableTasks.map((t) => (
+                          <button
+                            key={`copy-${t.id}`}
+                            type="button"
+                            className="w-full text-left rounded border border-[#444] bg-[#1e1e1e] px-2 py-1.5 text-[10px] hover:bg-[#333]"
+                            onClick={() => setCopyFromTaskId(t.id)}
+                          >
+                            <span className="font-medium">{t.name}</span>
+                            <span className="text-muted ml-2">{t.status}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[10px] m-0 text-muted">
+                      Copying from <span className="font-mono text-foreground">{copyFromTaskId}</span>.
+                      Optionally exclude layers from the open Figma file.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={busy}
+                      onClick={() => void runCopyExport()}
+                    >
+                      Copy without exclusions
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      onClick={async () => {
+                        try {
+                          const ids = await pickExcludeNodeIds();
+                          onLog(`Excluding ${ids.length} layer(s) from copy`);
+                          await runCopyExport(ids);
+                        } catch (e) {
+                          onLog(e instanceof Error ? e.message : String(e), true);
+                        }
+                      }}
+                    >
+                      Pick exclusions & copy
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setCopyFromTaskId(null)}>
+                      Back
+                    </Button>
+                  </>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowCopyDialog(false);
+                    setCopyFromTaskId(null);
+                  }}
+                >
                   Cancel
                 </Button>
               </div>
