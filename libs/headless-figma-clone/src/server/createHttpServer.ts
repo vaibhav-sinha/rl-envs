@@ -304,7 +304,11 @@ export async function createHttpServer(params: {
           }
           throw e;
         }
-        const reqBody = body as { hfcFileName?: string; snapshot?: unknown };
+        const reqBody = body as {
+          hfcFileName?: string;
+          snapshot?: unknown;
+          assetFiles?: import('../import/exportHandler.js').ExportHfcAssetFile[];
+        };
         const save =
           url === '/export/hfc' &&
           new URL(req.url ?? '', 'http://localhost').searchParams.get('save') === 'true';
@@ -313,6 +317,7 @@ export async function createHttpServer(params: {
             const result = handleImportHfc({
               hfcFileName: reqBody.hfcFileName ?? '',
               snapshot: reqBody.snapshot,
+              assetFiles: reqBody.assetFiles,
             });
             sendJson(res, 200, result);
             return;

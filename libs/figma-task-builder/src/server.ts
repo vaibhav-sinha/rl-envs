@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { CHECK_CATALOG } from './check-catalog.js';
 import type { TaskBuilderConfig } from './config.js';
+import { ExportStreamSessionStore } from './export-stream-session.js';
 import { TasksStore } from './tasks-store.js';
 
 const CORS_HEADERS: Record<string, string> = {
@@ -11,9 +12,31 @@ const CORS_HEADERS: Record<string, string> = {
 };
 
 const BODY_LIMIT = 200 * 1024 * 1024;
+const STREAM_PART_LIMIT = 8 * 1024 * 1024;
 
 function applyCors(res: ServerResponse): void {
   for (const [k, v] of Object.entries(CORS_HEADERS)) res.setHeader(k, v);
+}
+
+function readTextBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    req.on('data', (c) => {
+      const buf = c as Buffer;
+      total += buf.length;
+      if (total > maxBytes) {
+        reject(new Error('PAYLOAD_TOO_LARGE'));
+        req.destroy();
+        return;
+      }
+      chunks.push(buf);
+    });
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', reject);
+  });
 }
 
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -57,7 +80,14 @@ function taskIdFromUrl(url: string): string | null {
   return m ? decodeURIComponent(m[1]!) : null;
 }
 
+function exportIdFromStreamUrl(url: string): string | null {
+  const m = url.match(/^\/export\/stream\/([^/]+)/);
+  return m ? decodeURIComponent(m[1]!) : null;
+}
+
 export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksStore) {
+  const streamStore = new ExportStreamSessionStore(config);
+
   const server = createServer(async (req, res) => {
     applyCors(res);
     const url = (req.url ?? '/').split('?')[0]!;
@@ -109,6 +139,39 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
         const result = await store.standaloneExport(body.hfcFileName, body.snapshot);
         sendJson(res, 200, result);
         return;
+      }
+
+      if (req.method === 'POST' && url === '/export/stream/session') {
+        const session = streamStore.createSession();
+        sendJson(res, 201, session);
+        return;
+      }
+
+      const streamExportId = exportIdFromStreamUrl(url);
+      if (streamExportId) {
+        if (req.method === 'POST' && url === `/export/stream/${streamExportId}/part`) {
+          const line = await readTextBody(req, STREAM_PART_LIMIT);
+          const { seq } = streamStore.appendPart(streamExportId, line);
+          sendJson(res, 200, { ok: true, seq });
+          return;
+        }
+
+        if (req.method === 'POST' && url === `/export/stream/${streamExportId}/finish`) {
+          const body = (await readJsonBody(req)) as {
+            taskId?: string;
+            mode?: 'full' | 'exclude';
+            excludeNodeIds?: string[];
+            standaloneFileName?: string;
+          };
+          const result = await streamStore.finish(streamExportId, {
+            taskId: body.taskId,
+            mode: body.mode,
+            excludeNodeIds: body.excludeNodeIds,
+            standaloneFileName: body.standaloneFileName,
+          });
+          sendJson(res, 200, result);
+          return;
+        }
       }
 
       const taskId = taskIdFromUrl(url);

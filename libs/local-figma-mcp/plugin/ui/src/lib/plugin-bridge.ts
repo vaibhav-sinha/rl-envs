@@ -1,6 +1,23 @@
+import { TB_URL } from './constants';
+
+export type ExportProgressPhase = 'count' | 'serialize' | 'icons' | 'images' | 'upload';
+
+export interface ExportProgressState {
+  phase: ExportProgressPhase;
+  current: number;
+  total: number;
+  percent: number;
+  detail?: string;
+}
+
 export type PluginMessage =
   | { type: 'request_hello' }
-  | { type: 'export_file'; hfcFileName: string; excludeNodeIds?: string[] }
+  | {
+      type: 'export_file';
+      hfcFileName: string;
+      exportId: string;
+      excludeNodeIds?: string[];
+    }
   | { type: 'get_selection_node_id' }
   | { type: 'get_selection_node_ids' }
   | { type: 'capture_selection_screenshot' }
@@ -9,9 +26,9 @@ export type PluginMessage =
 export type PluginReply =
   | { type: 'hello_data'; fileKey: string; fileName: string; pluginVersion: string }
   | { type: 'log'; line: string }
-  | { type: 'export_progress'; phase: string; detail?: string }
-  | { type: 'export_file_chunk'; index: number; total: number; data: string; hfcFileName: string }
-  | { type: 'export_file_result'; ok: boolean; hfcFileName?: string; snapshotJson?: string; error?: string }
+  | { type: 'export_progress'; phase: ExportProgressPhase; current: number; total: number; percent: number; detail?: string }
+  | { type: 'export_stream_part'; exportId: string; seq: number; line: string }
+  | { type: 'export_stream_done'; ok: boolean; exportId?: string; error?: string }
   | { type: 'selection_node_id'; nodeId: string; name: string }
   | { type: 'selection_node_ids'; nodeIds: string[] }
   | { type: 'selection_error'; message: string }
@@ -22,84 +39,134 @@ export function postToPlugin(msg: PluginMessage): void {
   parent.postMessage({ pluginMessage: msg }, '*');
 }
 
-export function waitForPluginReply<T extends PluginReply['type']>(
-  type: T,
-  timeoutMs = 120_000
-): Promise<Extract<PluginReply, { type: T }>> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      window.removeEventListener('message', handler);
-      reject(new Error('Plugin request timed out'));
-    }, timeoutMs);
-
-    const handler = (event: MessageEvent) => {
-      const msg = event.data?.pluginMessage as PluginReply | undefined;
-      if (!msg || msg.type !== type) return;
-      clearTimeout(timer);
-      window.removeEventListener('message', handler);
-      resolve(msg as Extract<PluginReply, { type: T }>);
-    };
-    window.addEventListener('message', handler);
-  });
+function postStreamAck(seq: number): void {
+  parent.postMessage({ pluginMessage: { type: 'export_stream_ack', seq } }, '*');
 }
 
-export async function exportSnapshot(
-  hfcFileName: string,
-  excludeNodeIds?: string[]
-): Promise<unknown> {
-  postToPlugin({ type: 'export_file', hfcFileName, excludeNodeIds });
+async function tbPostPart(exportId: string, line: string): Promise<{ seq: number }> {
+  const res = await fetch(`${TB_URL}/export/stream/${exportId}/part`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-ndjson' },
+    body: line,
+  });
+  const body = (await res.json().catch(() => ({}))) as { seq?: number; error?: { message?: string } };
+  if (!res.ok) {
+    throw new Error(body.error?.message ?? res.statusText);
+  }
+  return { seq: body.seq ?? 0 };
+}
 
-  const chunks: { parts: string[]; total: number; name: string } = { parts: [], total: 0, name: hfcFileName };
+export interface StreamingExportOptions {
+  excludeNodeIds?: string[];
+  onProgress?: (progress: ExportProgressState) => void;
+}
+
+export interface StreamingExportResult {
+  exportId: string;
+}
+
+export async function createExportStreamSession(): Promise<{ exportId: string }> {
+  const res = await fetch(`${TB_URL}/export/stream/session`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as {
+    exportId?: string;
+    error?: { message?: string };
+  };
+  if (!res.ok || !body.exportId) {
+    throw new Error(body.error?.message ?? 'Failed to create export session');
+  }
+  return { exportId: body.exportId };
+}
+
+export async function finishExportStreamSession(
+  exportId: string,
+  options: {
+    taskId?: string;
+    mode?: 'full' | 'exclude';
+    excludeNodeIds?: string[];
+    standaloneFileName?: string;
+  }
+): Promise<{ saved?: boolean; filePath?: string; slug?: string }> {
+  const res = await fetch(`${TB_URL}/export/stream/${exportId}/finish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    saved?: boolean;
+    filePath?: string;
+    slug?: string;
+    error?: { message?: string };
+  };
+  if (!res.ok) {
+    throw new Error(body.error?.message ?? res.statusText);
+  }
+  return body;
+}
+
+/** Stream export from Figma plugin main thread → Task Builder (OOM-safe). */
+export async function exportSnapshotStreaming(
+  hfcFileName: string,
+  options: StreamingExportOptions = {}
+): Promise<StreamingExportResult> {
+  const { exportId } = await createExportStreamSession();
+  postToPlugin({ type: 'export_file', hfcFileName, exportId, excludeNodeIds: options.excludeNodeIds });
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler);
       reject(new Error('Export timed out'));
-    }, 300_000);
+    }, 600_000);
 
-    const handler = (event: MessageEvent) => {
+    const handler = async (event: MessageEvent) => {
       const msg = event.data?.pluginMessage as PluginReply | undefined;
       if (!msg) return;
 
-      if (msg.type === 'export_file_chunk') {
-        if (!chunks.total) {
-          chunks.total = msg.total;
-          chunks.parts = new Array(msg.total);
-          chunks.name = msg.hfcFileName;
-        }
-        chunks.parts[msg.index] = msg.data;
+      if (msg.type === 'export_progress') {
+        options.onProgress?.({
+          phase: msg.phase,
+          current: msg.current,
+          total: msg.total,
+          percent: msg.percent,
+          detail: msg.detail,
+        });
         return;
       }
 
-      if (msg.type === 'export_file_result') {
+      if (msg.type === 'export_stream_part' && msg.exportId === exportId) {
+        try {
+          await tbPostPart(exportId, msg.line);
+          postStreamAck(msg.seq);
+        } catch (e) {
+          clearTimeout(timer);
+          window.removeEventListener('message', handler);
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+        return;
+      }
+
+      if (msg.type === 'export_stream_done') {
         clearTimeout(timer);
         window.removeEventListener('message', handler);
         if (!msg.ok) {
           reject(new Error(msg.error ?? 'Export failed'));
           return;
         }
-        let json = msg.snapshotJson;
-        if (!json && chunks.total) {
-          if (chunks.parts.some((p) => p === undefined)) {
-            reject(new Error('Incomplete snapshot chunks'));
-            return;
-          }
-          json = chunks.parts.join('');
-        }
-        if (!json) {
-          reject(new Error('No snapshot data'));
-          return;
-        }
-        try {
-          resolve(JSON.parse(json));
-        } catch (e) {
-          reject(e);
-        }
+        resolve({ exportId });
       }
     };
 
     window.addEventListener('message', handler);
   });
+}
+
+/** @deprecated Use exportSnapshotStreaming + finishExportStreamSession */
+export async function exportSnapshot(
+  hfcFileName: string,
+  excludeNodeIds?: string[]
+): Promise<unknown> {
+  const { exportId } = await exportSnapshotStreaming(hfcFileName, { excludeNodeIds });
+  await finishExportStreamSession(exportId, { standaloneFileName: hfcFileName });
+  return { exportId };
 }
 
 async function waitForSelection<T extends PluginReply['type']>(
@@ -143,7 +210,21 @@ export async function pickExcludeNodeIds(): Promise<string[]> {
 
 export async function captureScreenshot(): Promise<string> {
   postToPlugin({ type: 'capture_selection_screenshot' });
-  const reply = await waitForPluginReply('selection_screenshot', 30_000);
-  if (!reply.ok || !reply.data) throw new Error(reply.error ?? 'Screenshot failed');
-  return reply.data;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      reject(new Error('Screenshot timed out'));
+    }, 30_000);
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage as PluginReply | undefined;
+      if (!msg) return;
+      if (msg.type === 'selection_screenshot') {
+        clearTimeout(timer);
+        window.removeEventListener('message', handler);
+        if (!msg.ok || !msg.data) reject(new Error(msg.error ?? 'Screenshot failed'));
+        else resolve(msg.data);
+      }
+    };
+    window.addEventListener('message', handler);
+  });
 }
