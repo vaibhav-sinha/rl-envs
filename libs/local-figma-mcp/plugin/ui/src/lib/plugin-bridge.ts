@@ -1,4 +1,5 @@
 import { TB_URL } from './constants';
+import { fetchWithExportRetry } from './export-fetch-retry';
 import {
   applyExportProgressUpdate,
   type ExportProgressPhase,
@@ -50,7 +51,7 @@ function postStreamAck(seq: number): void {
 }
 
 async function tbPostPart(exportId: string, line: string): Promise<{ seq: number }> {
-  const res = await fetch(`${TB_URL}/export/stream/${exportId}/part`, {
+  const res = await fetchWithExportRetry(`${TB_URL}/export/stream/${exportId}/part`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-ndjson' },
     body: line,
@@ -73,7 +74,7 @@ export interface StreamingExportResult {
 }
 
 export async function createExportStreamSession(): Promise<{ exportId: string }> {
-  const res = await fetch(`${TB_URL}/export/stream/session`, { method: 'POST' });
+  const res = await fetchWithExportRetry(`${TB_URL}/export/stream/session`, { method: 'POST' });
   const body = (await res.json().catch(() => ({}))) as {
     exportId?: string;
     error?: { message?: string };
@@ -93,7 +94,7 @@ export async function finishExportStreamSession(
     standaloneFileName?: string;
   }
 ): Promise<{ saved?: boolean; filePath?: string; slug?: string }> {
-  const res = await fetch(`${TB_URL}/export/stream/${exportId}/finish`, {
+  const res = await fetchWithExportRetry(`${TB_URL}/export/stream/${exportId}/finish`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options),
