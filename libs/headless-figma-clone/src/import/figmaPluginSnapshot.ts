@@ -113,6 +113,12 @@ function isFigmaNodeIconAsset(
   return 'figmaNodeId' in asset;
 }
 
+/**
+ * Snapshot-only properties `hfcIconSvgAsset` / `hfcIconPngAsset` hold a **Figma node id**
+ * (the canonical export root), not an HFC `I…` id or a content hash. Import looks up that id
+ * in `figmaNodeIconToSha` built from `assets[].figmaNodeId`, then stores `iconSvgAssetHash`
+ * (SHA-256) on the HFC node.
+ */
 function mapIconExportFromSnapshot(
   p: Record<string, unknown>,
   iconExportRemap: (figmaNodeId: string) => string | undefined

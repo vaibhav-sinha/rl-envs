@@ -241,26 +241,28 @@ export function resolveMixedFillVectorExportIds(
   return candidates.filter((id) => !hasCandidateAncestor(id, candidateSet, parentById));
 }
 
+/** @param figmaNodeRef Canonical Figma node id listed in `assets[].figmaNodeId`. */
 export function tagSerializedIconSvgExport(
   root: SerializedNode,
   nodeId: string,
-  assetKey: string
+  figmaNodeRef: string
 ): void {
   if (root.id === nodeId) {
-    root.properties = { ...root.properties, hfcIconSvgAsset: assetKey };
+    root.properties = { ...root.properties, hfcIconSvgAsset: figmaNodeRef };
     return;
   }
-  for (const ch of childList(root)) tagSerializedIconSvgExport(ch, nodeId, assetKey);
+  for (const ch of childList(root)) tagSerializedIconSvgExport(ch, nodeId, figmaNodeRef);
 }
 
+/** @param figmaNodeRef Canonical Figma node id listed in `assets[].figmaNodeId`. */
 export function tagSerializedIconPngExport(
   root: SerializedNode,
   nodeId: string,
-  assetKey: string
+  figmaNodeRef: string
 ): void {
   if (root.id === nodeId) {
-    root.properties = { ...root.properties, hfcIconPngAsset: assetKey };
+    root.properties = { ...root.properties, hfcIconPngAsset: figmaNodeRef };
     return;
   }
-  for (const ch of childList(root)) tagSerializedIconPngExport(ch, nodeId, assetKey);
+  for (const ch of childList(root)) tagSerializedIconPngExport(ch, nodeId, figmaNodeRef);
 }
