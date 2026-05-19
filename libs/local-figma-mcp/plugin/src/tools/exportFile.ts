@@ -1,3 +1,4 @@
+import { BLANK_PNG_BYTES } from '../blankPng.js';
 import type { FigmaPluginSnapshot, SerializedAsset, SerializedNode } from '../snapshotTypes.js';
 import { SNAPSHOT_VERSION } from '../snapshotTypes.js';
 import type { SerializedNodeWire } from '../streamProtocol.js';
@@ -297,16 +298,19 @@ async function buildAssets(): Promise<SerializedAsset[]> {
   for (const hash of IMAGE_HASHES) {
     try {
       const img = figma.getImageByHash(hash);
-      if (!img) continue;
-      const bytes = await img.getBytesAsync();
-      const mime = sniffMime(bytes);
+      const bytes = img ? await img.getBytesAsync() : BLANK_PNG_BYTES;
+      const mime = img ? sniffMime(bytes) : 'image/png';
       assets.push({
         figmaImageHash: hash,
         mimeType: mime,
         base64: bytesToBase64(bytes),
       });
     } catch {
-      /* missing image */
+      assets.push({
+        figmaImageHash: hash,
+        mimeType: 'image/png',
+        base64: bytesToBase64(BLANK_PNG_BYTES),
+      });
     }
   }
   return assets;

@@ -2,6 +2,9 @@
 
 export const STREAM_PROTOCOL_VERSION = 2 as const;
 
+/** Max bytes per NDJSON line in a stream part request body (and per-line after split). */
+export const EXPORT_STREAM_PART_MAX_BYTES = 20 * 1024 * 1024;
+
 export type ExportProgressPhase = 'count' | 'serialize' | 'icons' | 'images' | 'upload';
 
 export interface ExportTotals {

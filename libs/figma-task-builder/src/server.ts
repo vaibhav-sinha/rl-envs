@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { CHECK_CATALOG } from './check-catalog.js';
 import type { TaskBuilderConfig } from './config.js';
 import { ExportStreamSessionStore } from './export-stream-session.js';
+import { EXPORT_STREAM_PART_MAX_BYTES } from './stream-protocol.js';
 import { TasksStore } from './tasks-store.js';
 
 const CORS_HEADERS: Record<string, string> = {
@@ -12,7 +13,6 @@ const CORS_HEADERS: Record<string, string> = {
 };
 
 const BODY_LIMIT = 200 * 1024 * 1024;
-const STREAM_PART_LIMIT = 8 * 1024 * 1024;
 
 function applyCors(res: ServerResponse): void {
   for (const [k, v] of Object.entries(CORS_HEADERS)) res.setHeader(k, v);
@@ -150,9 +150,9 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
       const streamExportId = exportIdFromStreamUrl(url);
       if (streamExportId) {
         if (req.method === 'POST' && url === `/export/stream/${streamExportId}/part`) {
-          const line = await readTextBody(req, STREAM_PART_LIMIT);
-          const { seq } = streamStore.appendPart(streamExportId, line);
-          sendJson(res, 200, { ok: true, seq });
+          const body = await readTextBody(req, EXPORT_STREAM_PART_MAX_BYTES);
+          const { seq, lineCount } = streamStore.appendPart(streamExportId, body);
+          sendJson(res, 200, { ok: true, seq, lineCount });
           return;
         }
 
