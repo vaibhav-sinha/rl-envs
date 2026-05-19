@@ -71,7 +71,7 @@ function sniffMime(bytes: Uint8Array): AssetMime {
 
 export interface StreamExportCallbacks {
   onProgress: (
-    phase: 'count' | 'serialize' | 'icons' | 'images',
+    phase: 'count' | 'meta' | 'serialize' | 'icons' | 'images',
     current: number,
     total: number,
     detail?: string
@@ -130,6 +130,16 @@ export async function* streamFigmaExportLines(
   const counts = countExportTotals(options.excludeNodeIds);
   callbacks.onProgress('count', 1, 1);
 
+  const { document, lines: treeLines } = buildDocumentFromTreeEvents(figma.root, excludeIds);
+
+  collectImageHashesForExport(document);
+
+  const iconRootIds = findStructuralIconExportRootIds(document);
+  const mixedIds: string[] = [];
+  collectMixedFillVectorNodeIds(figma.root, mixedIds);
+  const mixedExportIds = resolveMixedFillVectorExportIds(document, mixedIds);
+  const iconWorkTotal = iconRootIds.length + mixedExportIds.length;
+
   yield streamPartToLine({
     kind: 'session_start',
     streamProtocol: STREAM_PROTOCOL_VERSION,
@@ -140,12 +150,14 @@ export async function* streamFigmaExportLines(
     figmaFileName: figma.root.name,
     totals: {
       nodes: counts.nodes,
-      iconExports: 0,
+      iconExports: iconWorkTotal,
       rasterImages: counts.rasterImages,
     },
   });
 
+  callbacks.onProgress('meta', 0, 1, 'Loading styles and variables…');
   const meta = await serializeMetaAndStyles();
+  callbacks.onProgress('meta', 1, 1);
   yield streamPartToLine({
     kind: 'meta',
     exportedAt: new Date().toISOString(),
@@ -156,7 +168,9 @@ export async function* streamFigmaExportLines(
     gridStyles: meta.gridStyles,
   });
 
-  const { document, lines: treeLines } = buildDocumentFromTreeEvents(figma.root, excludeIds);
+  for (const s of meta.styleRecords) {
+    collectImageHashesForExport(s);
+  }
   let serializeCurrent = 0;
   for (const line of treeLines) {
     if (line.includes('"tree_enter"')) {
@@ -166,19 +180,12 @@ export async function* streamFigmaExportLines(
     yield line;
   }
 
-  collectImageHashesForExport(document);
-  for (const s of meta.styleRecords) {
-    collectImageHashesForExport(s);
-  }
-
-  const iconRootIds = findStructuralIconExportRootIds(document);
-  const mixedIds: string[] = [];
-  collectMixedFillVectorNodeIds(figma.root, mixedIds);
-  const mixedExportIds = resolveMixedFillVectorExportIds(document, mixedIds);
-  const iconWorkTotal = iconRootIds.length + mixedExportIds.length;
-
   const iconDedup = new ExportAssetDedup();
   let iconCurrent = 0;
+
+  if (iconWorkTotal === 0) {
+    callbacks.onProgress('icons', 0, 0);
+  }
 
   for (const nodeId of iconRootIds) {
     iconCurrent += 1;
@@ -246,6 +253,10 @@ export async function* streamFigmaExportLines(
   const seenRasterKeys = new Set<string>();
   let imageCurrent = 0;
   const rasterTotal = rasterHashes.size;
+
+  if (rasterTotal === 0) {
+    callbacks.onProgress('images', 0, 0);
+  }
 
   for (const hash of rasterHashes) {
     imageCurrent += 1;
