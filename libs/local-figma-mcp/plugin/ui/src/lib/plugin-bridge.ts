@@ -1,6 +1,10 @@
 import { TB_URL } from './constants';
 import { fetchWithExportRetry } from './export-fetch-retry';
 import {
+  isImagePartUploadFallbackError,
+  substituteBlankRasterImageLine,
+} from './export-stream-part-fallback';
+import {
   applyExportProgressUpdate,
   type ExportProgressPhase,
   type ExportProgressUpdate,
@@ -35,6 +39,7 @@ export type PluginReply =
       detail?: string;
     }
   | { type: 'export_stream_part'; exportId: string; seq: number; line: string }
+  | { type: 'export_stream_batch'; exportId: string; seq: number; lines: string[] }
   | { type: 'export_stream_done'; ok: boolean; exportId?: string; error?: string }
   | { type: 'selection_node_id'; nodeId: string; name: string }
   | { type: 'selection_node_ids'; nodeIds: string[] }
@@ -50,17 +55,33 @@ function postStreamAck(seq: number): void {
   parent.postMessage({ pluginMessage: { type: 'export_stream_ack', seq } }, '*');
 }
 
-async function tbPostPart(exportId: string, line: string): Promise<{ seq: number }> {
+async function tbPostPartBodyOnce(exportId: string, body: string): Promise<{ seq: number }> {
   const res = await fetchWithExportRetry(`${TB_URL}/export/stream/${exportId}/part`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-ndjson' },
-    body: line,
+    body,
   });
-  const body = (await res.json().catch(() => ({}))) as { seq?: number; error?: { message?: string } };
+  const parsed = (await res.json().catch(() => ({}))) as { seq?: number; error?: { message?: string } };
   if (!res.ok) {
-    throw new Error(body.error?.message ?? res.statusText);
+    throw new Error(parsed.error?.message ?? res.statusText);
   }
-  return { seq: body.seq ?? 0 };
+  return { seq: parsed.seq ?? 0 };
+}
+
+async function tbPostPartBody(exportId: string, body: string): Promise<{ seq: number }> {
+  try {
+    return await tbPostPartBodyOnce(exportId, body);
+  } catch (error) {
+    const fallbackLine = substituteBlankRasterImageLine(body);
+    if (!fallbackLine || !isImagePartUploadFallbackError(error)) {
+      throw error;
+    }
+    console.warn(
+      '[export] Raster image part upload failed; sending blank PNG placeholder instead.',
+      error
+    );
+    return await tbPostPartBodyOnce(exportId, fallbackLine);
+  }
 }
 
 export interface StreamingExportOptions {
@@ -124,10 +145,10 @@ export async function exportSnapshotStreaming(
       window.removeEventListener('message', handler);
       reject(
         new Error(
-          'Export timed out after 2 hours (try again or export a smaller scope)'
+          'Export timed out after 20 hours (try again or export a smaller scope)'
         )
       );
-    }, 7_200_000);
+    }, 72_000_000);
 
     const handler = async (event: MessageEvent) => {
       const msg = event.data?.pluginMessage as PluginReply | undefined;
@@ -146,7 +167,19 @@ export async function exportSnapshotStreaming(
 
       if (msg.type === 'export_stream_part' && msg.exportId === exportId) {
         try {
-          await tbPostPart(exportId, msg.line);
+          await tbPostPartBody(exportId, msg.line);
+          postStreamAck(msg.seq);
+        } catch (e) {
+          clearTimeout(timer);
+          window.removeEventListener('message', handler);
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+        return;
+      }
+
+      if (msg.type === 'export_stream_batch' && msg.exportId === exportId) {
+        try {
+          await tbPostPartBody(exportId, msg.lines.join(''));
           postStreamAck(msg.seq);
         } catch (e) {
           clearTimeout(timer);

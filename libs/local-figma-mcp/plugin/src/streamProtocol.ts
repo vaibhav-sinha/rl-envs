@@ -2,6 +2,15 @@
 
 export const STREAM_PROTOCOL_VERSION = 2 as const;
 
+/** Max bytes per NDJSON line in a stream part (enforced by Task Builder). */
+export const EXPORT_STREAM_PART_MAX_BYTES = 20 * 1024 * 1024;
+
+/** Tree enter/exit lines batched per upload request (main → UI → Task Builder). */
+export const EXPORT_TREE_BATCH_SIZE = 128;
+
+/** Parallel `getBytesAsync` calls for raster image fills. */
+export const RASTER_IMAGE_CONCURRENCY = 8;
+
 export type ExportProgressPhase = 'count' | 'serialize' | 'icons' | 'images' | 'upload';
 
 export interface ExportTotals {
@@ -65,4 +74,15 @@ export function exportPercent(current: number, total: number): number {
 
 export function streamPartToLine(part: StreamPart): string {
   return JSON.stringify(part) + '\n';
+}
+
+export function isTreeStreamLine(line: string): boolean {
+  return line.includes('"tree_enter"') || line.includes('"tree_exit"');
+}
+
+/** Estimated upload requests after tree batching (for progress UI). */
+export function estimateUploadPartTotal(totals: ExportTotals): number {
+  const treeLines = Math.max(0, totals.nodes * 2);
+  const treeBatches = Math.max(1, Math.ceil(treeLines / EXPORT_TREE_BATCH_SIZE));
+  return treeBatches + totals.iconExports + totals.rasterImages + 5;
 }

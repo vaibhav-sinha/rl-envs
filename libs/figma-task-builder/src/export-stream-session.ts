@@ -8,10 +8,12 @@ import {
   SnapshotAssembler,
   type AssembledAsset,
 } from './snapshot-assembler.js';
-import { parseStreamPartLine, type StreamPart } from './stream-protocol.js';
+import {
+  EXPORT_STREAM_PART_MAX_BYTES,
+  parseStreamPartLine,
+  type StreamPart,
+} from './stream-protocol.js';
 import { TasksStore } from './tasks-store.js';
-
-const PART_LINE_LIMIT = 8 * 1024 * 1024;
 
 export interface ExportStreamSessionInfo {
   exportId: string;
@@ -52,26 +54,30 @@ export class ExportStreamSessionStore {
     };
   }
 
-  appendPart(exportId: string, line: string): { seq: number } {
+  appendPart(exportId: string, body: string): { seq: number; lineCount: number } {
     const dir = sessionDir(this.sessionsDir, exportId);
     if (!existsSync(dir)) throw new Error(`NOT_FOUND: export session ${exportId}`);
 
-    if (line.length > PART_LINE_LIMIT) {
-      throw new Error('PART_LINE_TOO_LARGE');
-    }
+    const lines = splitNdjsonBody(body);
+    if (lines.length === 0) throw new Error('EMPTY_PART_LINE');
 
-    const trimmed = line.trim();
-    if (!trimmed) throw new Error('EMPTY_PART_LINE');
-
-    const part = parseStreamPartLine(trimmed);
     const seq = nextSeq(dir);
-    appendLine(join(dir, 'parts.jsonl'), trimmed);
+    const partsPath = join(dir, 'parts.jsonl');
+    const chunks: string[] = [];
 
-    if (part.kind === 'asset') {
-      writeAssetFile(dir, part);
+    for (const trimmed of lines) {
+      if (trimmed.length > EXPORT_STREAM_PART_MAX_BYTES) {
+        throw new Error('PART_LINE_TOO_LARGE');
+      }
+      const part = parseStreamPartLine(trimmed);
+      chunks.push(trimmed + '\n');
+      if (part.kind === 'asset') {
+        writeAssetFile(dir, part);
+      }
     }
 
-    return { seq };
+    writeFileSync(partsPath, chunks.join(''), { encoding: 'utf8', flag: 'a' });
+    return { seq, lineCount: lines.length };
   }
 
   async finish(exportId: string, options: FinishStreamOptions): Promise<FinishStreamResult> {
@@ -158,8 +164,12 @@ function nextSeq(dir: string): number {
   return seq;
 }
 
-function appendLine(path: string, line: string): void {
-  writeFileSync(path, line + '\n', { encoding: 'utf8', flag: 'a' });
+/** Split request body into NDJSON lines (supports batched tree uploads). */
+export function splitNdjsonBody(body: string): string[] {
+  return body
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function writeAssetFile(dir: string, part: Extract<StreamPart, { kind: 'asset' }>): void {

@@ -5,7 +5,12 @@ import { runGetVariableDefs } from './tools/getVariableDefs.js';
 import { runSearchDesignSystem } from './tools/searchDesignSystem.js';
 import { runUseFigma } from './tools/useFigma.js';
 import { streamFigmaExportLines } from './tools/streamExport.js';
-import { exportPercent } from './streamProtocol.js';
+import {
+  EXPORT_TREE_BATCH_SIZE,
+  estimateUploadPartTotal,
+  exportPercent,
+  isTreeStreamLine,
+} from './streamProtocol.js';
 import { getSelectedNodeIds, getSingleSelectedNode } from './selection.js';
 
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
@@ -44,6 +49,7 @@ type MainToUi =
       detail?: string;
     }
   | { type: 'export_stream_part'; exportId: string; seq: number; line: string }
+  | { type: 'export_stream_batch'; exportId: string; seq: number; lines: string[] }
   | { type: 'export_stream_done'; ok: boolean; exportId?: string; error?: string }
   | { type: 'selection_node_id'; nodeId: string; name: string }
   | { type: 'selection_node_ids'; nodeIds: string[] }
@@ -121,13 +127,6 @@ async function dispatchTool(
   }
 }
 
-function estimateStreamPartTotal(totals: {
-  nodes: number;
-  iconExports: number;
-  rasterImages: number;
-}): number {
-  return Math.max(1, totals.nodes * 2 + totals.iconExports + totals.rasterImages + 3);
-}
 
 function parseSessionStartTotals(line: string): {
   nodes: number;
@@ -156,8 +155,57 @@ async function runExportFile(
   excludeNodeIds?: string[]
 ): Promise<void> {
   try {
-    let uploadCurrent = 0;
+    let uploadSeq = 0;
     let uploadTotal = 1;
+    let treeBatch: string[] = [];
+
+    const reportUploadProgress = (detail: string) => {
+      const shouldReport =
+        uploadSeq === 1 || uploadSeq >= uploadTotal || uploadSeq % 50 === 0;
+      if (shouldReport) {
+        postProgress('upload', uploadSeq, uploadTotal, detail);
+      }
+    };
+
+    const postUploadAck = async (seq: number): Promise<void> => {
+      uploadSeq = seq;
+      if (uploadSeq > uploadTotal) uploadTotal = uploadSeq;
+      reportUploadProgress(`upload batches (tree ×${EXPORT_TREE_BATCH_SIZE})`);
+      await waitForStreamAck(seq);
+    };
+
+    const flushTreeBatch = async (): Promise<void> => {
+      if (treeBatch.length === 0) return;
+      const lines = treeBatch;
+      treeBatch = [];
+      const seq = uploadSeq + 1;
+      figma.ui.postMessage({
+        type: 'export_stream_batch',
+        exportId,
+        seq,
+        lines,
+      } satisfies MainToUi);
+      await postUploadAck(seq);
+    };
+
+    const sendLine = async (line: string): Promise<void> => {
+      if (isTreeStreamLine(line)) {
+        treeBatch.push(line);
+        if (treeBatch.length >= EXPORT_TREE_BATCH_SIZE) {
+          await flushTreeBatch();
+        }
+        return;
+      }
+      await flushTreeBatch();
+      const seq = uploadSeq + 1;
+      figma.ui.postMessage({
+        type: 'export_stream_part',
+        exportId,
+        seq,
+        line,
+      } satisfies MainToUi);
+      await postUploadAck(seq);
+    };
 
     for await (const line of streamFigmaExportLines(
       exportId,
@@ -171,36 +219,13 @@ async function runExportFile(
     )) {
       const totals = parseSessionStartTotals(line);
       if (totals) {
-        uploadTotal = estimateStreamPartTotal(totals);
+        uploadTotal = estimateUploadPartTotal(totals);
       }
-
-      uploadCurrent += 1;
-      if (uploadCurrent > uploadTotal) {
-        uploadTotal = uploadCurrent;
-      }
-      const shouldReportUpload =
-        uploadCurrent === 1 ||
-        uploadCurrent >= uploadTotal ||
-        uploadCurrent % 250 === 0;
-      if (shouldReportUpload) {
-        postProgress(
-          'upload',
-          uploadCurrent,
-          uploadTotal,
-          'NDJSON parts (~2× node count)'
-        );
-      }
-
-      figma.ui.postMessage({
-        type: 'export_stream_part',
-        exportId,
-        seq: uploadCurrent,
-        line,
-      } satisfies MainToUi);
-      await waitForStreamAck(uploadCurrent);
+      await sendLine(line);
     }
 
-    postProgress('upload', uploadTotal, uploadTotal);
+    await flushTreeBatch();
+    postProgress('upload', uploadTotal, uploadTotal, 'upload complete');
 
     figma.ui.postMessage({
       type: 'export_stream_done',

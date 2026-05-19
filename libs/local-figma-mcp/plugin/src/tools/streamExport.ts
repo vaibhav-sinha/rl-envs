@@ -1,5 +1,10 @@
 import type { StreamPart } from '../streamProtocol.js';
-import { STREAM_PROTOCOL_VERSION, streamPartToLine } from '../streamProtocol.js';
+import {
+  RASTER_IMAGE_CONCURRENCY,
+  STREAM_PROTOCOL_VERSION,
+  streamPartToLine,
+} from '../streamProtocol.js';
+import { mapPool } from './asyncPool.js';
 import { SNAPSHOT_VERSION } from '../snapshotTypes.js';
 import type { SerializedNode } from '../snapshotTypes.js';
 import { countExportTotals } from './countNodes.js';
@@ -14,6 +19,7 @@ import { ExportAssetDedup } from './exportAssetDedup.js';
 import { exportContentKey } from './exportAssetDedup.js';
 import { bytesToBase64 } from './serializeValue.js';
 import { sha256Hex } from './sha256.js';
+import { BLANK_PNG_BYTES } from '../blankPng.js';
 import {
   clearImageHashesForExport,
   collectImageHashesForExport,
@@ -249,30 +255,37 @@ export async function* streamFigmaExportLines(
     }
   }
 
-  const rasterHashes = getImageHashesSet();
-  const seenRasterKeys = new Set<string>();
-  let imageCurrent = 0;
-  const rasterTotal = rasterHashes.size;
+  const rasterHashes = [...getImageHashesSet()];
+  const rasterTotal = rasterHashes.length;
 
   if (rasterTotal === 0) {
     callbacks.onProgress('images', 0, 0);
   }
 
-  for (const hash of rasterHashes) {
-    imageCurrent += 1;
-    callbacks.onProgress('images', imageCurrent, rasterTotal);
+  let imageDone = 0;
+  const rasterRows = await mapPool(rasterHashes, RASTER_IMAGE_CONCURRENCY, async (hash) => {
     try {
       const img = figma.getImageByHash(hash);
-      if (!img) continue;
+      if (!img) {
+        return { hash, bytes: BLANK_PNG_BYTES, mime: 'image/png' as const };
+      }
       const bytes = await img.getBytesAsync();
-      const mime = sniffMime(bytes);
-      const contentKey = exportContentKey(bytes, mime);
-      if (seenRasterKeys.has(contentKey)) continue;
-      seenRasterKeys.add(contentKey);
-      yield streamPartToLine(assetPartFromBytes(bytes, mime, { figmaImageHash: hash }));
+      return { hash, bytes, mime: sniffMime(bytes) };
     } catch {
-      /* missing */
+      return { hash, bytes: BLANK_PNG_BYTES, mime: 'image/png' as const };
+    } finally {
+      imageDone += 1;
+      callbacks.onProgress('images', imageDone, rasterTotal);
     }
+  });
+
+  const seenRasterKeys = new Set<string>();
+  for (const row of rasterRows) {
+    if (!row) continue;
+    const contentKey = exportContentKey(row.bytes, row.mime);
+    if (seenRasterKeys.has(contentKey)) continue;
+    seenRasterKeys.add(contentKey);
+    yield streamPartToLine(assetPartFromBytes(row.bytes, row.mime, { figmaImageHash: row.hash }));
   }
 
   yield streamPartToLine({ kind: 'session_end', exportId });
