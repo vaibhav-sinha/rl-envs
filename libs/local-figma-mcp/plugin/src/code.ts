@@ -37,7 +37,7 @@ type MainToUi =
   | { type: 'log'; line: string }
   | {
       type: 'export_progress';
-      phase: 'count' | 'serialize' | 'icons' | 'images' | 'upload';
+      phase: 'count' | 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
       current: number;
       total: number;
       percent: number;
@@ -70,7 +70,7 @@ function waitForStreamAck(seq: number): Promise<void> {
 }
 
 function postProgress(
-  phase: 'count' | 'serialize' | 'icons' | 'images' | 'upload',
+  phase: 'count' | 'meta' | 'serialize' | 'icons' | 'images' | 'upload',
   current: number,
   total: number,
   detail?: string
@@ -121,14 +121,43 @@ async function dispatchTool(
   }
 }
 
+function estimateStreamPartTotal(totals: {
+  nodes: number;
+  iconExports: number;
+  rasterImages: number;
+}): number {
+  return Math.max(1, totals.nodes * 2 + totals.iconExports + totals.rasterImages + 3);
+}
+
+function parseSessionStartTotals(line: string): {
+  nodes: number;
+  iconExports: number;
+  rasterImages: number;
+} | null {
+  try {
+    const part = JSON.parse(line.trim()) as {
+      kind?: string;
+      totals?: { nodes?: number; iconExports?: number; rasterImages?: number };
+    };
+    if (part.kind !== 'session_start' || !part.totals) return null;
+    return {
+      nodes: part.totals.nodes ?? 0,
+      iconExports: part.totals.iconExports ?? 0,
+      rasterImages: part.totals.rasterImages ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function runExportFile(
   exportId: string,
   hfcFileName: string,
   excludeNodeIds?: string[]
 ): Promise<void> {
   try {
-    let seq = 0;
-    let uploadTotal = 0;
+    let uploadCurrent = 0;
+    let uploadTotal = 1;
 
     for await (const line of streamFigmaExportLines(
       exportId,
@@ -140,17 +169,38 @@ async function runExportFile(
         },
       }
     )) {
-      seq += 1;
-      uploadTotal = seq;
-      postProgress('upload', seq, uploadTotal || 1);
+      const totals = parseSessionStartTotals(line);
+      if (totals) {
+        uploadTotal = estimateStreamPartTotal(totals);
+      }
+
+      uploadCurrent += 1;
+      if (uploadCurrent > uploadTotal) {
+        uploadTotal = uploadCurrent;
+      }
+      const shouldReportUpload =
+        uploadCurrent === 1 ||
+        uploadCurrent >= uploadTotal ||
+        uploadCurrent % 250 === 0;
+      if (shouldReportUpload) {
+        postProgress(
+          'upload',
+          uploadCurrent,
+          uploadTotal,
+          'NDJSON parts (~2× node count)'
+        );
+      }
+
       figma.ui.postMessage({
         type: 'export_stream_part',
         exportId,
-        seq,
+        seq: uploadCurrent,
         line,
       } satisfies MainToUi);
-      await waitForStreamAck(seq);
+      await waitForStreamAck(uploadCurrent);
     }
+
+    postProgress('upload', uploadTotal, uploadTotal);
 
     figma.ui.postMessage({
       type: 'export_stream_done',

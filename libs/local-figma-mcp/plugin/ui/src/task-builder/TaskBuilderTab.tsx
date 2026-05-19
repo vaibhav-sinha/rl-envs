@@ -12,14 +12,17 @@ import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Textarea } from '../components/ui/textarea';
 import {
+  applyExportProgressUpdate,
   captureScreenshot,
+  createInitialExportProgress,
   exportSnapshotStreaming,
   finishExportStreamSession,
   pickExcludeNodeIds,
   pickNodeId,
-  type ExportProgressState,
+  type ExportProgressUpdate,
 } from '../lib/plugin-bridge';
-import { ExportProgressBar } from '../components/ExportProgress';
+import type { ExportOutcome, MultiPhaseExportProgress } from '../lib/export-progress-state';
+import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportProgress';
 import { WIZARD_STEPS, stepMeta } from './catalog-helpers';
 import { CheckCard } from './components/CheckCard';
 import { FieldHelp } from './components/FieldHelp';
@@ -63,7 +66,8 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     weights: { gates: 1, checks: 0.35, design_system: 0.2, visual: 0.35, heuristics: 0.1 },
   });
 
-  const [exportProgress, setExportProgress] = useState<ExportProgressState | null>(null);
+  const [exportProgress, setExportProgress] = useState<MultiPhaseExportProgress | null>(null);
+  const [exportOutcome, setExportOutcome] = useState<ExportOutcome | null>(null);
   const [showExcludeDialog, setShowExcludeDialog] = useState(false);
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [copyFromTaskId, setCopyFromTaskId] = useState<string | null>(null);
@@ -177,15 +181,28 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     }
   };
 
+  const reportExportProgress = (update: ExportProgressUpdate) => {
+    setExportProgress((prev) => applyExportProgressUpdate(prev, update));
+  };
+
   const runExport = async (mode: 'full' | 'exclude', excludeNodeIds?: string[]) => {
     if (!taskId) return;
     setBusy(true);
-    setExportProgress(null);
+    setExportProgress(createInitialExportProgress());
+    setExportOutcome(null);
     try {
       onLog('Streaming Figma export…');
       const { exportId } = await exportSnapshotStreaming(taskId, {
         excludeNodeIds,
-        onProgress: setExportProgress,
+        onProgress: reportExportProgress,
+      });
+
+      reportExportProgress({
+        phase: 'finalize',
+        current: 0,
+        total: 1,
+        percent: 0,
+        detail: 'Saving to task draft…',
       });
       onLog('Finalizing on Task Builder…');
       await finishExportStreamSession(exportId, {
@@ -193,15 +210,27 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
         mode,
         excludeNodeIds,
       });
+      reportExportProgress({ phase: 'finalize', current: 1, total: 1, percent: 100 });
+
       const updated = await taskBuilderApi.getTask(taskId);
       setTask(updated);
+      setExportOutcome({
+        kind: 'success',
+        title: 'Export complete',
+        message: `Baseline design saved for task “${taskId}”. Continue to gates.`,
+      });
       onLog('Design exported to draft');
       setStep('gates');
     } catch (e) {
-      onLog(e instanceof Error ? e.message : String(e), true);
+      const message = e instanceof Error ? e.message : String(e);
+      setExportOutcome({
+        kind: 'error',
+        title: 'Export failed',
+        message,
+      });
+      onLog(message, true);
     } finally {
       setBusy(false);
-      setExportProgress(null);
       setShowExcludeDialog(false);
     }
   };
@@ -485,7 +514,10 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
               title="Baseline export"
               description="Captures the current Figma file as design.hfc.json — the before state agents are graded against."
             />
-            {busy ? <ExportProgressBar progress={exportProgress} /> : null}
+            {busy && exportProgress ? <ExportProgressPanel progress={exportProgress} /> : null}
+            {exportOutcome ? (
+              <ExportOutcomeBanner outcome={exportOutcome} onDismiss={() => setExportOutcome(null)} />
+            ) : null}
             <Button variant="primary" disabled={busy} onClick={() => void runExport('full')}>
               Export entire file
             </Button>
