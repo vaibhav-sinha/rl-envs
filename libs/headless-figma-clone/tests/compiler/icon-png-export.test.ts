@@ -9,10 +9,10 @@ import { designCompiler } from '../../src/render/DesignCompiler.js';
 describe('icon PNG @2x export compile', () => {
   it('renders exported PNG icon asset at layout size', () => {
     const milkIcon = {
-      id: 'I211',
+      id: '1:211',
       type: 'COMPONENT',
       name: 'Type=default, Library=milk',
-      properties: { width: 24, height: 24, hfcIconPngAsset: 'I211' },
+      properties: { width: 24, height: 24, hfcIconPngAsset: '1:211' },
       children: [],
     };
     const page = {
@@ -43,7 +43,7 @@ describe('icon PNG @2x export compile', () => {
       gridStyles: [],
       assets: [
         {
-          figmaNodeId: 'I211',
+          figmaNodeId: '1:211',
           mimeType: 'image/png' as const,
           base64: png48.toString('base64'),
           exportScale: 2,
