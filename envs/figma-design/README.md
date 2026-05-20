@@ -90,7 +90,7 @@ cd envs/figma-design
 harbor add tasks/my-task-id
 ```
 
-Edit `tasks/my-task-id/instruction.md`, then rebuild only the thin task layer (Harbor does this on `harbor run`).
+Edit `tasks/my-task-id/instruction.md`, then rebuild only the thin task layer (Harbor does this on `harbor run`). New tasks from `new-task.mjs` and the Task Builder include the standard MCP-only preamble from `shared/instruction-preamble.txt` at the top of every instruction; keep that line when editing tasks.
 
 ### Task assets and design baseline
 

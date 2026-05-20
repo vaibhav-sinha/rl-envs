@@ -394,7 +394,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
         }
         const data: Record<string, unknown> = {
           touchedNodeIds: r.touchedNodeIds,
-          warnings: r.warnings,
+          warnings: [...(r.warnings ?? []), ...(run.snapshotWarnings ?? [])],
           result: run.result,
         };
         return {

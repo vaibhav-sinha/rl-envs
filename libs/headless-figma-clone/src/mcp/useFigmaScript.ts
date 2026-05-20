@@ -3,6 +3,7 @@ import {
   applyCreateNodeOp,
   applyEngineOp,
   findEnvelopeNode,
+  findParentNode,
   registerAssetBytesInEnvelope,
   validateTransformModifiers,
   type EngineOperation,
@@ -15,7 +16,9 @@ import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
 import { hasMissingFont, listAvailableFonts, loadFontAsync } from '../fonts/fontCatalog.js';
 import { createNodeSpecFromSvg } from '../images/svgImport.js';
 import { fetchBytes, loadNetworkPolicyFromEnv } from '../images/networkPolicy.js';
-import { findAllNodes, findOneNode, parseFindCriteria } from '../traversal/findNodes.js';
+import { getImmediateSceneChildren } from '../traversal/findNodes.js';
+import { createTraversalMethods } from './scriptTraversal.js';
+import { HFC_HANDLE_FLAG, HFC_HANDLE_MARKER, snapshotForReturn } from './scriptNodeSnapshot.js';
 import { parseStyledSegmentsInput } from '../engine/styledSegmentsNormalize.js';
 import { ENGINE_MATRIX } from '../engine/phase-matrix.js';
 import type {
@@ -108,10 +111,36 @@ function appendChildToScriptParent(
   applyEngineOp(ctx.working, op);
 }
 
+const TRAVERSAL_METHODS = new Set([
+  'findAll',
+  'findOne',
+  'findChildren',
+  'findChild',
+  'findAllWithCriteria',
+]);
+
 function createHandleProxy(ctx: ScriptContext, id: string): unknown {
-  return new Proxy({ id }, {
+  const traversal = () =>
+    createTraversalMethods(
+      { working: ctx.working, deletedIds: ctx.deletedIds, createHandle: (nid) => createHandleProxy(ctx, nid) },
+      id
+    );
+
+  return new Proxy({ id, [HFC_HANDLE_MARKER]: true as const, [HFC_HANDLE_FLAG]: true as const }, {
     get(_t, prop) {
       if (prop === 'id') return id;
+      if (prop === HFC_HANDLE_MARKER || prop === HFC_HANDLE_FLAG) return true;
+      if (TRAVERSAL_METHODS.has(prop as string)) {
+        return (traversal() as Record<string, unknown>)[prop as string];
+      }
+      if (prop === 'parent') {
+        const par = findParentNode(ctx.working.document, id);
+        if (!par) return null;
+        if (par.type === 'DOCUMENT') {
+          return { id: par.id, type: par.type, name: par.name };
+        }
+        return createHandleProxy(ctx, par.id);
+      }
       if (prop === 'remove') {
         return (): void => {
           if (ctx.deletedIds.has(id)) {
@@ -300,12 +329,9 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (prop === 'children') {
         const live = findEnvelopeNode(ctx.working, id);
         if (!live || ctx.deletedIds.has(id)) return [];
-        if (live.type === 'PAGE' || 'children' in live) {
-          return (live as { children: Array<{ id: string }> }).children
-            .filter((c) => !ctx.deletedIds.has(c.id))
-            .map((c) => createHandleProxy(ctx, c.id));
-        }
-        return [];
+        return getImmediateSceneChildren(live, ctx.working)
+          .filter((c) => !ctx.deletedIds.has(c.id))
+          .map((c) => createHandleProxy(ctx, c.id));
       }
       const live = findEnvelopeNode(ctx.working, id);
       if (!live || ctx.deletedIds.has(id)) return undefined;
@@ -363,6 +389,42 @@ const SIDE_STROKE_PROPS: Record<string, 'top' | 'right' | 'bottom' | 'left'> = {
 
 function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext): N {
   return new Proxy(node, {
+    get(target, prop, receiver) {
+      const p = prop as string;
+      const nid = target.getAttachedIdOrNull();
+      if (TRAVERSAL_METHODS.has(p)) {
+        if (!target.attached || nid === null) {
+          throw new ValidationErr(
+            'VALIDATION_ERROR',
+            `${p}: node must be appended to the document before traversal`
+          );
+        }
+        return (createTraversalMethods(
+          {
+            working: ctx.working,
+            deletedIds: ctx.deletedIds,
+            createHandle: (nodeId) => createHandleProxy(ctx, nodeId),
+          },
+          nid
+        ) as Record<string, unknown>)[p];
+      }
+      if (p === 'parent' && target.attached && nid !== null) {
+        const par = findParentNode(ctx.working.document, nid);
+        if (!par) return null;
+        if (par.type === 'DOCUMENT') {
+          return { id: par.id, type: par.type, name: par.name };
+        }
+        return createHandleProxy(ctx, par.id);
+      }
+      if (p === 'children' && target.attached && nid !== null) {
+        const live = findEnvelopeNode(ctx.working, nid);
+        if (!live) return [];
+        return getImmediateSceneChildren(live, ctx.working)
+          .filter((c) => !ctx.deletedIds.has(c.id))
+          .map((c) => createHandleProxy(ctx, c.id));
+      }
+      return Reflect.get(target, prop, receiver);
+    },
     set(target, prop, value, receiver) {
       const p = prop as string;
       if (GRID_LAYOUT_PROP_SET.has(p)) {
@@ -1599,21 +1661,100 @@ class RuntimePage {
     return this.pageId;
   }
 
-  findAll(criteria?: unknown): unknown[] {
-    const p = findEnvelopeNode(this.ctx.working, this.pageId);
-    if (!p || p.type !== 'PAGE') return [];
-    return findAllNodes(p, parseFindCriteria(criteria)).map((n) => createHandleProxy(this.ctx, n.id));
+  get type(): 'PAGE' {
+    return 'PAGE';
   }
 
-  findOne(criteria?: unknown): unknown | null {
+  get name(): string {
+    return this.livePageOrNull()?.name ?? '';
+  }
+
+  set name(value: string) {
+    queueUpdate(this.ctx, this.pageId, { name: value });
+  }
+
+  get isPageDivider(): boolean | undefined {
+    return this.livePageOrNull()?.isPageDivider;
+  }
+
+  private livePageOrNull(): PageNode | null {
     const p = findEnvelopeNode(this.ctx.working, this.pageId);
-    if (!p || p.type !== 'PAGE') return null;
-    const hit = findOneNode(p, parseFindCriteria(criteria));
-    return hit ? createHandleProxy(this.ctx, hit.id) : null;
+    return p && p.type === 'PAGE' ? p : null;
+  }
+
+  get x(): number | undefined {
+    return this.livePageOrNull()?.x;
+  }
+
+  get y(): number | undefined {
+    return this.livePageOrNull()?.y;
+  }
+
+  get width(): number | undefined {
+    return this.livePageOrNull()?.width;
+  }
+
+  get height(): number | undefined {
+    return this.livePageOrNull()?.height;
+  }
+
+  get visible(): boolean | undefined {
+    return this.livePageOrNull()?.visible;
+  }
+
+  findAll(callback?: unknown): unknown[] {
+    return createTraversalMethods(
+      {
+        working: this.ctx.working,
+        deletedIds: this.ctx.deletedIds,
+        createHandle: (nid) => createHandleProxy(this.ctx, nid),
+      },
+      this.pageId
+    ).findAll(callback);
+  }
+
+  findOne(callback: unknown): unknown | null {
+    return createTraversalMethods(
+      {
+        working: this.ctx.working,
+        deletedIds: this.ctx.deletedIds,
+        createHandle: (nid) => createHandleProxy(this.ctx, nid),
+      },
+      this.pageId
+    ).findOne(callback);
+  }
+
+  findChildren(callback?: unknown): unknown[] {
+    return createTraversalMethods(
+      {
+        working: this.ctx.working,
+        deletedIds: this.ctx.deletedIds,
+        createHandle: (nid) => createHandleProxy(this.ctx, nid),
+      },
+      this.pageId
+    ).findChildren(callback);
+  }
+
+  findChild(callback: unknown): unknown | null {
+    return createTraversalMethods(
+      {
+        working: this.ctx.working,
+        deletedIds: this.ctx.deletedIds,
+        createHandle: (nid) => createHandleProxy(this.ctx, nid),
+      },
+      this.pageId
+    ).findChild(callback);
   }
 
   findAllWithCriteria(criteria: unknown): unknown[] {
-    return this.findAll(criteria);
+    return createTraversalMethods(
+      {
+        working: this.ctx.working,
+        deletedIds: this.ctx.deletedIds,
+        createHandle: (nid) => createHandleProxy(this.ctx, nid),
+      },
+      this.pageId
+    ).findAllWithCriteria(criteria);
   }
 
   get selection(): unknown[] {
@@ -1639,7 +1780,7 @@ class RuntimePage {
   get children(): unknown[] {
     const p = findEnvelopeNode(this.ctx.working, this.pageId);
     if (!p || p.type !== 'PAGE') return [];
-    return p.children
+    return getImmediateSceneChildren(p, this.ctx.working)
       .filter((c) => !this.ctx.deletedIds.has(c.id))
       .map((c) => createHandleProxy(this.ctx, c.id));
   }
@@ -1732,6 +1873,8 @@ export interface RunUseFigmaScriptOk {
   currentPageId: string;
   /** JSON-serializable return value from the script (Figma serializes `return` for the agent). */
   result: unknown;
+  /** Warnings from return-value snapshot (depth/node budget, etc.). */
+  snapshotWarnings: string[];
 }
 
 export interface RunUseFigmaScriptErr {
@@ -1805,6 +1948,15 @@ export async function runUseFigmaScript(
     root: {
       get id(): string {
         return ctx.working.document.id;
+      },
+      get type(): 'DOCUMENT' {
+        return 'DOCUMENT';
+      },
+      get name(): string {
+        return ctx.working.document.name;
+      },
+      set name(value: string) {
+        queueUpdate(ctx, ctx.working.document.id, { name: value });
       },
       get children(): RuntimePage[] {
         return ctx.working.document.children
@@ -2248,16 +2400,16 @@ export async function runUseFigmaScript(
     return { kind: 'error', errorCode: 'VALIDATION_ERROR', message: msg };
   }
 
-  let result: unknown = rawResult;
-  if (result !== undefined) {
-    try {
-      result = JSON.parse(JSON.stringify(result));
-    } catch {
-      result = String(rawResult);
-    }
-  } else {
-    result = null;
+  let result: unknown = null;
+  let snapshotWarnings: string[] = [];
+  if (rawResult !== undefined) {
+    const snap = snapshotForReturn(rawResult, {
+      working: ctx.working,
+      deletedIds: ctx.deletedIds,
+    });
+    result = snap.value;
+    snapshotWarnings = snap.warnings;
   }
 
-  return { kind: 'ok', operations: ctx.ops, currentPageId, result };
+  return { kind: 'ok', operations: ctx.ops, currentPageId, result, snapshotWarnings };
 }

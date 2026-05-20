@@ -309,19 +309,27 @@ Scripts are automatically wrapped in an async IIFE with error handling. Use `ret
 
 ```js
 return { nodeId: frame.id }     // Return object — auto-serialized to JSON
+return frame                    // Node handles are expanded (id, name, type, geometry, children, …)
+return figma.currentPage.children // Arrays of handles are expanded the same way
 return "success message"        // Return string
 // Errors are auto-captured — no try/catch or closePlugin needed
 ```
 
+Returned node handles are **auto-expanded** to plain JSON (envelope-backed fields from `ENGINE_MATRIX`, nested `children`, shallow `parent`). You do not need to manually map `{ id, name, type }` unless you want a subset of fields. Depth and node-count limits apply (`HFC_SCRIPT_RETURN_MAX_DEPTH`, `HFC_SCRIPT_RETURN_MAX_NODES`); truncated trees return `{ id, type, name }` stubs and may add a warning on the tool response.
+
 ## Node Traversal
 
+Supported on containers (page, frame, group, component, instance, etc.):
+
 ```js
-node.findAll(pred?)            // Find all descendants matching predicate
-node.findOne(pred?)            // Find first descendant matching predicate
-node.findChildren(pred?)       // Find direct children matching predicate
-node.findChild(pred?)          // Find first direct child matching predicate
+node.findAll(pred?)            // All descendants (caller not included); optional predicate
+node.findAll({ types: ['TEXT'], name: 'Title' }) // Criteria object (pages / any container)
+node.findAllWithCriteria(criteria) // Same as criteria-object findAll
+node.findOne(pred)             // First descendant match (predicate required)
+node.findChildren(pred?)       // Direct children only
+node.findChild(pred)           // First direct child
 node.children                  // Direct children array
-node.parent                    // Parent node
+node.parent                    // Parent node (document root for pages)
 ```
 
 ---

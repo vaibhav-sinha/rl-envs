@@ -291,7 +291,7 @@ function findInSceneList(nodes: SceneNode[], id: string): AnyTreeNode | null {
   return null;
 }
 
-function findParent(
+export function findParentNode(
   root: DocumentNode,
   id: string
 ): DocumentNode | PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode | null {
@@ -301,6 +301,13 @@ function findParent(
     if (hit) return hit;
   }
   return null;
+}
+
+function findParent(
+  root: DocumentNode,
+  id: string
+): DocumentNode | PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode | null {
+  return findParentNode(root, id);
 }
 
 function findParentInFrames(

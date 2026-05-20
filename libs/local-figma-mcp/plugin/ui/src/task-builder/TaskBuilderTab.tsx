@@ -27,6 +27,7 @@ import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportPr
 import { PageMultiSelect } from '../components/PageMultiSelect';
 import { useFilePages } from '../hooks/useFilePages';
 import { WIZARD_STEPS, stepMeta } from './catalog-helpers';
+import { sanitizeEvalSpecForSave } from './sanitize-eval-spec';
 import { CheckCard } from './components/CheckCard';
 import { FieldHelp } from './components/FieldHelp';
 import { SectionIntro } from './components/SectionIntro';
@@ -175,7 +176,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
         patch.metadata = meta;
       }
       if (['gates', 'checks', 'design_system', 'visual', 'weights'].includes(step)) {
-        patch.evalSpec = evalSpec;
+        patch.evalSpec = sanitizeEvalSpecForSave(evalSpec);
       }
       const updated = await taskBuilderApi.patchTask(taskId, patch);
       setTask(updated);
@@ -337,7 +338,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     const id = `${type}_${(evalSpec.visual?.length ?? 0) + 1}`;
     const base: Record<string, unknown> = { id, type };
     if (type === 'design_consistency') Object.assign(base, { node_id: '', focus: 'largest_added' });
-    if (type === 'task_completeness') Object.assign(base, { evaluation_instructions: '' });
+    // evaluation_instructions is optional; omit until the user enters text (empty string fails schema minLength)
     if (type === 'before_vs_after') Object.assign(base, { surrounding_context_node_id: '' });
     if (type === 'compare_with_reference') Object.assign(base, { reference_asset: '' });
     setEvalSpec({ ...evalSpec, visual: [...(evalSpec.visual ?? []), base] });

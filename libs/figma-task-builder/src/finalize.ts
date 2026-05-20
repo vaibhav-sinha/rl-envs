@@ -45,6 +45,11 @@ category = "${meta.category}"
 [verifier]
 timeout_sec = ${meta.verifier_timeout_sec}.0
 
+[verifier.env]
+ANTHROPIC_API_KEY = "\${ANTHROPIC_API_KEY}"
+OPENAI_API_KEY = "\${OPENAI_API_KEY}"
+GEMINI_API_KEY = "\${GEMINI_API_KEY}"
+
 [agent]
 timeout_sec = ${meta.agent_timeout_sec}.0
 

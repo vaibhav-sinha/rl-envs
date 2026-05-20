@@ -73,6 +73,10 @@ labelNode.componentPropertyReferences = { characters: propKey }
 
 The same applies to `COMPONENT_SET` nodes — `addComponentProperty` always returns the property key as a string.
 
+## Returned nodes are auto-expanded in `use_figma` results
+
+You can `return node`, `return figma.currentPage.children`, or `return frame.findAll(n => …)` directly. The MCP layer expands handles to plain JSON (including nested `children`) before it reaches the agent. Explicit `{ id, name, type }` mapping is optional. Very large returns may be depth- or budget-truncated.
+
 ## MUST return ALL created/mutated node IDs
 
 Every script that creates or mutates nodes on the canvas must track and return all affected node IDs in the return value. Without these IDs, subsequent calls cannot reference, validate, or clean up those nodes.

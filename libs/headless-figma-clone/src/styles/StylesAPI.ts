@@ -11,6 +11,7 @@ import type {
   PaintStyleDefinition,
   TextStyleDefinition,
 } from '../model/types.js';
+import { HFC_STYLE_FLAG, HFC_STYLE_MARKER } from '../mcp/scriptNodeSnapshot.js';
 import { ValidationErr } from '../util/errors.js';
 
 export interface ScriptPaintStyle {
@@ -45,7 +46,9 @@ function queueEnv(ctx: { working: FileEnvelope; ops: EngineOperation[] }, op: En
 }
 
 function wrapPaintStyle(ctx: { working: FileEnvelope; ops: EngineOperation[] }, id: string): ScriptPaintStyle {
-  return new Proxy({ id } as ScriptPaintStyle, {
+  return new Proxy(
+    { id, kind: 'paint', [HFC_STYLE_MARKER]: true as const, [HFC_STYLE_FLAG]: true as const } as ScriptPaintStyle,
+    {
     get(_t, prop) {
       if (prop === 'id') return id;
       return findPaintStyle(ctx.working, id)?.[prop as keyof PaintStyleDefinition];
@@ -65,7 +68,9 @@ function wrapPaintStyle(ctx: { working: FileEnvelope; ops: EngineOperation[] }, 
 }
 
 function wrapTextStyle(ctx: { working: FileEnvelope; ops: EngineOperation[] }, id: string): ScriptTextStyle {
-  return new Proxy({ id } as ScriptTextStyle, {
+  return new Proxy(
+    { id, kind: 'text', [HFC_STYLE_MARKER]: true as const, [HFC_STYLE_FLAG]: true as const } as ScriptTextStyle,
+    {
     get(_t, prop) {
       if (prop === 'id') return id;
       return findTextStyle(ctx.working, id)?.[prop as keyof TextStyleDefinition];

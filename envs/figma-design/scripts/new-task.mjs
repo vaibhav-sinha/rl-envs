@@ -9,6 +9,7 @@ import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { FIGMA_MCP_ONLY_PREAMBLE } from '../shared/instruction-preamble.mjs';
 import { renderTaskDockerfile, sidecarDirForFixture } from './dockerfile-template.mjs';
 import { EVAL_SPEC_FILE, syncInstructionToEnvironment, syncVerifierToTask } from './sync-verifier.mjs';
 
@@ -137,7 +138,9 @@ start_period_sec = 15.0
 
 writeFileSync(
   join(taskRoot, 'instruction.md'),
-  `# ${taskId}
+  `${FIGMA_MCP_ONLY_PREAMBLE}
+
+# ${taskId}
 
 A design file is already open in **Figma**. Interact with it using the **Figma** MCP server.
 

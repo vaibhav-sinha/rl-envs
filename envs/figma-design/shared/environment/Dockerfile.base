@@ -18,7 +18,8 @@ COPY libs/headless-figma-clone/package.json libs/headless-figma-clone/package-lo
 RUN npm ci
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN npx playwright install --with-deps chromium
+RUN npx playwright install chromium
+RUN npx playwright install-deps chromium
 
 ARG INSTALL_CURSOR_CLI=false
 RUN if [ "$INSTALL_CURSOR_CLI" = "true" ]; then \

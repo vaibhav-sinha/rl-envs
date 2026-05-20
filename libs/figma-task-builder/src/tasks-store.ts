@@ -11,6 +11,7 @@ import {
 import { basename, join } from 'node:path';
 import { CHECK_CATALOG } from './check-catalog.js';
 import type { TaskBuilderConfig } from './config.js';
+import { buildDefaultInstruction } from './instruction-preamble.js';
 import { defaultEvalSpec, validateEvalSpec } from './eval-spec-validator.js';
 import { HfcClient, type ImportHfcResponse } from './hfc-client.js';
 import { writeJsonFile } from './write-json-stream.js';
@@ -159,11 +160,7 @@ export class TasksStore {
     };
 
     writeFileSync(join(root, BUILDER_STATE), JSON.stringify(state, null, 2) + '\n', 'utf8');
-    writeFileSync(
-      join(root, 'instruction.md'),
-      `# ${id}\n\nA design file is already open in **Figma**. Interact with it using the **Figma** MCP server.\n\n## Goal\n\n<!-- Describe the design change the agent should make. -->\n`,
-      'utf8'
-    );
+    writeFileSync(join(root, 'instruction.md'), buildDefaultInstruction(id), 'utf8');
     writeFileSync(
       join(root, 'tests', EVAL_SPEC_FILE),
       JSON.stringify(defaultEvalSpec(), null, 2) + '\n',
