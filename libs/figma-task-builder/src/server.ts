@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { CHECK_CATALOG } from './check-catalog.js';
 import type { TaskBuilderConfig } from './config.js';
 import { ExportStreamSessionStore } from './export-stream-session.js';
+import { attachHttpRequestLogging } from './http-log.js';
 import { EXPORT_STREAM_PART_MAX_BYTES } from './stream-protocol.js';
 import { TasksStore } from './tasks-store.js';
 
@@ -98,6 +99,8 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
       return;
     }
 
+    const httpLog = attachHttpRequestLogging(req, res, url);
+
     try {
       if (req.method === 'GET' && url === '/health') {
         sendJson(res, 200, {
@@ -152,6 +155,7 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
         if (req.method === 'POST' && url === `/export/stream/${streamExportId}/part`) {
           const body = await readTextBody(req, EXPORT_STREAM_PART_MAX_BYTES);
           const { seq, lineCount } = streamStore.appendPart(streamExportId, body);
+          httpLog.setMeta({ seq, lineCount });
           sendJson(res, 200, { ok: true, seq, lineCount });
           return;
         }

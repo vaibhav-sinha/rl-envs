@@ -1,6 +1,5 @@
 import { TB_URL } from './constants';
-
-const EXPORT_UI_ASSET_UPLOAD_CONCURRENCY = 4;
+import { EXPORT_UI_ASSET_UPLOAD_CONCURRENCY } from '../../../src/streamProtocol.js';
 
 function formatExportError(error: unknown, fallback = 'Export failed'): string {
   if (error instanceof Error) {

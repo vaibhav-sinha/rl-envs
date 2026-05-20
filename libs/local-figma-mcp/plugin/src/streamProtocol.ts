@@ -18,19 +18,22 @@ export const EXPORT_ICON_PROPS_BATCH_SIZE = 128;
 export const EXPORT_TREE_BATCH_MAX_CHARS = 3 * 1024 * 1024;
 
 /** Max tree batches posted to UI before main blocks on ack (backpressure). */
-export const EXPORT_UPLOAD_MAX_INFLIGHT = 6;
+export const EXPORT_UPLOAD_MAX_INFLIGHT = 4;
 
-/** Max non-tree parts in flight (assets are large). */
-export const EXPORT_ASSET_MAX_INFLIGHT = 5;
+/**
+ * Max asset/icon single-line parts posted before main blocks on ack.
+ * Keep at most EXPORT_UI_ASSET_UPLOAD_CONCURRENCY + 1 so the UI is not overrun.
+ */
+export const EXPORT_ASSET_MAX_INFLIGHT = 3;
 
 /** Parallel `exportAsync` calls for icon roots. */
-export const ICON_EXPORT_CONCURRENCY = 3;
+export const ICON_EXPORT_CONCURRENCY = 2;
 
 /** Parallel `getBytesAsync` calls for raster image fills. */
-export const RASTER_IMAGE_CONCURRENCY = 12;
+export const RASTER_IMAGE_CONCURRENCY = 8;
 
-/** Max concurrent HTTP uploads for asset parts in the plugin UI. */
-export const EXPORT_UI_ASSET_UPLOAD_CONCURRENCY = 4;
+/** Max concurrent HTTP uploads for asset parts in the plugin UI (keep in sync with plugin-bridge). */
+export const EXPORT_UI_ASSET_UPLOAD_CONCURRENCY = 2;
 
 /** Yield to the event loop every N nodes during tree serialization. */
 export const TREE_SERIALIZE_YIELD_EVERY = 1000;
