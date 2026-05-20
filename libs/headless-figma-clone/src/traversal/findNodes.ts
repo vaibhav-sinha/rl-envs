@@ -1,6 +1,20 @@
 import type { AnyTreeNode, FileEnvelope, SceneNode } from '../model/types.js';
 import { findEnvelopeNode } from '../engine/DocumentEngine.js';
+import { throwIfAborted } from '../mcp/inFlightAbort.js';
 import { ValidationErr } from '../util/errors.js';
+
+export interface TraversalOptions {
+  signal?: AbortSignal;
+}
+
+const ABORT_CHECK_EVERY = 256;
+let walkStep = 0;
+
+function stepTraversal(signal?: AbortSignal): void {
+  if (!signal) return;
+  walkStep += 1;
+  if (walkStep % ABORT_CHECK_EVERY === 0) throwIfAborted(signal);
+}
 
 export interface FindCriteria {
   types?: string[];
@@ -189,14 +203,16 @@ function walkPreorder(
   working: FileEnvelope,
   criteria: FindCriteria,
   out: AnyTreeNode[],
-  predicate?: (node: AnyTreeNode) => boolean
+  predicate?: (node: AnyTreeNode) => boolean,
+  signal?: AbortSignal
 ): void {
+  stepTraversal(signal);
   if (node.type !== 'DOCUMENT') {
     const ok = predicate ? predicate(node) : nodeMatches(node, criteria);
     if (ok) out.push(node);
   }
   for (const ch of getImmediateSceneChildren(node, working)) {
-    walkPreorder(ch, working, criteria, out, predicate);
+    walkPreorder(ch, working, criteria, out, predicate, signal);
   }
 }
 
@@ -205,10 +221,11 @@ function walkFromRoots(
   working: FileEnvelope,
   criteria: FindCriteria,
   out: AnyTreeNode[],
-  predicate?: (node: AnyTreeNode) => boolean
+  predicate?: (node: AnyTreeNode) => boolean,
+  signal?: AbortSignal
 ): void {
   for (const root of roots) {
-    walkPreorder(root, working, criteria, out, predicate);
+    walkPreorder(root, working, criteria, out, predicate, signal);
   }
 }
 
@@ -219,16 +236,19 @@ export function findAllDescendants(
   container: AnyTreeNode,
   working: FileEnvelope,
   criteria: FindCriteria = {},
-  predicate?: (node: AnyTreeNode) => boolean
+  predicate?: (node: AnyTreeNode) => boolean,
+  options?: TraversalOptions
 ): AnyTreeNode[] {
+  const signal = options?.signal;
+  throwIfAborted(signal);
   const out: AnyTreeNode[] = [];
   if (container.type === 'DOCUMENT') {
     for (const p of container.children) {
-      walkFromRoots(p.children, working, criteria, out, predicate);
+      walkFromRoots(p.children, working, criteria, out, predicate, signal);
     }
     return out;
   }
-  walkFromRoots(getDescendantWalkRoots(container, working), working, criteria, out, predicate);
+  walkFromRoots(getDescendantWalkRoots(container, working), working, criteria, out, predicate, signal);
   return out;
 }
 
@@ -236,17 +256,20 @@ export function findOneDescendant(
   container: AnyTreeNode,
   working: FileEnvelope,
   criteria: FindCriteria = {},
-  predicate?: (node: AnyTreeNode) => boolean
+  predicate?: (node: AnyTreeNode) => boolean,
+  options?: TraversalOptions
 ): AnyTreeNode | null {
-  return findAllDescendants(container, working, criteria, predicate)[0] ?? null;
+  return findAllDescendants(container, working, criteria, predicate, options)[0] ?? null;
 }
 
 export function findImmediateChildren(
   container: AnyTreeNode,
   working: FileEnvelope,
   criteria: FindCriteria = {},
-  predicate?: (node: AnyTreeNode) => boolean
+  predicate?: (node: AnyTreeNode) => boolean,
+  options?: TraversalOptions
 ): AnyTreeNode[] {
+  throwIfAborted(options?.signal);
   const kids = getImmediateSceneChildren(container, working);
   const out: AnyTreeNode[] = [];
   for (const ch of kids) {

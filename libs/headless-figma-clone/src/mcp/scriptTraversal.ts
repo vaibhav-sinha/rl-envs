@@ -16,6 +16,7 @@ export interface ScriptTraversalContext {
   working: FileEnvelope;
   deletedIds: Set<string>;
   createHandle: TraversalHandleFactory;
+  signal?: AbortSignal;
 }
 
 function liveContainer(ctx: ScriptTraversalContext, containerId: string) {
@@ -58,9 +59,9 @@ export function createTraversalMethods(ctx: ScriptTraversalContext, containerId:
           const h = ctx.createHandle(n.id);
           return parsed.fn(h);
         };
-        return toHandles(ctx, findAllDescendants(live, ctx.working, {}, pred));
+        return toHandles(ctx, findAllDescendants(live, ctx.working, {}, pred, { signal: ctx.signal }));
       }
-      return toHandles(ctx, findAllDescendants(live, ctx.working, parsed.criteria));
+      return toHandles(ctx, findAllDescendants(live, ctx.working, parsed.criteria, undefined, { signal: ctx.signal }));
     },
 
     findOne(callback: unknown): unknown | null {
@@ -70,7 +71,7 @@ export function createTraversalMethods(ctx: ScriptTraversalContext, containerId:
       }
       const fn = callback as (node: unknown) => boolean;
       const pred = (n: { id: string }) => fn(ctx.createHandle(n.id));
-      const hit = findOneDescendant(live, ctx.working, {}, pred);
+      const hit = findOneDescendant(live, ctx.working, {}, pred, { signal: ctx.signal });
       return hit ? ctx.createHandle(hit.id) : null;
     },
 
@@ -79,9 +80,9 @@ export function createTraversalMethods(ctx: ScriptTraversalContext, containerId:
       const parsed = parseCallbackOrCriteria(callback);
       if (parsed.mode === 'predicate') {
         const pred = (n: { id: string }) => parsed.fn(ctx.createHandle(n.id));
-        return toHandles(ctx, findImmediateChildren(live, ctx.working, {}, pred));
+        return toHandles(ctx, findImmediateChildren(live, ctx.working, {}, pred, { signal: ctx.signal }));
       }
-      return toHandles(ctx, findImmediateChildren(live, ctx.working, parsed.criteria));
+      return toHandles(ctx, findImmediateChildren(live, ctx.working, parsed.criteria, undefined, { signal: ctx.signal }));
     },
 
     findChild(callback: unknown): unknown | null {
@@ -91,7 +92,10 @@ export function createTraversalMethods(ctx: ScriptTraversalContext, containerId:
 
     findAllWithCriteria(criteria: unknown): unknown[] {
       const live = liveContainer(ctx, containerId);
-      return toHandles(ctx, findAllDescendants(live, ctx.working, parseFindCriteria(criteria)));
+      return toHandles(
+        ctx,
+        findAllDescendants(live, ctx.working, parseFindCriteria(criteria), undefined, { signal: ctx.signal })
+      );
     },
   };
 }

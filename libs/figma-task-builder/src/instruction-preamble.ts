@@ -13,7 +13,7 @@ export const FIGMA_MCP_ONLY_PREAMBLE = readFileSync(preamblePath, 'utf8').trim()
 export function defaultInstructionBody(taskId: string): string {
   return `# ${taskId}
 
-A design file is already open in **Figma**. Interact with it using the **Figma** MCP server.
+A design file is already open in **Figma**. Interact with it using the **Figma** MCP server and only that.
 
 ## Goal
 

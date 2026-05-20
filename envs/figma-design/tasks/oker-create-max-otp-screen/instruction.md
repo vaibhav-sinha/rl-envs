@@ -1,8 +1,6 @@
-You are only allowed to interact with Figma using the Figma MCP server. Do not access any other files or programs available on the filesystem.
-
 # Add max OTP attempts onboarding screen
 
-A design file is already open in **Figma**. Interact with it using the **Figma** MCP server.
+A design file is already open in **Figma**. Interact with it using the **Figma** MCP server and only that.
 
 ## Goal
 

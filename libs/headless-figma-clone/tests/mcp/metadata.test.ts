@@ -82,6 +82,38 @@ describe('collectMetadataTree', () => {
     expect(deep.children?.[0]?.name).toBe('Inner');
   });
 
+  it('descends into SECTION and GROUP children', () => {
+    const env = emptyEnvelope();
+    const pid = pageId(env);
+    const sectionId = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'SECTION', name: 'S', x: 0, y: 0, width: 200, height: 200, children: [] },
+    });
+    const frameId = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: sectionId,
+      node: { type: 'FRAME', name: 'Inner', x: 0, y: 0, width: 80, height: 40, children: [] },
+    });
+    const groupId = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'GROUP', name: 'G', x: 0, y: 220, width: 100, height: 60, children: [] },
+    });
+    applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: groupId,
+      node: { type: 'RECTANGLE', name: 'Dot', x: 0, y: 0, width: 8, height: 8 },
+    });
+    const section = env.document.children[0]!.children.find((c) => c.id === sectionId)!;
+    const group = env.document.children[0]!.children.find((c) => c.id === groupId)!;
+    const sectionMeta = collectMetadataTree(section, { maxDepth: 2 });
+    expect(sectionMeta.children?.[0]?.id).toBe(frameId);
+    expect(sectionMeta.children?.[0]?.name).toBe('Inner');
+    const groupMeta = collectMetadataTree(group, { maxDepth: 2 });
+    expect(groupMeta.children?.[0]?.name).toBe('Dot');
+  });
+
   it('includes mainComponentId on INSTANCE nodes', () => {
     const env = emptyEnvelope(50);
     const pid = pageId(env);

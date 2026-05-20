@@ -8,6 +8,7 @@ import { designCompiler } from '../render/DesignCompiler.js';
 import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
 import { collectMetadataTree, collectPagesIndex } from './metadata.js';
+import { runMcpToolWithCancellation } from './runMcpToolWithCancellation.js';
 import { toolErrorJson, toolJson } from './useFigmaMap.js';
 import { runUseFigmaScript } from './useFigmaScript.js';
 import { buildVariableDefsPayload } from '../variables/resolution.js';
@@ -208,45 +209,58 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       },
     },
     async (args) => {
-      const file = engine.getActiveFile();
-      if (!file) {
-        return {
-          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
-          isError: true,
-        };
-      }
-      const nodeId = args.nodeId?.trim();
-      if (!nodeId) {
-        const pages = collectPagesIndex(file.document);
-        if (pages.length === 0) {
+      return runMcpToolWithCancellation(async (signal) => {
+        const file = engine.getActiveFile();
+        if (!file) {
           return {
-            content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', 'No pages in document') }],
+            content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
             isError: true,
           };
         }
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: toolJson({ metadataFormatVersion: 1 as const, pages }),
-            },
-          ],
-        };
-      }
-      const node = engine.queryNode(nodeId);
-      if (!node) {
-        return {
-          content: [{ type: 'text' as const, text: toolErrorJson('UNKNOWN_NODE', `Unknown node ${nodeId}`) }],
-          isError: true,
-        };
-      }
-      const root = collectMetadataTree(node, { maxDepth: args.maxDepth });
-      const payload = {
-        metadataFormatVersion: 1 as const,
-        childStacking: 'later-children-on-top' as const,
-        root,
-      };
-      return { content: [{ type: 'text' as const, text: toolJson(payload) }] };
+        const nodeId = args.nodeId?.trim();
+        if (!nodeId) {
+          const pages = collectPagesIndex(file.document);
+          if (pages.length === 0) {
+            return {
+              content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', 'No pages in document') }],
+              isError: true,
+            };
+          }
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: toolJson({ metadataFormatVersion: 1 as const, pages }),
+              },
+            ],
+          };
+        }
+        const node = engine.queryNode(nodeId);
+        if (!node) {
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson('UNKNOWN_NODE', `Unknown node ${nodeId}`) }],
+            isError: true,
+          };
+        }
+        try {
+          const root = collectMetadataTree(node, { maxDepth: args.maxDepth, signal });
+          const payload = {
+            metadataFormatVersion: 1 as const,
+            childStacking: 'later-children-on-top' as const,
+            root,
+          };
+          return { content: [{ type: 'text' as const, text: toolJson(payload) }] };
+        } catch (e) {
+          if (signal.aborted) {
+            const msg = e instanceof Error ? e.message : 'Tool run aborted';
+            return {
+              content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', msg) }],
+              isError: true,
+            };
+          }
+          throw e;
+        }
+      });
     }
   );
 
@@ -263,35 +277,37 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       },
     },
     async (args) => {
-      const file = engine.getActiveFile();
-      if (!file) {
-        return {
-          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
-          isError: true,
-        };
-      }
-      const compiled = designCompiler.compileSubtree({
-        envelope: file,
-        rootNodeId: args.nodeId,
-        options: {
-          viewportPaddingPx: args.viewportPaddingPx,
-          includeCss: args.includeCss,
-          inlineCss: args.inlineCss,
-          imageDataUrlByHash: imageDataUrlMapForActiveFile(),
-        },
-      });
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: toolJson({
-              html: compiled.html,
-              css: compiled.css,
-              warnings: compiled.warnings,
-            }),
+      return runMcpToolWithCancellation(async () => {
+        const file = engine.getActiveFile();
+        if (!file) {
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
+            isError: true,
+          };
+        }
+        const compiled = designCompiler.compileSubtree({
+          envelope: file,
+          rootNodeId: args.nodeId,
+          options: {
+            viewportPaddingPx: args.viewportPaddingPx,
+            includeCss: args.includeCss,
+            inlineCss: args.inlineCss,
+            imageDataUrlByHash: imageDataUrlMapForActiveFile(),
           },
-        ],
-      };
+        });
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: toolJson({
+                html: compiled.html,
+                css: compiled.css,
+                warnings: compiled.warnings,
+              }),
+            },
+          ],
+        };
+      });
     }
   );
 
@@ -369,8 +385,9 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
     },
     async (args) => {
       try {
+        return await runMcpToolWithCancellation(async (signal) => {
         void args.skillNames;
-        const run = await runUseFigmaScript(args.code.trim(), engine);
+        const run = await runUseFigmaScript(args.code.trim(), engine, { signal });
         if (run.kind === 'error') {
           return {
             content: [{ type: 'text' as const, text: toolErrorJson(run.errorCode, run.message) }],
@@ -411,6 +428,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             },
           ],
         };
+        });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return {

@@ -1,10 +1,14 @@
 import type { AnyTreeNode } from '../engine/DocumentEngine.js';
+import { throwIfAborted } from './inFlightAbort.js';
 import type {
   BooleanOperationNode,
   DocumentNode,
   Effect,
   FrameNode,
+  GroupNode,
   PageNode,
+  SceneNode,
+  SectionNode,
   TextNode,
   TransformGroupNode,
 } from '../model/types.js';
@@ -53,13 +57,48 @@ function effectList(effects: Effect[] | undefined): string[] | undefined {
   return effects?.length ? effects.map((e) => e.type) : undefined;
 }
 
+function applyShapeBoxMetadata(
+  dto: MetadataNodeDTO,
+  node: { x: number; y: number; width: number; height: number; effects?: Effect[]; blendMode?: string; visible?: boolean; opacity?: number; rotation?: number }
+): void {
+  dto.bounds = { x: node.x, y: node.y, width: node.width, height: node.height };
+  if (node.visible !== undefined) dto.visible = node.visible;
+  if (node.opacity !== undefined) dto.opacity = node.opacity;
+  if (node.rotation !== undefined) dto.rotation = node.rotation;
+  if (node.blendMode !== undefined) dto.blendMode = node.blendMode;
+  dto.effectTypes = effectList(node.effects);
+}
+
+/** Scene-graph children to include in metadata (one level per walk step). */
+function metadataChildNodes(node: AnyTreeNode): AnyTreeNode[] | undefined {
+  if (node.type === 'DOCUMENT' || node.type === 'PAGE') {
+    return node.children;
+  }
+  if (
+    node.type === 'FRAME' ||
+    node.type === 'SECTION' ||
+    node.type === 'GROUP' ||
+    node.type === 'TRANSFORM_GROUP'
+  ) {
+    return (node as FrameNode | SectionNode | GroupNode | TransformGroupNode).children;
+  }
+  if (node.type === 'BOOLEAN_OPERATION') {
+    return (node as BooleanOperationNode).children as SceneNode[];
+  }
+  return undefined;
+}
+
 export function collectMetadataTree(
   root: AnyTreeNode,
-  options: { maxDepth?: number }
+  options: { maxDepth?: number; signal?: AbortSignal } = {}
 ): MetadataNodeDTO {
   const max = options.maxDepth ?? 1_000_000;
+  const signal = options.signal;
+  let metaSteps = 0;
 
   function walk(node: AnyTreeNode, depth: number): MetadataNodeDTO {
+    metaSteps += 1;
+    if (metaSteps % 256 === 0) throwIfAborted(signal);
     const dto: MetadataNodeDTO = {
       id: node.id,
       type: node.type,
@@ -113,13 +152,14 @@ export function collectMetadataTree(
       if (s.blendMode !== undefined) dto.blendMode = s.blendMode;
       dto.effectTypes = effectList(s.effects);
     }
+    if (node.type === 'SECTION') {
+      applyShapeBoxMetadata(dto, node as SectionNode);
+    }
+    if (node.type === 'GROUP') {
+      applyShapeBoxMetadata(dto, node as GroupNode);
+    }
     if (node.type === 'TRANSFORM_GROUP') {
-      const tg = node as TransformGroupNode;
-      dto.bounds = { x: tg.x, y: tg.y, width: tg.width, height: tg.height };
-      if (tg.visible !== undefined) dto.visible = tg.visible;
-      if (tg.opacity !== undefined) dto.opacity = tg.opacity;
-      if (tg.rotation !== undefined) dto.rotation = tg.rotation;
-      if (tg.blendMode !== undefined) dto.blendMode = tg.blendMode;
+      applyShapeBoxMetadata(dto, node as TransformGroupNode);
     }
     if (node.type === 'BOOLEAN_OPERATION') {
       const b = node as BooleanOperationNode;
@@ -159,16 +199,9 @@ export function collectMetadataTree(
     if (inst.blendMode !== undefined) dto.blendMode = inst.blendMode;
   }
     if (depth >= max) return dto;
-    if (node.type === 'DOCUMENT') {
-      dto.children = node.children.map((c) => walk(c, depth + 1));
-    } else if (node.type === 'PAGE') {
-      dto.children = node.children.map((c) => walk(c, depth + 1));
-    } else if (node.type === 'FRAME') {
-      dto.children = (node as FrameNode).children.map((c) => walk(c, depth + 1));
-    } else if (node.type === 'TRANSFORM_GROUP') {
-      dto.children = (node as TransformGroupNode).children.map((c) => walk(c, depth + 1));
-    } else if (node.type === 'BOOLEAN_OPERATION') {
-      dto.children = (node as BooleanOperationNode).children.map((c) => walk(c as AnyTreeNode, depth + 1));
+    const kids = metadataChildNodes(node);
+    if (kids !== undefined) {
+      dto.children = kids.map((c) => walk(c, depth + 1));
     }
     return dto;
   }

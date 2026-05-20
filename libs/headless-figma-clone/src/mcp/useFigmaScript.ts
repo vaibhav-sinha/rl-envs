@@ -60,6 +60,7 @@ import {
 import { assertGridChildLayoutField, GRID_CHILD_LAYOUT_FIELDS } from '../engine/gridChildValidate.js';
 import { assertFigmaObjectAssignable } from '../engine/pluginObjectAssign.js';
 import { writeSideStrokeWeight, type SideStrokeWeightTarget } from '../engine/sideStrokeWeights.js';
+import { throwIfAborted } from './inFlightAbort.js';
 import { ValidationErr } from '../util/errors.js';
 
 function deepClone<T>(v: T): T {
@@ -76,6 +77,35 @@ interface ScriptContext {
   ops: EngineOperation[];
   deletedIds: Set<string>;
   selectionByPageId: Map<string, string[]>;
+  signal?: AbortSignal;
+}
+
+export interface RunUseFigmaScriptOptions {
+  signal?: AbortSignal;
+}
+
+async function runScriptWithAbort<T>(signal: AbortSignal | undefined, fn: () => Promise<T>): Promise<T> {
+  if (!signal) return fn();
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Tool run aborted'));
+    };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+    fn().then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(e);
+      }
+    );
+  });
 }
 
 function queueUpdate(ctx: ScriptContext, nodeId: string, patch: Record<string, unknown>): void {
@@ -243,12 +273,18 @@ function mergeComponentPropertyValues(
 function createHandleProxy(ctx: ScriptContext, id: string): unknown {
   const traversal = () =>
     createTraversalMethods(
-      { working: ctx.working, deletedIds: ctx.deletedIds, createHandle: (nid) => createHandleProxy(ctx, nid) },
+      {
+        working: ctx.working,
+        deletedIds: ctx.deletedIds,
+        createHandle: (nid) => createHandleProxy(ctx, nid),
+        signal: ctx.signal,
+      },
       id
     );
 
   return new Proxy({ id, [HFC_HANDLE_MARKER]: true as const, [HFC_HANDLE_FLAG]: true as const }, {
     get(_t, prop) {
+      throwIfAborted(ctx.signal);
       if (prop === 'id') return id;
       if (prop === HFC_HANDLE_MARKER || prop === HFC_HANDLE_FLAG) return true;
       if (TRAVERSAL_METHODS.has(prop as string)) {
@@ -2168,8 +2204,11 @@ function createComponentInstanceFromMainId(
 
 export async function runUseFigmaScript(
   code: string,
-  engine: DocumentEngine
+  engine: DocumentEngine,
+  options?: RunUseFigmaScriptOptions
 ): Promise<RunUseFigmaScriptOk | RunUseFigmaScriptErr> {
+  const signal = options?.signal;
+  throwIfAborted(signal);
   const file = engine.getActiveFile();
   if (!file) {
     return { kind: 'error', errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
@@ -2181,6 +2220,7 @@ export async function runUseFigmaScript(
     ops: [],
     deletedIds: new Set(),
     selectionByPageId: new Map(),
+    signal,
   };
   const firstPage = working.document.children.find((c): c is PageNode => c.type === 'PAGE');
   if (!firstPage) {
@@ -2647,13 +2687,19 @@ export async function runUseFigmaScript(
 
   let rawResult: unknown;
   try {
-    const fn = new AsyncFunction('figma', 'fetch', code);
-    const sandboxFetch = async (input: string): Promise<Response> => {
-      const bytes = await fetchBytes(networkPolicy, input);
-      return new Response(bytes, { status: 200 });
-    };
-    rawResult = await fn(figma, sandboxFetch);
+    rawResult = await runScriptWithAbort(signal, async () => {
+      const fn = new AsyncFunction('figma', 'fetch', code);
+      const sandboxFetch = async (input: string): Promise<Response> => {
+        throwIfAborted(signal);
+        const bytes = await fetchBytes(networkPolicy, input);
+        return new Response(bytes, { status: 200 });
+      };
+      return fn(figma, sandboxFetch);
+    });
   } catch (e) {
+    if (signal?.aborted) {
+      return { kind: 'error', errorCode: 'VALIDATION_ERROR', message: 'Tool run aborted' };
+    }
     if (e instanceof ValidationErr) {
       return { kind: 'error', errorCode: e.code, message: e.message };
     }
