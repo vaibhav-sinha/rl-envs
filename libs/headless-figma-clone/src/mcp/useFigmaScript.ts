@@ -19,7 +19,12 @@ import { createNodeSpecFromSvg } from '../images/svgImport.js';
 import { fetchBytes, loadNetworkPolicyFromEnv } from '../images/networkPolicy.js';
 import { getImmediateSceneChildren } from '../traversal/findNodes.js';
 import { createTraversalMethods } from './scriptTraversal.js';
-import { HFC_HANDLE_FLAG, HFC_HANDLE_MARKER, snapshotForReturn } from './scriptNodeSnapshot.js';
+import {
+  HFC_HANDLE_FLAG,
+  HFC_HANDLE_MARKER,
+  HFC_RUNTIME_PAGE_MARKER,
+  snapshotForReturn,
+} from './scriptNodeSnapshot.js';
 import { parseStyledSegmentsInput } from '../engine/styledSegmentsNormalize.js';
 import { ENGINE_MATRIX } from '../engine/phase-matrix.js';
 import type {
@@ -1896,6 +1901,8 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
 }
 
 class RuntimePage {
+  readonly [HFC_RUNTIME_PAGE_MARKER] = true as const;
+
   constructor(
     private readonly ctx: ScriptContext,
     readonly pageId: string

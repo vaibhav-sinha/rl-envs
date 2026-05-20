@@ -8,6 +8,8 @@ export const HFC_STYLE_MARKER = Symbol.for('hfc.styleHandle');
 /** String marker on proxy targets so `in` / replacer detects handles reliably. */
 export const HFC_HANDLE_FLAG = '__hfcHandle';
 export const HFC_STYLE_FLAG = '__hfcStyle';
+/** Marks {@link RuntimePage} in useFigmaScript; do not confuse with arbitrary `{ pageId: string }` POJOs. */
+export const HFC_RUNTIME_PAGE_MARKER = Symbol.for('hfc.runtimePage');
 
 export interface SnapshotContext {
   working: FileEnvelope;
@@ -70,7 +72,7 @@ export function isStyleTarget(v: unknown): v is { id: string; kind: string } {
 }
 
 export function isRuntimePage(v: unknown): v is { pageId: string } {
-  return typeof v === 'object' && v !== null && 'pageId' in v && typeof (v as { pageId: unknown }).pageId === 'string';
+  return typeof v === 'object' && v !== null && Reflect.get(v, HFC_RUNTIME_PAGE_MARKER) === true;
 }
 
 function budgetAllows(state: SnapshotState): boolean {

@@ -377,24 +377,30 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             isError: true,
           };
         }
-        const r = await engine.applyTransaction(run.operations);
-        if (!r.success) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: toolErrorJson(r.errorCode, r.message, r.details),
-              },
-            ],
-            isError: true,
-          };
-        }
         if (run.currentPageId) {
           engine.setCurrentPageId(run.currentPageId);
         }
+        let touchedNodeIds: string[] = [];
+        let txWarnings: string[] = [];
+        if (run.operations.length > 0) {
+          const r = await engine.applyTransaction(run.operations);
+          if (!r.success) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: toolErrorJson(r.errorCode, r.message, r.details),
+                },
+              ],
+              isError: true,
+            };
+          }
+          touchedNodeIds = r.touchedNodeIds;
+          txWarnings = r.warnings ?? [];
+        }
         const data: Record<string, unknown> = {
-          touchedNodeIds: r.touchedNodeIds,
-          warnings: [...(r.warnings ?? []), ...(run.snapshotWarnings ?? [])],
+          touchedNodeIds,
+          warnings: [...txWarnings, ...(run.snapshotWarnings ?? [])],
           result: run.result,
         };
         return {

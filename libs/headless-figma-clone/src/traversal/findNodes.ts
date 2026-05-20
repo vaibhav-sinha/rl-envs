@@ -102,27 +102,39 @@ function collectStructuralChildren(node: AnyTreeNode): SceneNode[] {
     return node.children;
   }
   if (node.type === 'BOOLEAN_OPERATION') return node.children as unknown as SceneNode[];
-  if (node.type === 'INSTANCE' && node.children?.length) return node.children;
   return [];
 }
 
-function resolveMainComponentRootFrame(
+function resolveInstanceMainComponentId(
   working: FileEnvelope,
-  mainComponentId: string
-): SceneNode[] {
-  const main = findEnvelopeNode(working, mainComponentId);
-  if (!main) return [];
-  if (main.type === 'COMPONENT') {
-    const root = findEnvelopeNode(working, main.rootFrameId);
-    if (root?.type === 'FRAME') return root.children;
-    return [];
-  }
+  inst: import('../model/types.js').InstanceNode | import('../model/types.js').ComponentInstanceNode
+): string | null {
+  const main = findEnvelopeNode(working, inst.mainComponentId);
+  if (!main) return null;
+  if (main.type === 'COMPONENT') return main.id;
   if (main.type === 'COMPONENT_SET') {
-    const firstId = main.componentIds[0];
-    if (!firstId) return [];
-    return resolveMainComponentRootFrame(working, firstId);
+    const set = main as import('../model/types.js').ComponentSetNode;
+    const key = set.variantPropertyKey ?? 'variant';
+    const raw =
+      inst.type === 'INSTANCE'
+        ? (inst as import('../model/types.js').InstanceNode).componentProperties?.[key]?.value ??
+          set.variantOptions?.[0]
+        : set.variantOptions?.[0];
+    const options = set.variantOptions ?? set.componentIds;
+    const idx = options.indexOf(String(raw));
+    return set.componentIds[idx] ?? set.componentIds[0] ?? null;
   }
-  return [];
+  return null;
+}
+
+/** Direct children of the instance's resolved main component root frame (not nested descendants). */
+function instanceMainComponentDirectChildren(
+  working: FileEnvelope,
+  inst: import('../model/types.js').InstanceNode | import('../model/types.js').ComponentInstanceNode
+): SceneNode[] {
+  const compId = resolveInstanceMainComponentId(working, inst);
+  if (!compId) return [];
+  return componentRootFrameChildren(working, compId);
 }
 
 /** Immediate children for traversal APIs (Figma `children` / `findChildren`). */
@@ -140,13 +152,8 @@ export function getImmediateSceneChildren(node: AnyTreeNode, working: FileEnvelo
     }
     return out;
   }
-  if (node.type === 'INSTANCE') {
-    const direct = collectStructuralChildren(node);
-    if (direct.length > 0) return direct;
-    return resolveMainComponentRootFrame(working, node.mainComponentId);
-  }
-  if (node.type === 'COMPONENT_INSTANCE') {
-    return resolveMainComponentRootFrame(working, node.mainComponentId);
+  if (node.type === 'INSTANCE' || node.type === 'COMPONENT_INSTANCE') {
+    return instanceMainComponentDirectChildren(working, node);
   }
   return collectStructuralChildren(node);
 }
@@ -171,13 +178,8 @@ export function getDescendantWalkRoots(node: AnyTreeNode, working: FileEnvelope)
     }
     return roots;
   }
-  if (node.type === 'INSTANCE') {
-    const direct = collectStructuralChildren(node);
-    if (direct.length > 0) return direct;
-    return componentRootFrameChildren(working, node.mainComponentId);
-  }
-  if (node.type === 'COMPONENT_INSTANCE') {
-    return componentRootFrameChildren(working, node.mainComponentId);
+  if (node.type === 'INSTANCE' || node.type === 'COMPONENT_INSTANCE') {
+    return instanceMainComponentDirectChildren(working, node);
   }
   return getImmediateSceneChildren(node, working);
 }

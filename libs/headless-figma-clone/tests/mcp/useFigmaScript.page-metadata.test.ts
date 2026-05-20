@@ -39,6 +39,46 @@ return { pages, currentPage: { id: figma.currentPage.id, name: figma.currentPage
     expect(result.currentPage.name.length).toBeGreaterThan(0);
   });
 
+  it('return value with pageId field does not expand into full page tree', async () => {
+    const engine = new DocumentEngine({
+      persistence: new JsonPersistence(),
+      logger: createConsoleLogger('error'),
+    });
+    await engine.createEmptyFile({ fileName: 'Meta' });
+
+    const run = await runUseFigmaScript(
+      `
+const f = figma.createFrame();
+f.name = 'Probe';
+figma.currentPage.appendChild(f);
+const page = figma.currentPage;
+const children = page.children.map((c) => ({ id: c.id, name: c.name, type: c.type }));
+return {
+  pageName: page.name,
+  pageId: page.id,
+  childCount: children.length,
+  children: children.slice(0, 5),
+};
+`.trim(),
+      engine
+    );
+
+    expect(run.kind).toBe('ok');
+    if (run.kind !== 'ok') return;
+    const json = JSON.stringify(run.result);
+    expect(json.length).toBeLessThan(10_000);
+    expect(run.snapshotWarnings).not.toContain('return snapshot truncated: max node budget');
+    const result = run.result as {
+      pageName: string;
+      pageId: string;
+      childCount: number;
+      children: Array<{ id: string; name: string; type: string }>;
+    };
+    expect(result.pageName.length).toBeGreaterThan(0);
+    expect(result.childCount).toBeGreaterThan(0);
+    expect(result.children.every((c) => Object.keys(c).sort().join() === 'id,name,type')).toBe(true);
+  });
+
   it('returning figma.currentPage directly expands page fields', async () => {
     const engine = new DocumentEngine({
       persistence: new JsonPersistence(),
