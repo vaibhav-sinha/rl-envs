@@ -24,6 +24,7 @@ container start → entrypoint → MCP /health ready → agent → verifier
 | Verifier baseline design | Baked at build as `/tests/design.initial.hfc.json` |
 | Verifier current design | `/data/workspace/design.hfc.json` (MCP-saved after agent) |
 | Verifier | RewardKit under `/tests` |
+| Post-trial design snapshot | `jobs/.../<trial>/artifacts/design.hfc.json` on the host |
 
 ## Layout
 
@@ -144,6 +145,19 @@ uvx --from 'harbor-rewardkit==0.1.*' rewardkit /tests
 ```
 
 Output: `/logs/verifier/reward.json`.
+
+### Post-trial design artifact
+
+After grading, `tests/test.sh` copies the agent’s final design to `/logs/artifacts/design.hfc.json`.
+Harbor bind-mounts `/logs/artifacts` to the host trial directory, so you get:
+
+```text
+jobs/<job>/<trial>/artifacts/design.hfc.json
+```
+
+Tasks also declare `[[artifacts]]` in `task.toml` so Harbor downloads the same path when
+collection runs outside the mounted layout. Inspect this file to debug structural checks
+(for example `must_contain_text` with `scope: "new_frames"`) without re-running the trial.
 
 ## Agent skills
 

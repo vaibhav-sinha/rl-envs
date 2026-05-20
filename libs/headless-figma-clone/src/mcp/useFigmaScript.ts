@@ -202,7 +202,10 @@ function resolveMainComponentHandle(
   if (main.type === 'COMPONENT_SET') {
     const set = main as import('../model/types.js').ComponentSetNode;
     const key = set.variantPropertyKey ?? 'variant';
-    const selectedValue = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
+    const selectedValue =
+      inst.type === 'INSTANCE'
+        ? inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0]
+        : set.variantOptions?.[0];
     const options = set.variantOptions ?? set.componentIds;
     const idx = options.indexOf(String(selectedValue));
     const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];
@@ -219,7 +222,7 @@ function mergeComponentPropertyValues(
   const next: Record<string, ComponentPropertyValue> = { ...(current ?? {}) };
   for (const [key, raw] of Object.entries(values)) {
     const existing = current?.[key];
-    if (existing?.type === 'VARIANT' || (typeof raw === 'string' && existing?.type === 'VARIANT')) {
+    if (existing?.type === 'VARIANT') {
       next[key] = { type: 'VARIANT', value: String(raw) };
     } else if (existing?.type === 'BOOLEAN' || typeof raw === 'boolean') {
       next[key] = { type: 'BOOLEAN', value: Boolean(raw) };

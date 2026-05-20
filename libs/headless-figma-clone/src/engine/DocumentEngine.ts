@@ -333,6 +333,13 @@ function findParent(
   return findParentNode(root, id);
 }
 
+type SceneGraphParent = Exclude<ReturnType<typeof findParentNode>, DocumentNode | null>;
+
+/** Mutable child list for PAGE / FRAME / … / INSTANCE parents (INSTANCE may omit `children`). */
+function mutableChildList(parent: SceneGraphParent): SceneNode[] {
+  return parent.children ?? [];
+}
+
 function findParentInFrames(
   nodes: SceneNode[],
   id: string,
@@ -1659,7 +1666,7 @@ function removeNodeById(root: DocumentNode, nodeId: string): void {
     parent.children.splice(idx, 1);
     return;
   }
-  const list = parent.children;
+  const list = mutableChildList(parent);
   const idx = list.findIndex((c) => c.id === nodeId);
   if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
   list.splice(idx, 1);
@@ -1700,7 +1707,7 @@ export function duplicateNodeInEnvelope(working: FileEnvelope, nodeId: string): 
   if (!parent || parent.type === 'DOCUMENT') {
     throw new ValidationErr('VALIDATION_ERROR', 'duplicate: node has no parent');
   }
-  const list = parent.type === 'PAGE' ? parent.children : parent.children;
+  const list = mutableChildList(parent);
   const idx = list.findIndex((c) => c.id === nodeId);
   if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
   const cloned = cloneSceneSubtreeWithNewIds(working, node as SceneNode);
@@ -1784,10 +1791,7 @@ export function detachInstanceInEnvelope(working: FileEnvelope, instanceId: stri
   if (!parent || parent.type === 'DOCUMENT') {
     throw new ValidationErr('VALIDATION_ERROR', 'detachInstance: instance has no parent');
   }
-  const list =
-    parent.type === 'PAGE'
-      ? parent.children
-      : (parent as FrameNode | TransformGroupNode | GroupNode | SectionNode).children;
+  const list = mutableChildList(parent);
   const idx = list.findIndex((c) => c.id === instanceId);
   if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${instanceId}`);
 
@@ -1824,7 +1828,7 @@ function detachSubtree(root: DocumentNode, nodeId: string): SceneNode {
   if (parent.type === 'DOCUMENT') {
     throw new ValidationErr('VALIDATION_ERROR', 'Cannot move PAGE via moveNode');
   }
-  const list = parent.children;
+  const list = mutableChildList(parent);
   const idx = list.findIndex((c) => c.id === nodeId);
   if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
   const [node] = list.splice(idx, 1);
