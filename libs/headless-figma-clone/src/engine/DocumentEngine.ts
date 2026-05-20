@@ -1934,8 +1934,15 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphO
   return id;
 }
 
-/** Resolve a node in an in-memory envelope (document tree). */
-export function findEnvelopeNode(working: FileEnvelope, nodeId: string): AnyTreeNode | null {
+/** Resolve a node in an in-memory envelope (document tree). Uses `index` when provided (O(1)). */
+export function findEnvelopeNode(
+  working: FileEnvelope,
+  nodeId: string,
+  index?: import('./nodeIndex.js').NodeIndex
+): AnyTreeNode | null {
+  if (index) {
+    return index.get(nodeId) ?? null;
+  }
   return findNode(working.document, nodeId);
 }
 

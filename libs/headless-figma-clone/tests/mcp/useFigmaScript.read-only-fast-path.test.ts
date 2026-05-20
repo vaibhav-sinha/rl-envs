@@ -22,6 +22,43 @@ describe('use_figma read-only fast path', () => {
     expect(run.operations).toEqual([]);
   });
 
+  it('does not structuredClone the envelope for read-only scripts', async () => {
+    const engine = new DocumentEngine({
+      persistence: new JsonPersistence(),
+      logger: createConsoleLogger('error'),
+    });
+    await engine.createEmptyFile({ fileName: 'Read' });
+    const cloneSpy = vi.spyOn(globalThis, 'structuredClone');
+
+    const run = await runUseFigmaScript(
+      `return { name: figma.currentPage.name, n: figma.root.children.length };`.trim(),
+      engine
+    );
+    expect(run.kind).toBe('ok');
+    expect(cloneSpy).not.toHaveBeenCalled();
+    cloneSpy.mockRestore();
+  });
+
+  it('structuredClone runs on first mutating op', async () => {
+    const engine = new DocumentEngine({
+      persistence: new JsonPersistence(),
+      logger: createConsoleLogger('error'),
+    });
+    await engine.createEmptyFile({ fileName: 'Write' });
+    const cloneSpy = vi.spyOn(globalThis, 'structuredClone');
+
+    const run = await runUseFigmaScript(
+      `
+figma.currentPage.name = 'Renamed';
+return figma.currentPage.name;
+`.trim(),
+      engine
+    );
+    expect(run.kind).toBe('ok');
+    expect(cloneSpy).toHaveBeenCalled();
+    cloneSpy.mockRestore();
+  });
+
   it('DocumentEngine.applyTransaction is not required for read-only scripts', async () => {
     const engine = new DocumentEngine({
       persistence: new JsonPersistence(),

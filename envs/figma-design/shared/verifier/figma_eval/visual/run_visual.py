@@ -15,7 +15,7 @@ from ..judge import (
 from ..tree import (
     node_exists,
     resolve_compare_with_reference_screenshot_node,
-    resolve_minimal_enclosing_frame,
+    resolve_task_completeness_screenshot_node,
 )
 from ..log import log
 from ..types import EditGraph, Envelope, SubCheckResult
@@ -181,6 +181,7 @@ def _run_task_completeness(
     after: Envelope,
     after_path: str,
     graph: EditGraph,
+    gates: dict[str, Any] | None,
     work: Path,
     task_instruction: str,
     skip_llm: bool,
@@ -191,7 +192,13 @@ def _run_task_completeness(
     if not changes:
         return _visual_result(spec, 0.0, {"reason": "no_changes"})
 
-    frame_id = spec.get("node_id") or resolve_minimal_enclosing_frame(after, changes)
+    allowed_roots = (gates or {}).get("allowed_change_inside_ids")
+    frame_id = spec.get("node_id") or resolve_task_completeness_screenshot_node(
+        after,
+        before,
+        graph,
+        allowed_root_ids=allowed_roots,
+    )
     if not frame_id or not node_exists(after, frame_id):
         return _visual_result(spec, 0.0, {"reason": "enclosing_frame_missing", "node_id": frame_id})
 
@@ -425,6 +432,7 @@ def run_visual_check(
     after_path: str,
     work_dir: str | Path,
     task_instruction: str,
+    gates: dict[str, Any] | None = None,
     assets_dir: str | None = None,
     skip_llm: bool = False,
     model: str,
@@ -460,6 +468,7 @@ def run_visual_check(
                 after=after,
                 after_path=after_path,
                 graph=graph,
+                gates=gates,
                 work=work,
                 task_instruction=task_instruction,
                 skip_llm=skip_llm,
@@ -532,6 +541,7 @@ def run_all_visual_checks(
     after_path: str,
     work_dir: str | Path,
     task_instruction: str,
+    gates: dict[str, Any] | None = None,
     assets_dir: str | None = None,
     skip_llm: bool = False,
     model: str,
@@ -556,6 +566,7 @@ def run_all_visual_checks(
                 after_path=after_path,
                 work_dir=work_dir,
                 task_instruction=task_instruction,
+                gates=gates,
                 assets_dir=assets_dir,
                 skip_llm=skip_llm,
                 model=model,

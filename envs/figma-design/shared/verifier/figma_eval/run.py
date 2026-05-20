@@ -98,6 +98,7 @@ def run_eval(
         after_path=str(after_path),
         work_dir=work,
         task_instruction=task_instruction,
+        gates=spec.get("gates"),
         assets_dir=assets_dir,
         skip_llm=skip_llm,
         model=model,

@@ -60,6 +60,7 @@ import {
 import { assertGridChildLayoutField, GRID_CHILD_LAYOUT_FIELDS } from '../engine/gridChildValidate.js';
 import { assertFigmaObjectAssignable } from '../engine/pluginObjectAssign.js';
 import { writeSideStrokeWeight, type SideStrokeWeightTarget } from '../engine/sideStrokeWeights.js';
+import { buildNodeIndex, type NodeIndex } from '../engine/nodeIndex.js';
 import { throwIfAborted } from './inFlightAbort.js';
 import { ValidationErr } from '../util/errors.js';
 
@@ -74,10 +75,66 @@ function isPatchKeyForType(nodeType: string, key: string): boolean {
 
 interface ScriptContext {
   working: FileEnvelope;
+  /** False until first mutating op — read-only scripts share `engine.getActiveFile()` without cloning. */
+  ownsWorking: boolean;
+  nodeIndex: NodeIndex;
+  indexStale: boolean;
   ops: EngineOperation[];
   deletedIds: Set<string>;
   selectionByPageId: Map<string, string[]>;
   signal?: AbortSignal;
+  onMutate?: () => void;
+}
+
+function getNodeIndex(ctx: ScriptContext): NodeIndex {
+  if (ctx.indexStale) {
+    ctx.nodeIndex = buildNodeIndex(ctx.working);
+    ctx.indexStale = false;
+  }
+  return ctx.nodeIndex;
+}
+
+function ensureWorkingCopy(ctx: ScriptContext): void {
+  if (ctx.ownsWorking) return;
+  throwIfAborted(ctx.signal);
+  ctx.working = deepClone(ctx.working);
+  ctx.ownsWorking = true;
+  ctx.nodeIndex = buildNodeIndex(ctx.working);
+  ctx.indexStale = false;
+}
+
+function applyScriptEngineOp(ctx: ScriptContext, op: EngineOperation): string | undefined {
+  ensureWorkingCopy(ctx);
+  const result = applyEngineOp(ctx.working, op);
+  ctx.indexStale = true;
+  return result;
+}
+
+function applyScriptCreateNodeOp(
+  ctx: ScriptContext,
+  op: Parameters<typeof applyCreateNodeOp>[1]
+): string {
+  ensureWorkingCopy(ctx);
+  const result = applyCreateNodeOp(ctx.working, op);
+  ctx.indexStale = true;
+  return result;
+}
+
+function scriptLookup(ctx: ScriptContext, nodeId: string): ReturnType<typeof findEnvelopeNode> {
+  return findEnvelopeNode(ctx.working, nodeId, getNodeIndex(ctx));
+}
+
+function scriptTraversalMethods(ctx: ScriptContext, containerId: string) {
+  return createTraversalMethods(
+    {
+      working: ctx.working,
+      deletedIds: ctx.deletedIds,
+      createHandle: (nid) => createHandleProxy(ctx, nid),
+      signal: ctx.signal,
+      nodeIndex: getNodeIndex(ctx),
+    },
+    containerId
+  );
 }
 
 export interface RunUseFigmaScriptOptions {
@@ -114,7 +171,7 @@ function queueUpdate(ctx: ScriptContext, nodeId: string, patch: Record<string, u
   }
   const op: EngineOperation = { op: 'updateNode', nodeId, patch };
   ctx.ops.push(op);
-  applyEngineOp(ctx.working, op);
+  applyScriptEngineOp(ctx, op);
 }
 
 function readChildId(child: RuntimeSceneNode | { id: string }): string {
@@ -145,7 +202,7 @@ function appendChildToScriptParent(
   }
   const op: EngineOperation = { op: 'moveNode', nodeId, newParentId: parentId, index };
   ctx.ops.push(op);
-  applyEngineOp(ctx.working, op);
+  applyScriptEngineOp(ctx, op);
 }
 
 const TRAVERSAL_METHODS = new Set([
@@ -231,7 +288,7 @@ function resolveMainComponentHandle(
   ctx: ScriptContext,
   inst: InstanceNode | import('../model/types.js').ComponentInstanceNode
 ): unknown {
-  const main = findEnvelopeNode(ctx.working, inst.mainComponentId);
+  const main = scriptLookup(ctx, inst.mainComponentId);
   if (!main) return null;
   if (main.type === 'COMPONENT') return createHandleProxy(ctx, main.id);
   if (main.type === 'COMPONENT_SET') {
@@ -271,16 +328,7 @@ function mergeComponentPropertyValues(
 }
 
 function createHandleProxy(ctx: ScriptContext, id: string): unknown {
-  const traversal = () =>
-    createTraversalMethods(
-      {
-        working: ctx.working,
-        deletedIds: ctx.deletedIds,
-        createHandle: (nid) => createHandleProxy(ctx, nid),
-        signal: ctx.signal,
-      },
-      id
-    );
+  const traversal = () => scriptTraversalMethods(ctx, id);
 
   return new Proxy({ id, [HFC_HANDLE_MARKER]: true as const, [HFC_HANDLE_FLAG]: true as const }, {
     get(_t, prop) {
@@ -303,11 +351,11 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
           if (ctx.deletedIds.has(id)) {
             throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
           }
-          const live = findEnvelopeNode(ctx.working, id);
+          const live = scriptLookup(ctx, id);
           if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
           const op: EngineOperation = { op: 'deleteNode', nodeId: id };
           ctx.ops.push(op);
-          applyEngineOp(ctx.working, op);
+          applyScriptEngineOp(ctx, op);
           ctx.deletedIds.add(id);
         };
       }
@@ -333,7 +381,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
         };
       }
       if (prop === 'mainComponent') {
-        const live = findEnvelopeNode(ctx.working, id);
+        const live = scriptLookup(ctx, id);
         if (!live || ctx.deletedIds.has(id) || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) {
           return null;
         }
@@ -344,7 +392,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       if (prop === 'getMainComponentAsync') {
         return async (): Promise<unknown> => {
-          const live = findEnvelopeNode(ctx.working, id);
+          const live = scriptLookup(ctx, id);
           if (!live || ctx.deletedIds.has(id) || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) {
             return null;
           }
@@ -355,7 +403,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
         };
       }
       if (prop === 'componentProperties') {
-        const live = findEnvelopeNode(ctx.working, id);
+        const live = scriptLookup(ctx, id);
         if (!live || ctx.deletedIds.has(id) || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) {
           return undefined;
         }
@@ -363,7 +411,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       if (prop === 'setProperties' || prop === 'setComponentProperty') {
         return (values: Record<string, string | boolean>): void => {
-          const live = findEnvelopeNode(ctx.working, id);
+          const live = scriptLookup(ctx, id);
           if (!live || ctx.deletedIds.has(id) || live.type !== 'INSTANCE') {
             throw new ValidationErr('VALIDATION_ERROR', `${String(prop)} requires INSTANCE node`);
           }
@@ -377,15 +425,15 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
           if (ctx.deletedIds.has(id)) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
           const op: EngineOperation = { op: 'duplicateNode', nodeId: id };
           ctx.ops.push(op);
-          const cloneId = applyEngineOp(ctx.working, op)!;
+          const cloneId = applyScriptEngineOp(ctx, op)!;
           return createHandleProxy(ctx, cloneId);
         };
       }
       if (prop === 'variantProperties') {
-        const live = findEnvelopeNode(ctx.working, id);
+        const live = scriptLookup(ctx, id);
         if (!live || ctx.deletedIds.has(id) || live.type !== 'INSTANCE') return null;
         const inst = live as import('../model/types.js').InstanceNode;
-        const main = findEnvelopeNode(ctx.working, inst.mainComponentId);
+        const main = scriptLookup(ctx, inst.mainComponentId);
         if (!main || main.type !== 'COMPONENT_SET') return null;
         const set = main as import('../model/types.js').ComponentSetNode;
         const key = set.variantPropertyKey ?? 'variant';
@@ -394,12 +442,12 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       if (prop === 'swapComponent') {
         return (componentNode: { id: string }): void => {
-          const live = findEnvelopeNode(ctx.working, id);
+          const live = scriptLookup(ctx, id);
           if (!live || ctx.deletedIds.has(id) || live.type !== 'INSTANCE') {
             throw new ValidationErr('UNSUPPORTED_OPERATION', 'swapComponent currently supports INSTANCE nodes');
           }
           const inst = live as import('../model/types.js').InstanceNode;
-          const main = findEnvelopeNode(ctx.working, inst.mainComponentId);
+          const main = scriptLookup(ctx, inst.mainComponentId);
           if (!main) throw new Error('swapComponent: missing main component');
           const componentId = componentNode.id;
 
@@ -410,7 +458,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
             const key = set.variantPropertyKey ?? 'variant';
             const option =
               set.variantOptions?.[idx] ??
-              (findEnvelopeNode(ctx.working, componentId) as any)?.name ??
+              (scriptLookup(ctx, componentId) as any)?.name ??
               componentId;
             const nextProps = {
               ...(inst.componentProperties ?? {}),
@@ -418,7 +466,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
             } as any;
             const op: EngineOperation = { op: 'updateNode', nodeId: id, patch: { componentProperties: nextProps } };
             ctx.ops.push(op);
-            applyEngineOp(ctx.working, op);
+            applyScriptEngineOp(ctx, op);
             return;
           }
 
@@ -429,7 +477,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
               patch: { mainComponentId: componentId, componentProperties: undefined },
             };
             ctx.ops.push(op);
-            applyEngineOp(ctx.working, op);
+            applyScriptEngineOp(ctx, op);
             return;
           }
 
@@ -439,19 +487,19 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (prop === 'detachInstance') {
         return (): unknown => {
           if (ctx.deletedIds.has(id)) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
-          const live = findEnvelopeNode(ctx.working, id);
+          const live = scriptLookup(ctx, id);
           if (!live || live.type !== 'INSTANCE') {
             throw new Error('detachInstance requires an attached INSTANCE node');
           }
           const op: EngineOperation = { op: 'detachInstance', nodeId: id };
           ctx.ops.push(op);
-          const frameId = applyEngineOp(ctx.working, op)!;
+          const frameId = applyScriptEngineOp(ctx, op)!;
           ctx.deletedIds.add(id);
           return createHandleProxy(ctx, frameId);
         };
       }
       if (prop === 'defaultVariant') {
-        const live = findEnvelopeNode(ctx.working, id);
+        const live = scriptLookup(ctx, id);
         if (!live || live.type !== 'COMPONENT_SET') return undefined;
         const set = live as import('../model/types.js').ComponentSetNode;
         const variantId = set.componentIds[0];
@@ -460,7 +508,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       if (prop === 'createInstance') {
         return (): unknown => {
-          const live = findEnvelopeNode(ctx.working, id);
+          const live = scriptLookup(ctx, id);
           if (!live || live.type !== 'COMPONENT') {
             throw new ValidationErr('VALIDATION_ERROR', 'createInstance is only supported on COMPONENT nodes');
           }
@@ -488,7 +536,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       if (prop === 'setTextStyleIdAsync') {
         return async (styleId: string): Promise<void> => {
-          const live = findEnvelopeNode(ctx.working, id);
+          const live = scriptLookup(ctx, id);
           if (!live || live.type !== 'TEXT') {
             throw new ValidationErr('VALIDATION_ERROR', 'setTextStyleIdAsync is only supported on TEXT nodes');
           }
@@ -500,7 +548,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       if (prop === 'resize') {
         return (w: number, h: number): void => {
-          const live = findEnvelopeNode(ctx.working, id);
+          const live = scriptLookup(ctx, id);
           const patch =
             live?.type === 'TEXT'
               ? {
@@ -514,13 +562,13 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
         };
       }
       if (prop === 'children') {
-        const live = findEnvelopeNode(ctx.working, id);
+        const live = scriptLookup(ctx, id);
         if (!live || ctx.deletedIds.has(id)) return [];
-        return getImmediateSceneChildren(live, ctx.working)
+        return getImmediateSceneChildren(live, ctx.working, getNodeIndex(ctx))
           .filter((c) => !ctx.deletedIds.has(c.id))
           .map((c) => createHandleProxy(ctx, c.id));
       }
-      const live = findEnvelopeNode(ctx.working, id);
+      const live = scriptLookup(ctx, id);
       if (!live || ctx.deletedIds.has(id)) return undefined;
       const v = (live as unknown as Record<string, unknown>)[prop as string];
       return typeof v === 'function' ? v : v;
@@ -529,7 +577,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (ctx.deletedIds.has(id)) {
         throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
       }
-      const live = findEnvelopeNode(ctx.working, id);
+      const live = scriptLookup(ctx, id);
       if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
       const p = prop as string;
       if (!isPatchKeyForType(live.type, p)) {
@@ -543,7 +591,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (typeof prop === 'symbol') return false;
       const p = prop as string;
       if (TRAVERSAL_METHODS.has(p) || HANDLE_METHOD_KEYS.has(p)) return true;
-      const live = findEnvelopeNode(ctx.working, id);
+      const live = scriptLookup(ctx, id);
       if (!live || ctx.deletedIds.has(id)) return false;
       if (p === 'children') return nodeExposesChildren(live);
       if (p === 'parent') return findParentNode(ctx.working.document, id) !== null;
@@ -555,7 +603,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       return Object.prototype.hasOwnProperty.call(live, p);
     },
     ownKeys() {
-      const live = findEnvelopeNode(ctx.working, id);
+      const live = scriptLookup(ctx, id);
       if (!live || ctx.deletedIds.has(id)) return ['id', HFC_HANDLE_FLAG];
       return enumerateHandleKeys(live);
     },
@@ -613,14 +661,7 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
             `${p}: node must be appended to the document before traversal`
           );
         }
-        return (createTraversalMethods(
-          {
-            working: ctx.working,
-            deletedIds: ctx.deletedIds,
-            createHandle: (nodeId) => createHandleProxy(ctx, nodeId),
-          },
-          nid
-        ) as Record<string, unknown>)[p];
+        return (scriptTraversalMethods(ctx, nid) as Record<string, unknown>)[p];
       }
       if (p === 'parent' && target.attached && nid !== null) {
         const par = findParentNode(ctx.working.document, nid);
@@ -631,9 +672,9 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
         return createHandleProxy(ctx, par.id);
       }
       if (p === 'children' && target.attached && nid !== null) {
-        const live = findEnvelopeNode(ctx.working, nid);
+        const live = scriptLookup(ctx, nid);
         if (!live) return [];
-        return getImmediateSceneChildren(live, ctx.working)
+        return getImmediateSceneChildren(live, ctx.working, getNodeIndex(ctx))
           .filter((c) => !ctx.deletedIds.has(c.id))
           .map((c) => createHandleProxy(ctx, c.id));
       }
@@ -656,7 +697,7 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
       if (prop === 'children') {
         if (target instanceof RuntimeComponentInstance) return true;
         if (target.attached && target.getAttachedIdOrNull() !== null) {
-          const live = findEnvelopeNode(ctx.working, target.getAttachedIdOrNull()!);
+          const live = scriptLookup(ctx, target.getAttachedIdOrNull()!);
           return live ? nodeExposesChildren(live) : false;
         }
         return target.type === 'FRAME' || target.type === 'TRANSFORM_GROUP';
@@ -827,7 +868,7 @@ abstract class RuntimeSceneNode {
     }
     const op: EngineOperation = { op: 'duplicateNode', nodeId: nid };
     this.ctx.ops.push(op);
-    const cloneId = applyEngineOp(this.ctx.working, op)!;
+    const cloneId = applyScriptEngineOp(this.ctx, op)!;
     return createHandleProxy(this.ctx, cloneId);
   }
 
@@ -863,7 +904,7 @@ abstract class RuntimeSceneNode {
     const op: EngineOperation = { op: 'createNode', parentId, index, node };
     ctx.ops.push(op);
     try {
-      this._id = applyCreateNodeOp(ctx.working, op);
+      this._id = applyScriptCreateNodeOp(ctx, op);
     } catch (e) {
       ctx.ops.pop();
       throw e;
@@ -1031,7 +1072,7 @@ class RuntimeFrame extends RuntimeSceneNode {
 
   get children(): unknown[] {
     if (!this.attached || this._id === null) return [];
-    const live = findEnvelopeNode(this.ctx.working, this._id);
+    const live = scriptLookup(this.ctx, this._id);
     if (!live || live.type !== 'FRAME') return [];
     return live.children
       .filter((c) => !this.ctx.deletedIds.has(c.id))
@@ -1052,7 +1093,7 @@ class RuntimeFrame extends RuntimeSceneNode {
 
   private liveFrameOrThrow(): FrameNode {
     if (!this.attached || !this._id) throw new Error('Frame must be attached');
-    const live = findEnvelopeNode(this.ctx.working, this._id);
+    const live = scriptLookup(this.ctx, this._id);
     if (!live || live.type !== 'FRAME') throw new Error('Frame not found');
     return live;
   }
@@ -1407,7 +1448,7 @@ class RuntimeRectangle extends RuntimeSceneNode {
 
   private liveRectOrThrow(): import('../model/types.js').RectangleNode {
     if (!this.attached || !this._id) throw new Error('Rectangle must be attached');
-    const live = findEnvelopeNode(this.ctx.working, this._id);
+    const live = scriptLookup(this.ctx, this._id);
     if (!live || live.type !== 'RECTANGLE') throw new Error('Rectangle not found');
     return live;
   }
@@ -1724,7 +1765,7 @@ class RuntimeTransformGroup extends RuntimeSceneNode {
 
   get children(): unknown[] {
     if (!this.attached || this._id === null) return [];
-    const live = findEnvelopeNode(this.ctx.working, this._id);
+    const live = scriptLookup(this.ctx, this._id);
     if (!live || live.type !== 'TRANSFORM_GROUP') return [];
     return live.children
       .filter((c) => !this.ctx.deletedIds.has(c.id))
@@ -1805,7 +1846,7 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
   overrides?: Record<string, { fills?: Paint[]; characters?: string; fontSize?: number; fontWeight?: number }>;
 
   private getCurrentComponentSet(): import('../model/types.js').ComponentSetNode | null {
-    const main = findEnvelopeNode(this.ctx.working, this.mainComponentId);
+    const main = scriptLookup(this.ctx, this.mainComponentId);
     return main && main.type === 'COMPONENT_SET' ? (main as import('../model/types.js').ComponentSetNode) : null;
   }
 
@@ -1818,7 +1859,7 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
   }
 
   get mainComponent(): unknown {
-    const main = findEnvelopeNode(this.ctx.working, this.mainComponentId);
+    const main = scriptLookup(this.ctx, this.mainComponentId);
     if (!main) return null;
     if (main.type === 'COMPONENT') return createHandleProxy(this.ctx, main.id);
     if (main.type === 'COMPONENT_SET') {
@@ -1857,16 +1898,16 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
 
   get children(): unknown[] {
     if (!this.attached || this._id === null) return [];
-    const live = findEnvelopeNode(this.ctx.working, this._id);
+    const live = scriptLookup(this.ctx, this._id);
     if (!live || live.type !== 'INSTANCE') return [];
-    return getImmediateSceneChildren(live, this.ctx.working)
+    return getImmediateSceneChildren(live, this.ctx.working, getNodeIndex(this.ctx))
       .filter((c) => !this.ctx.deletedIds.has(c.id))
       .map((c) => createHandleProxy(this.ctx, c.id));
   }
 
   swapComponent(componentNode: { id: string }): void {
     const componentId = componentNode.id;
-    const main = findEnvelopeNode(this.ctx.working, this.mainComponentId);
+    const main = scriptLookup(this.ctx, this.mainComponentId);
     if (!main || (main.type !== 'COMPONENT_SET' && main.type !== 'COMPONENT')) {
       throw new Error(`swapComponent: unknown main component ${this.mainComponentId}`);
     }
@@ -1875,7 +1916,7 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
       const set = main as import('../model/types.js').ComponentSetNode;
       const idx = set.componentIds.indexOf(componentId);
       if (idx < 0) throw new Error('swapComponent: componentNode not in component set');
-      const option = set.variantOptions?.[idx] ?? (findEnvelopeNode(this.ctx.working, componentId) as any)?.name ?? componentId;
+      const option = set.variantOptions?.[idx] ?? (scriptLookup(this.ctx, componentId) as any)?.name ?? componentId;
       const key = set.variantPropertyKey ?? 'variant';
       const nextProps: Record<string, ComponentPropertyValue> = {
         ...(this.componentProperties ?? {}),
@@ -1903,7 +1944,7 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
     }
     const op: EngineOperation = { op: 'detachInstance', nodeId: nid };
     this.ctx.ops.push(op);
-    const frameId = applyEngineOp(this.ctx.working, op)!;
+    const frameId = applyScriptEngineOp(this.ctx, op)!;
     this.ctx.deletedIds.add(nid);
     this._id = frameId;
     this.attached = true;
@@ -1965,7 +2006,7 @@ class RuntimePage {
   }
 
   private livePageOrNull(): PageNode | null {
-    const p = findEnvelopeNode(this.ctx.working, this.pageId);
+    const p = scriptLookup(this.ctx, this.pageId);
     return p && p.type === 'PAGE' ? p : null;
   }
 
@@ -1990,64 +2031,29 @@ class RuntimePage {
   }
 
   findAll(callback?: unknown): unknown[] {
-    return createTraversalMethods(
-      {
-        working: this.ctx.working,
-        deletedIds: this.ctx.deletedIds,
-        createHandle: (nid) => createHandleProxy(this.ctx, nid),
-      },
-      this.pageId
-    ).findAll(callback);
+    return scriptTraversalMethods(this.ctx, this.pageId).findAll(callback);
   }
 
   findOne(callback: unknown): unknown | null {
-    return createTraversalMethods(
-      {
-        working: this.ctx.working,
-        deletedIds: this.ctx.deletedIds,
-        createHandle: (nid) => createHandleProxy(this.ctx, nid),
-      },
-      this.pageId
-    ).findOne(callback);
+    return scriptTraversalMethods(this.ctx, this.pageId).findOne(callback);
   }
 
   findChildren(callback?: unknown): unknown[] {
-    return createTraversalMethods(
-      {
-        working: this.ctx.working,
-        deletedIds: this.ctx.deletedIds,
-        createHandle: (nid) => createHandleProxy(this.ctx, nid),
-      },
-      this.pageId
-    ).findChildren(callback);
+    return scriptTraversalMethods(this.ctx, this.pageId).findChildren(callback);
   }
 
   findChild(callback: unknown): unknown | null {
-    return createTraversalMethods(
-      {
-        working: this.ctx.working,
-        deletedIds: this.ctx.deletedIds,
-        createHandle: (nid) => createHandleProxy(this.ctx, nid),
-      },
-      this.pageId
-    ).findChild(callback);
+    return scriptTraversalMethods(this.ctx, this.pageId).findChild(callback);
   }
 
   findAllWithCriteria(criteria: unknown): unknown[] {
-    return createTraversalMethods(
-      {
-        working: this.ctx.working,
-        deletedIds: this.ctx.deletedIds,
-        createHandle: (nid) => createHandleProxy(this.ctx, nid),
-      },
-      this.pageId
-    ).findAllWithCriteria(criteria);
+    return scriptTraversalMethods(this.ctx, this.pageId).findAllWithCriteria(criteria);
   }
 
   get selection(): unknown[] {
     const ids = this.ctx.selectionByPageId.get(this.pageId) ?? [];
     return ids
-      .filter((id) => findEnvelopeNode(this.ctx.working, id) && !this.ctx.deletedIds.has(id))
+      .filter((id) => scriptLookup(this.ctx, id) && !this.ctx.deletedIds.has(id))
       .map((id) => createHandleProxy(this.ctx, id));
   }
 
@@ -2065,15 +2071,15 @@ class RuntimePage {
   }
 
   get children(): unknown[] {
-    const p = findEnvelopeNode(this.ctx.working, this.pageId);
+    const p = scriptLookup(this.ctx, this.pageId);
     if (!p || p.type !== 'PAGE') return [];
-    return getImmediateSceneChildren(p, this.ctx.working)
+    return getImmediateSceneChildren(p, this.ctx.working, getNodeIndex(this.ctx))
       .filter((c) => !this.ctx.deletedIds.has(c.id))
       .map((c) => createHandleProxy(this.ctx, c.id));
   }
 
   get backgrounds(): Paint[] | undefined {
-    const p = findEnvelopeNode(this.ctx.working, this.pageId);
+    const p = scriptLookup(this.ctx, this.pageId);
     if (!p || p.type !== 'PAGE') return undefined;
     return p.backgrounds;
   }
@@ -2108,7 +2114,7 @@ function figmaBooleanCombine(
   const operands: SceneNode[] = [];
   for (const n of nodes) {
     const id = readOperandId(n);
-    const live = findEnvelopeNode(ctx.working, id);
+    const live = scriptLookup(ctx, id);
     if (!live || ctx.deletedIds.has(id)) {
       throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
     }
@@ -2133,7 +2139,7 @@ function figmaBooleanCombine(
     },
   };
   ctx.ops.push(createOp);
-  const boolId = applyEngineOp(ctx.working, createOp)!;
+  const boolId = applyScriptEngineOp(ctx, createOp)!;
   for (let i = 0; i < operands.length; i++) {
     const op = operands[i]!;
     const nid = op.id;
@@ -2141,10 +2147,10 @@ function figmaBooleanCombine(
     const relY = op.y - box.y;
     const mv: EngineOperation = { op: 'moveNode', nodeId: nid, newParentId: boolId, index: i };
     ctx.ops.push(mv);
-    applyEngineOp(ctx.working, mv);
+    applyScriptEngineOp(ctx, mv);
     const up: EngineOperation = { op: 'updateNode', nodeId: nid, patch: { x: relX, y: relY } };
     ctx.ops.push(up);
-    applyEngineOp(ctx.working, up);
+    applyScriptEngineOp(ctx, up);
   }
   return createHandleProxy(ctx, boolId);
 }
@@ -2174,7 +2180,7 @@ function createComponentInstanceFromMainId(
   ctx: ScriptContext,
   mainComponentId: string
 ): RuntimeComponentInstance {
-  const main = findEnvelopeNode(ctx.working, mainComponentId);
+  const main = scriptLookup(ctx, mainComponentId);
   if (
     !main ||
     (main.type !== 'COMPONENT' && main.type !== 'COMPONENT_SET' && main.type !== 'COMPONENT_INSTANCE')
@@ -2195,7 +2201,7 @@ function createComponentInstanceFromMainId(
     const key = set.variantPropertyKey ?? 'variant';
     const firstOption =
       set.variantOptions?.[0] ??
-      (findEnvelopeNode(ctx.working, set.componentIds[0]) as { name?: string } | null)?.name ??
+      (scriptLookup(ctx, set.componentIds[0]) as { name?: string } | null)?.name ??
       (set.componentIds[0] ?? '');
     n.componentProperties = { [key]: { type: 'VARIANT', value: String(firstOption) } };
   }
@@ -2214,15 +2220,17 @@ export async function runUseFigmaScript(
     return { kind: 'error', errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
   }
 
-  const working = deepClone(file);
   const ctx: ScriptContext = {
-    working,
+    working: file,
+    ownsWorking: false,
+    nodeIndex: buildNodeIndex(file),
+    indexStale: false,
     ops: [],
     deletedIds: new Set(),
     selectionByPageId: new Map(),
     signal,
   };
-  const firstPage = working.document.children.find((c): c is PageNode => c.type === 'PAGE');
+  const firstPage = file.document.children.find((c): c is PageNode => c.type === 'PAGE');
   if (!firstPage) {
     return { kind: 'error', errorCode: 'VALIDATION_ERROR', message: 'No PAGE in document' };
   }
@@ -2232,6 +2240,7 @@ export async function runUseFigmaScript(
   }
   ctx.selectionByPageId.set(currentPageId, []);
   const networkPolicy = loadNetworkPolicyFromEnv();
+  ctx.onMutate = (): void => ensureWorkingCopy(ctx);
   const variablesApi = createVariablesApi(ctx);
   const stylesApi = createStylesApi(ctx);
 
@@ -2271,7 +2280,7 @@ export async function runUseFigmaScript(
       currentPageId = id;
     },
     getNodeById(id: string): unknown {
-      const n = findEnvelopeNode(ctx.working, id);
+      const n = scriptLookup(ctx, id);
       if (!n || ctx.deletedIds.has(id)) return null;
       return createHandleProxy(ctx, id);
     },
@@ -2287,7 +2296,7 @@ export async function runUseFigmaScript(
         node: { type: 'PAGE', name: `Page ${String(idx + 1)}` },
       };
       ctx.ops.push(op);
-      const pageId = applyEngineOp(ctx.working, op)!;
+      const pageId = applyScriptEngineOp(ctx, op)!;
       return new RuntimePage(ctx, pageId);
     },
     createFrame(): RuntimeFrame {
@@ -2365,7 +2374,7 @@ export async function runUseFigmaScript(
         node: { type: 'FRAME', name: 'Component Root', x: 0, y: 0, width: 100, height: 100, visible: false },
       } as any;
       ctx.ops.push(rootOp);
-      const rootFrameId = applyCreateNodeOp(ctx.working, rootOp as any);
+      const rootFrameId = applyScriptCreateNodeOp(ctx, rootOp as any);
 
       const compOp: EngineOperation = {
         op: 'createNode',
@@ -2374,12 +2383,12 @@ export async function runUseFigmaScript(
         node: { type: 'COMPONENT', name: 'Component', x: 0, y: 0, width: 100, height: 100, rootFrameId },
       } as any;
       ctx.ops.push(compOp);
-      const compId = applyCreateNodeOp(ctx.working, compOp as any);
+      const compId = applyScriptCreateNodeOp(ctx, compOp as any);
       return createHandleProxy(ctx, compId);
     },
     createComponentFromNode(node: RuntimeSceneNode | { id: string }): unknown {
       const nid = node instanceof RuntimeSceneNode ? node.getAttachedIdOrNull() ?? node.id : node.id;
-      const live = findEnvelopeNode(ctx.working, nid);
+      const live = scriptLookup(ctx, nid);
       if (!live || live.type !== 'FRAME') {
         throw new Error('createComponentFromNode currently supports only FRAME nodes');
       }
@@ -2400,12 +2409,12 @@ export async function runUseFigmaScript(
         },
       } as any;
       ctx.ops.push(compOp);
-      const compId = applyCreateNodeOp(ctx.working, compOp as any);
+      const compId = applyScriptCreateNodeOp(ctx, compOp as any);
 
       // Hide the original node; the component wrapper is the first-class representation.
       const hideOp: EngineOperation = { op: 'updateNode', nodeId: frame.id, patch: { visible: false } };
       ctx.ops.push(hideOp);
-      applyEngineOp(ctx.working, hideOp);
+      applyScriptEngineOp(ctx, hideOp);
 
       return createHandleProxy(ctx, compId);
     },
@@ -2419,13 +2428,13 @@ export async function runUseFigmaScript(
 
       const componentIds = nodes.map((n) => n.id);
       const components = componentIds.map((cid) => {
-        const c = findEnvelopeNode(ctx.working, cid);
+        const c = scriptLookup(ctx, cid);
         if (!c || c.type !== 'COMPONENT') throw new Error(`combineAsVariants: ${cid} is not a COMPONENT`);
         return c as import('../model/types.js').ComponentNode;
       });
 
       const base = components[0]!;
-      const baseRoot = findEnvelopeNode(ctx.working, base.rootFrameId);
+      const baseRoot = scriptLookup(ctx, base.rootFrameId);
       if (!baseRoot || baseRoot.type !== 'FRAME') throw new Error('combineAsVariants: base.rootFrameId must be FRAME');
 
       function preorder(frame: FrameNode): Array<{ id: string; type: string; children?: string[] }> {
@@ -2447,7 +2456,7 @@ export async function runUseFigmaScript(
       const baseList = preorder(baseRoot as FrameNode);
       const nodeIdMapByComponentId: Record<string, Record<string, string>> = {};
       for (const comp of components) {
-        const variantRoot = findEnvelopeNode(ctx.working, comp.rootFrameId);
+        const variantRoot = scriptLookup(ctx, comp.rootFrameId);
         if (!variantRoot || variantRoot.type !== 'FRAME') throw new Error('combineAsVariants: variant root must be FRAME');
         const variantList = preorder(variantRoot as FrameNode);
         const map: Record<string, string> = {};
@@ -2479,7 +2488,7 @@ export async function runUseFigmaScript(
         },
       } as any;
       ctx.ops.push(setOp);
-      const setId = applyCreateNodeOp(ctx.working, setOp as any);
+      const setId = applyScriptCreateNodeOp(ctx, setOp as any);
       return createHandleProxy(ctx, setId);
     },
     createComponentInstance(mainComponentId: string): RuntimeComponentInstance {
@@ -2573,12 +2582,12 @@ export async function runUseFigmaScript(
         },
       };
       ctx.ops.push(createOp);
-      const tgId = applyCreateNodeOp(ctx.working, createOp);
+      const tgId = applyScriptCreateNodeOp(ctx, createOp);
       nodes.forEach((n, i) => {
         const nid = readOperandId(n);
         const mv: EngineOperation = { op: 'moveNode', nodeId: nid, newParentId: tgId, index: i };
         ctx.ops.push(mv);
-        applyEngineOp(ctx.working, mv);
+        applyScriptEngineOp(ctx, mv);
       });
       return createHandleProxy(ctx, tgId);
     },
@@ -2609,7 +2618,7 @@ export async function runUseFigmaScript(
         node: { type: 'SLICE' as const, name: 'Slice', x: 0, y: 0, width: 100, height: 100 },
       };
       ctx.ops.push(op);
-      return createHandleProxy(ctx, applyCreateNodeOp(ctx.working, op));
+      return createHandleProxy(ctx, applyScriptCreateNodeOp(ctx, op));
     },
     createSection: (): unknown => {
       const op = {
@@ -2618,13 +2627,13 @@ export async function runUseFigmaScript(
         node: { type: 'SECTION' as const, name: 'Section', x: 0, y: 0, width: 400, height: 300 },
       };
       ctx.ops.push(op);
-      return createHandleProxy(ctx, applyCreateNodeOp(ctx.working, op));
+      return createHandleProxy(ctx, applyScriptCreateNodeOp(ctx, op));
     },
     createNodeFromSvg: (svg: string): unknown => {
       const spec = createNodeSpecFromSvg(svg);
       const op = { op: 'createNode' as const, parentId: currentPageId, node: spec };
       ctx.ops.push(op);
-      return createHandleProxy(ctx, applyCreateNodeOp(ctx.working, op));
+      return createHandleProxy(ctx, applyScriptCreateNodeOp(ctx, op));
     },
     createTextPath: (
       node: RuntimeVector | RuntimeSceneNode | { id: string },
@@ -2639,7 +2648,7 @@ export async function runUseFigmaScript(
       }
       void startSegment;
       const pathId = readOperandId(node);
-      const live = findEnvelopeNode(ctx.working, pathId);
+      const live = scriptLookup(ctx, pathId);
       if (!live || live.type !== 'VECTOR') {
         throw new ValidationErr('VALIDATION_ERROR', 'createTextPath: node must be a VECTOR');
       }
@@ -2669,10 +2678,10 @@ export async function runUseFigmaScript(
         node: { type: 'PAGE', name: `Divider ${String(idx + 1)}` },
       };
       ctx.ops.push(op);
-      const pageId = applyCreateNodeOp(ctx.working, op);
+      const pageId = applyScriptCreateNodeOp(ctx, op);
       const up: EngineOperation = { op: 'updateNode', nodeId: pageId, patch: { isPageDivider: true } };
       ctx.ops.push(up);
-      applyEngineOp(ctx.working, up);
+      applyScriptEngineOp(ctx, up);
       return new RuntimePage(ctx, pageId);
     },
     notify: (): void => {

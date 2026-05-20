@@ -1,10 +1,16 @@
 import type { AnyTreeNode, FileEnvelope, SceneNode } from '../model/types.js';
 import { findEnvelopeNode } from '../engine/DocumentEngine.js';
+import type { NodeIndex } from '../engine/nodeIndex.js';
 import { throwIfAborted } from '../mcp/inFlightAbort.js';
 import { ValidationErr } from '../util/errors.js';
 
 export interface TraversalOptions {
   signal?: AbortSignal;
+  nodeIndex?: NodeIndex;
+}
+
+function lookup(working: FileEnvelope, nodeId: string, nodeIndex?: NodeIndex): AnyTreeNode | null {
+  return findEnvelopeNode(working, nodeId, nodeIndex);
 }
 
 const ABORT_CHECK_EVERY = 256;
@@ -121,9 +127,10 @@ function collectStructuralChildren(node: AnyTreeNode): SceneNode[] {
 
 function resolveInstanceMainComponentId(
   working: FileEnvelope,
-  inst: import('../model/types.js').InstanceNode | import('../model/types.js').ComponentInstanceNode
+  inst: import('../model/types.js').InstanceNode | import('../model/types.js').ComponentInstanceNode,
+  nodeIndex?: NodeIndex
 ): string | null {
-  const main = findEnvelopeNode(working, inst.mainComponentId);
+  const main = lookup(working, inst.mainComponentId, nodeIndex);
   if (!main) return null;
   if (main.type === 'COMPONENT') return main.id;
   if (main.type === 'COMPONENT_SET') {
@@ -144,58 +151,71 @@ function resolveInstanceMainComponentId(
 /** Direct children of the instance's resolved main component root frame (not nested descendants). */
 function instanceMainComponentDirectChildren(
   working: FileEnvelope,
-  inst: import('../model/types.js').InstanceNode | import('../model/types.js').ComponentInstanceNode
+  inst: import('../model/types.js').InstanceNode | import('../model/types.js').ComponentInstanceNode,
+  nodeIndex?: NodeIndex
 ): SceneNode[] {
-  const compId = resolveInstanceMainComponentId(working, inst);
+  const compId = resolveInstanceMainComponentId(working, inst, nodeIndex);
   if (!compId) return [];
-  return componentRootFrameChildren(working, compId);
+  return componentRootFrameChildren(working, compId, nodeIndex);
 }
 
 /** Immediate children for traversal APIs (Figma `children` / `findChildren`). */
-export function getImmediateSceneChildren(node: AnyTreeNode, working: FileEnvelope): SceneNode[] {
+export function getImmediateSceneChildren(
+  node: AnyTreeNode,
+  working: FileEnvelope,
+  nodeIndex?: NodeIndex
+): SceneNode[] {
   if (node.type === 'COMPONENT') {
-    const frame = findEnvelopeNode(working, node.rootFrameId);
+    const frame = lookup(working, node.rootFrameId, nodeIndex);
     if (frame?.type === 'FRAME') return frame.children;
     return [];
   }
   if (node.type === 'COMPONENT_SET') {
     const out: SceneNode[] = [];
     for (const cid of node.componentIds) {
-      const comp = findEnvelopeNode(working, cid);
+      const comp = lookup(working, cid, nodeIndex);
       if (comp && comp.type === 'COMPONENT') out.push(comp as SceneNode);
     }
     return out;
   }
   if (node.type === 'INSTANCE' || node.type === 'COMPONENT_INSTANCE') {
-    return instanceMainComponentDirectChildren(working, node);
+    return instanceMainComponentDirectChildren(working, node, nodeIndex);
   }
   return collectStructuralChildren(node);
 }
 
-function componentRootFrameChildren(working: FileEnvelope, componentId: string): SceneNode[] {
-  const comp = findEnvelopeNode(working, componentId);
+function componentRootFrameChildren(
+  working: FileEnvelope,
+  componentId: string,
+  nodeIndex?: NodeIndex
+): SceneNode[] {
+  const comp = lookup(working, componentId, nodeIndex);
   if (!comp || comp.type !== 'COMPONENT') return [];
-  const frame = findEnvelopeNode(working, comp.rootFrameId);
+  const frame = lookup(working, comp.rootFrameId, nodeIndex);
   if (frame?.type === 'FRAME') return frame.children;
   return [];
 }
 
 /** Entry nodes for `findAll` descendant walk (excludes the container node itself). */
-export function getDescendantWalkRoots(node: AnyTreeNode, working: FileEnvelope): SceneNode[] {
+export function getDescendantWalkRoots(
+  node: AnyTreeNode,
+  working: FileEnvelope,
+  nodeIndex?: NodeIndex
+): SceneNode[] {
   if (node.type === 'COMPONENT') {
-    return componentRootFrameChildren(working, node.id);
+    return componentRootFrameChildren(working, node.id, nodeIndex);
   }
   if (node.type === 'COMPONENT_SET') {
     const roots: SceneNode[] = [];
     for (const cid of node.componentIds) {
-      roots.push(...componentRootFrameChildren(working, cid));
+      roots.push(...componentRootFrameChildren(working, cid, nodeIndex));
     }
     return roots;
   }
   if (node.type === 'INSTANCE' || node.type === 'COMPONENT_INSTANCE') {
-    return instanceMainComponentDirectChildren(working, node);
+    return instanceMainComponentDirectChildren(working, node, nodeIndex);
   }
-  return getImmediateSceneChildren(node, working);
+  return getImmediateSceneChildren(node, working, nodeIndex);
 }
 
 function walkPreorder(
@@ -204,15 +224,16 @@ function walkPreorder(
   criteria: FindCriteria,
   out: AnyTreeNode[],
   predicate?: (node: AnyTreeNode) => boolean,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  nodeIndex?: NodeIndex
 ): void {
   stepTraversal(signal);
   if (node.type !== 'DOCUMENT') {
     const ok = predicate ? predicate(node) : nodeMatches(node, criteria);
     if (ok) out.push(node);
   }
-  for (const ch of getImmediateSceneChildren(node, working)) {
-    walkPreorder(ch, working, criteria, out, predicate, signal);
+  for (const ch of getImmediateSceneChildren(node, working, nodeIndex)) {
+    walkPreorder(ch, working, criteria, out, predicate, signal, nodeIndex);
   }
 }
 
@@ -222,10 +243,11 @@ function walkFromRoots(
   criteria: FindCriteria,
   out: AnyTreeNode[],
   predicate?: (node: AnyTreeNode) => boolean,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  nodeIndex?: NodeIndex
 ): void {
   for (const root of roots) {
-    walkPreorder(root, working, criteria, out, predicate, signal);
+    walkPreorder(root, working, criteria, out, predicate, signal, nodeIndex);
   }
 }
 
@@ -240,15 +262,25 @@ export function findAllDescendants(
   options?: TraversalOptions
 ): AnyTreeNode[] {
   const signal = options?.signal;
+  const nodeIndex = options?.nodeIndex;
+  walkStep = 0;
   throwIfAborted(signal);
   const out: AnyTreeNode[] = [];
   if (container.type === 'DOCUMENT') {
     for (const p of container.children) {
-      walkFromRoots(p.children, working, criteria, out, predicate, signal);
+      walkFromRoots(p.children, working, criteria, out, predicate, signal, nodeIndex);
     }
     return out;
   }
-  walkFromRoots(getDescendantWalkRoots(container, working), working, criteria, out, predicate, signal);
+  walkFromRoots(
+    getDescendantWalkRoots(container, working, nodeIndex),
+    working,
+    criteria,
+    out,
+    predicate,
+    signal,
+    nodeIndex
+  );
   return out;
 }
 
@@ -270,7 +302,7 @@ export function findImmediateChildren(
   options?: TraversalOptions
 ): AnyTreeNode[] {
   throwIfAborted(options?.signal);
-  const kids = getImmediateSceneChildren(container, working);
+  const kids = getImmediateSceneChildren(container, working, options?.nodeIndex);
   const out: AnyTreeNode[] = [];
   for (const ch of kids) {
     const ok = predicate ? predicate(ch) : nodeMatches(ch, criteria);

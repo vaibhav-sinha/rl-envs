@@ -1,5 +1,6 @@
 import type { FileEnvelope } from '../model/types.js';
 import { findEnvelopeNode } from '../engine/DocumentEngine.js';
+import type { NodeIndex } from '../engine/nodeIndex.js';
 import {
   findAllDescendants,
   findImmediateChildren,
@@ -17,13 +18,14 @@ export interface ScriptTraversalContext {
   deletedIds: Set<string>;
   createHandle: TraversalHandleFactory;
   signal?: AbortSignal;
+  nodeIndex?: NodeIndex;
 }
 
 function liveContainer(ctx: ScriptTraversalContext, containerId: string) {
   if (ctx.deletedIds.has(containerId)) {
     throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${containerId}`);
   }
-  const live = findEnvelopeNode(ctx.working, containerId);
+  const live = findEnvelopeNode(ctx.working, containerId, ctx.nodeIndex);
   if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${containerId}`);
   if (!nodeSupportsTraversal(live.type)) {
     throw new ValidationErr('UNSUPPORTED_OPERATION', `Traversal not supported on ${live.type}`);
@@ -59,9 +61,18 @@ export function createTraversalMethods(ctx: ScriptTraversalContext, containerId:
           const h = ctx.createHandle(n.id);
           return parsed.fn(h);
         };
-        return toHandles(ctx, findAllDescendants(live, ctx.working, {}, pred, { signal: ctx.signal }));
+        return toHandles(
+          ctx,
+          findAllDescendants(live, ctx.working, {}, pred, { signal: ctx.signal, nodeIndex: ctx.nodeIndex })
+        );
       }
-      return toHandles(ctx, findAllDescendants(live, ctx.working, parsed.criteria, undefined, { signal: ctx.signal }));
+      return toHandles(
+        ctx,
+        findAllDescendants(live, ctx.working, parsed.criteria, undefined, {
+          signal: ctx.signal,
+          nodeIndex: ctx.nodeIndex,
+        })
+      );
     },
 
     findOne(callback: unknown): unknown | null {
@@ -71,7 +82,10 @@ export function createTraversalMethods(ctx: ScriptTraversalContext, containerId:
       }
       const fn = callback as (node: unknown) => boolean;
       const pred = (n: { id: string }) => fn(ctx.createHandle(n.id));
-      const hit = findOneDescendant(live, ctx.working, {}, pred, { signal: ctx.signal });
+      const hit = findOneDescendant(live, ctx.working, {}, pred, {
+        signal: ctx.signal,
+        nodeIndex: ctx.nodeIndex,
+      });
       return hit ? ctx.createHandle(hit.id) : null;
     },
 
@@ -80,9 +94,18 @@ export function createTraversalMethods(ctx: ScriptTraversalContext, containerId:
       const parsed = parseCallbackOrCriteria(callback);
       if (parsed.mode === 'predicate') {
         const pred = (n: { id: string }) => parsed.fn(ctx.createHandle(n.id));
-        return toHandles(ctx, findImmediateChildren(live, ctx.working, {}, pred, { signal: ctx.signal }));
+        return toHandles(
+          ctx,
+          findImmediateChildren(live, ctx.working, {}, pred, { signal: ctx.signal, nodeIndex: ctx.nodeIndex })
+        );
       }
-      return toHandles(ctx, findImmediateChildren(live, ctx.working, parsed.criteria, undefined, { signal: ctx.signal }));
+      return toHandles(
+        ctx,
+        findImmediateChildren(live, ctx.working, parsed.criteria, undefined, {
+          signal: ctx.signal,
+          nodeIndex: ctx.nodeIndex,
+        })
+      );
     },
 
     findChild(callback: unknown): unknown | null {
@@ -94,7 +117,10 @@ export function createTraversalMethods(ctx: ScriptTraversalContext, containerId:
       const live = liveContainer(ctx, containerId);
       return toHandles(
         ctx,
-        findAllDescendants(live, ctx.working, parseFindCriteria(criteria), undefined, { signal: ctx.signal })
+        findAllDescendants(live, ctx.working, parseFindCriteria(criteria), undefined, {
+          signal: ctx.signal,
+          nodeIndex: ctx.nodeIndex,
+        })
       );
     },
   };

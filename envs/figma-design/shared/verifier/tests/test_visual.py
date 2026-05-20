@@ -168,8 +168,10 @@ def test_design_consistency_without_context_uses_subtree(
 def test_task_completeness_skips_llm(mock_judge, mock_render, load_fixture, tmp_path):
     before = load_fixture("minimal", "before")
     after = load_fixture("add-frame", "after")
+    rendered: dict[str, str] = {}
 
     def fake_render(**kwargs):
+        rendered["node_id"] = kwargs["node_id"]
         Path(kwargs["out"]).write_bytes(b"png")
         return None
 
@@ -189,6 +191,8 @@ def test_task_completeness_skips_llm(mock_judge, mock_render, load_fixture, tmp_
         model="test",
     )
     assert result.score == 0.75
+    assert rendered["node_id"] == "I20"
+    assert result.details["screenshot_node_id"] == "I20"
     mock_judge.assert_not_called()
 
 

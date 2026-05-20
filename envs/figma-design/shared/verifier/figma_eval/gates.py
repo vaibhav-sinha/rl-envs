@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .edit_graph import EditGraph
-from .tree import descendant_ids, is_node_under_roots, node_exists
+from .tree import changes_inside_allowed_region, node_exists
 from .types import Envelope, SubCheckResult
 
 
@@ -18,34 +18,15 @@ def _gate_result(gate_id: str, score: float, details: dict[str, Any] | None = No
     )
 
 
-def _allowed_before_scope(before: Envelope, root_ids: list[str]) -> set[str]:
-    allowed: set[str] = set()
-    for root_id in root_ids:
-        allowed |= descendant_ids(before, root_id)
-    return allowed
-
-
 def _has_change_outside_allowed_region(
     graph: EditGraph,
     before: Envelope,
     after: Envelope,
     root_ids: list[str],
 ) -> bool:
-    allowed_before = _allowed_before_scope(before, root_ids)
-
-    for nid in graph.added_ids:
-        if not is_node_under_roots(after, nid, root_ids):
-            return True
-
-    for nid in graph.modified_ids:
-        if nid not in allowed_before or not is_node_under_roots(after, nid, root_ids):
-            return True
-
-    for nid in graph.deleted_ids:
-        if nid not in allowed_before:
-            return True
-
-    return False
+    inside = changes_inside_allowed_region(graph, before, after, root_ids)
+    all_changes = graph.added_ids | graph.deleted_ids | graph.modified_ids
+    return bool(all_changes - inside)
 
 
 def run_gates(

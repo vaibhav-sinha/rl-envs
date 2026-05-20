@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 from .types import Envelope, TreeNode
+
+if TYPE_CHECKING:
+    from .edit_graph import EditGraph
 
 CONTAINER_TYPES = frozenset(
     {"PAGE", "FRAME", "TRANSFORM_GROUP", "GROUP", "SECTION", "BOOLEAN_OPERATION"}
@@ -83,6 +86,38 @@ def is_node_under_roots(envelope: Envelope, node_id: str, root_ids: list[str]) -
     return False
 
 
+def _allowed_before_scope(before: Envelope, root_ids: list[str]) -> set[str]:
+    allowed: set[str] = set()
+    for root_id in root_ids:
+        allowed |= descendant_ids(before, root_id)
+    return allowed
+
+
+def changes_inside_allowed_region(
+    graph: EditGraph,
+    before: Envelope,
+    after: Envelope,
+    root_ids: list[str],
+) -> set[str]:
+    """Node ids changed within *root_ids* (same rules as gates.allowed_change_inside)."""
+    allowed_before = _allowed_before_scope(before, root_ids)
+    inside: set[str] = set()
+
+    for nid in graph.added_ids:
+        if is_node_under_roots(after, nid, root_ids):
+            inside.add(nid)
+
+    for nid in graph.modified_ids:
+        if nid in allowed_before and is_node_under_roots(after, nid, root_ids):
+            inside.add(nid)
+
+    for nid in graph.deleted_ids:
+        if nid in allowed_before:
+            inside.add(nid)
+
+    return inside
+
+
 def node_exists(envelope: Envelope, node_id: str) -> bool:
     return find_node(envelope, node_id) is not None
 
@@ -158,6 +193,83 @@ def resolve_compare_with_reference_screenshot_node(
         return resolve_minimal_enclosing_frame(envelope, changed_ids)
 
     return None
+
+
+def _node_frame_area(envelope: Envelope, node_id: str) -> float:
+    node = find_node(envelope, node_id)
+    if not node:
+        return 0.0
+    w = node.get("width") or 0
+    h = node.get("height") or 0
+    return float(w) * float(h)
+
+
+def _enclosing_frame_ids_for_node(
+    envelope: Envelope,
+    node_id: str,
+    *,
+    under_roots: list[str] | None = None,
+) -> list[str]:
+    parents = parent_id_map(envelope)
+    frames: list[str] = []
+    cur: str | None = node_id
+    while cur:
+        node = find_node(envelope, cur)
+        if node and node.get("type") in ENCLOSING_FRAME_TYPES:
+            if under_roots is None or is_node_under_roots(envelope, cur, under_roots):
+                frames.append(cur)
+        cur = parents.get(cur)
+    return frames
+
+
+def resolve_task_completeness_screenshot_node(
+    envelope: Envelope,
+    before: Envelope,
+    graph: EditGraph,
+    *,
+    allowed_root_ids: list[str] | None,
+) -> str | None:
+    """Pick the largest enclosing frame for task_completeness screenshots.
+
+    When *allowed_root_ids* is set and there are changes inside that region, use
+    the largest frame among those inside changes. Otherwise use the largest frame
+    among changes outside the allowed region (or among all changes when unset).
+    """
+    all_changes = graph.added_ids | graph.deleted_ids | graph.modified_ids
+    if not all_changes:
+        return None
+
+    if allowed_root_ids:
+        inside = changes_inside_allowed_region(graph, before, envelope, allowed_root_ids)
+        if inside:
+            target = inside
+            under_roots: list[str] | None = allowed_root_ids
+        else:
+            target = all_changes - inside
+            under_roots = None
+    else:
+        target = all_changes
+        under_roots = None
+
+    candidates: set[str] = set()
+    for nid in target:
+        candidates.update(
+            _enclosing_frame_ids_for_node(envelope, nid, under_roots=under_roots)
+        )
+
+    if not candidates:
+        for nid in target:
+            node = find_node(envelope, nid)
+            if node and node.get("type") in ENCLOSING_FRAME_TYPES:
+                candidates.add(nid)
+
+    if allowed_root_ids:
+        candidates -= set(allowed_root_ids)
+
+    if not candidates:
+        return next(iter(target))
+
+    return max(candidates, key=lambda nid: _node_frame_area(envelope, nid))
 
 
 def resolve_minimal_enclosing_frame(envelope: Envelope, node_ids: set[str]) -> str | None:

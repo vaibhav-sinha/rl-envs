@@ -40,7 +40,14 @@ export interface ScriptGridStyle {
   layoutGrids: LayoutGridColumns[];
 }
 
-function queueEnv(ctx: { working: FileEnvelope; ops: EngineOperation[] }, op: EnvelopeOperation): void {
+type StylesScriptCtx = {
+  working: FileEnvelope;
+  ops: EngineOperation[];
+  onMutate?: () => void;
+};
+
+function queueEnv(ctx: StylesScriptCtx, op: EnvelopeOperation): void {
+  ctx.onMutate?.();
   ctx.ops.push(op);
   applyEnvelopeOperation(ctx.working, op);
 }
@@ -133,8 +140,7 @@ function findGridStyle(env: FileEnvelope, id: string): GridStyleDefinition | nul
   return env.gridStyles?.find((s) => s.id === id) ?? null;
 }
 
-export function createStylesApi(ctx: { working: FileEnvelope; ops: EngineOperation[] }): Record<string, unknown> {
-  const { working } = ctx;
+export function createStylesApi(ctx: StylesScriptCtx): Record<string, unknown> {
 
   const moveAfter = (
     kind: 'paint' | 'text' | 'effect' | 'grid',
@@ -158,15 +164,15 @@ export function createStylesApi(ctx: { working: FileEnvelope; ops: EngineOperati
 
   return {
     getStyleByIdAsync: async (id: string): Promise<ScriptPaintStyle | ScriptTextStyle | ScriptEffectStyle | ScriptGridStyle | null> => {
-      if (findPaintStyle(working, id)) return wrapPaintStyle(ctx, id);
-      if (findTextStyle(working, id)) return wrapTextStyle(ctx, id);
-      return findEffectStyle(working, id) ?? findGridStyle(working, id);
+      if (findPaintStyle(ctx.working, id)) return wrapPaintStyle(ctx, id);
+      if (findTextStyle(ctx.working, id)) return wrapTextStyle(ctx, id);
+      return findEffectStyle(ctx.working, id) ?? findGridStyle(ctx.working, id);
     },
 
     getStyleById: (id: string): ScriptPaintStyle | ScriptTextStyle | ScriptEffectStyle | ScriptGridStyle | null => {
-      if (findPaintStyle(working, id)) return wrapPaintStyle(ctx, id);
-      if (findTextStyle(working, id)) return wrapTextStyle(ctx, id);
-      return findEffectStyle(working, id) ?? findGridStyle(working, id);
+      if (findPaintStyle(ctx.working, id)) return wrapPaintStyle(ctx, id);
+      if (findTextStyle(ctx.working, id)) return wrapTextStyle(ctx, id);
+      return findEffectStyle(ctx.working, id) ?? findGridStyle(ctx.working, id);
     },
 
     createPaintStyle: (): ScriptPaintStyle => {
@@ -203,7 +209,7 @@ export function createStylesApi(ctx: { working: FileEnvelope; ops: EngineOperati
           },
         ],
       });
-      return findEffectStyle(working, id)!;
+      return findEffectStyle(ctx.working, id)!;
     },
 
     createGridStyle: (): ScriptGridStyle => {
@@ -214,39 +220,39 @@ export function createStylesApi(ctx: { working: FileEnvelope; ops: EngineOperati
         name: 'Grid Style',
         layoutGrids: [{ type: 'COLUMNS', count: 12, gutter: 20 }],
       });
-      return findGridStyle(working, id)!;
+      return findGridStyle(ctx.working, id)!;
     },
 
     getLocalPaintStylesAsync: async (): Promise<ScriptPaintStyle[]> =>
-      (working.paintStyles ?? []).map((s) => wrapPaintStyle(ctx, s.id)),
+      (ctx.working.paintStyles ?? []).map((s) => wrapPaintStyle(ctx, s.id)),
     getLocalPaintStyles: (): ScriptPaintStyle[] =>
-      (working.paintStyles ?? []).map((s) => wrapPaintStyle(ctx, s.id)),
+      (ctx.working.paintStyles ?? []).map((s) => wrapPaintStyle(ctx, s.id)),
     getLocalTextStylesAsync: async (): Promise<ScriptTextStyle[]> =>
-      (working.textStyles ?? []).map((s) => wrapTextStyle(ctx, s.id)),
+      (ctx.working.textStyles ?? []).map((s) => wrapTextStyle(ctx, s.id)),
     getLocalTextStyles: (): ScriptTextStyle[] =>
-      (working.textStyles ?? []).map((s) => wrapTextStyle(ctx, s.id)),
-    getLocalEffectStylesAsync: async (): Promise<ScriptEffectStyle[]> => [...(working.effectStyles ?? [])],
-    getLocalEffectStyles: (): ScriptEffectStyle[] => [...(working.effectStyles ?? [])],
-    getLocalGridStylesAsync: async (): Promise<ScriptGridStyle[]> => [...(working.gridStyles ?? [])],
-    getLocalGridStyles: (): ScriptGridStyle[] => [...(working.gridStyles ?? [])],
+      (ctx.working.textStyles ?? []).map((s) => wrapTextStyle(ctx, s.id)),
+    getLocalEffectStylesAsync: async (): Promise<ScriptEffectStyle[]> => [...(ctx.working.effectStyles ?? [])],
+    getLocalEffectStyles: (): ScriptEffectStyle[] => [...(ctx.working.effectStyles ?? [])],
+    getLocalGridStylesAsync: async (): Promise<ScriptGridStyle[]> => [...(ctx.working.gridStyles ?? [])],
+    getLocalGridStyles: (): ScriptGridStyle[] => [...(ctx.working.gridStyles ?? [])],
 
     moveLocalPaintStyleAfter: (target: ScriptPaintStyle, reference: ScriptPaintStyle | null): void => {
-      if (!findPaintStyle(working, target.id)) throw new ValidationErr('VALIDATION_ERROR', `Unknown paint style ${target.id}`);
+      if (!findPaintStyle(ctx.working, target.id)) throw new ValidationErr('VALIDATION_ERROR', `Unknown paint style ${target.id}`);
       moveAfter('paint', target, reference);
     },
 
     moveLocalTextStyleAfter: (target: ScriptTextStyle, reference: ScriptTextStyle | null): void => {
-      if (!findTextStyle(working, target.id)) throw new ValidationErr('VALIDATION_ERROR', `Unknown text style ${target.id}`);
+      if (!findTextStyle(ctx.working, target.id)) throw new ValidationErr('VALIDATION_ERROR', `Unknown text style ${target.id}`);
       moveAfter('text', target, reference);
     },
 
     moveLocalEffectStyleAfter: (target: ScriptEffectStyle, reference: ScriptEffectStyle | null): void => {
-      if (!findEffectStyle(working, target.id)) throw new ValidationErr('VALIDATION_ERROR', `Unknown effect style ${target.id}`);
+      if (!findEffectStyle(ctx.working, target.id)) throw new ValidationErr('VALIDATION_ERROR', `Unknown effect style ${target.id}`);
       moveAfter('effect', target, reference);
     },
 
     moveLocalGridStyleAfter: (target: ScriptGridStyle, reference: ScriptGridStyle | null): void => {
-      if (!findGridStyle(working, target.id)) throw new ValidationErr('VALIDATION_ERROR', `Unknown grid style ${target.id}`);
+      if (!findGridStyle(ctx.working, target.id)) throw new ValidationErr('VALIDATION_ERROR', `Unknown grid style ${target.id}`);
       moveAfter('grid', target, reference);
     },
 

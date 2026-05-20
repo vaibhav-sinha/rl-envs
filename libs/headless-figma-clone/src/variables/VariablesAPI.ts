@@ -227,38 +227,44 @@ function collectionIdOf(collection: ScriptVariableCollection | { id: string }): 
   return collection.id;
 }
 
-function queueEnv(ctx: { working: FileEnvelope; ops: EngineOperation[] }, op: EnvelopeOperation): void {
+type VariablesScriptCtx = {
+  working: FileEnvelope;
+  ops: EngineOperation[];
+  onMutate?: () => void;
+};
+
+function queueEnv(ctx: VariablesScriptCtx, op: EnvelopeOperation): void {
+  ctx.onMutate?.();
   ctx.ops.push(op);
   applyEnvelopeOperation(ctx.working, op);
 }
 
-export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOperation[] }): Record<string, unknown> {
-  const { working } = ctx;
+export function createVariablesApi(ctx: VariablesScriptCtx): Record<string, unknown> {
 
   return {
     getLocalVariableCollectionsAsync: async (): Promise<ScriptVariableCollection[]> =>
-      (working.variableCollections ?? []).map((c) => wrapCollection(ctx, c)),
+      (ctx.working.variableCollections ?? []).map((c) => wrapCollection(ctx, c)),
 
     getLocalVariableCollections: (): ScriptVariableCollection[] =>
-      (working.variableCollections ?? []).map((c) => wrapCollection(ctx, c)),
+      (ctx.working.variableCollections ?? []).map((c) => wrapCollection(ctx, c)),
 
     getVariableCollectionByIdAsync: async (id: string): Promise<ScriptVariableCollection | null> => {
-      const col = working.variableCollections?.find((c) => c.id === id);
+      const col = ctx.working.variableCollections?.find((c) => c.id === id);
       return col ? wrapCollection(ctx, col) : null;
     },
 
     getVariableCollectionById: (id: string): ScriptVariableCollection | null => {
-      const col = working.variableCollections?.find((c) => c.id === id);
+      const col = ctx.working.variableCollections?.find((c) => c.id === id);
       return col ? wrapCollection(ctx, col) : null;
     },
 
     getVariableByIdAsync: async (id: string): Promise<ScriptVariable | null> => {
-      const hit = findVariableDefinition(working, id);
+      const hit = findVariableDefinition(ctx.working, id);
       return hit ? wrapVariable(ctx, hit.collection, hit.variable) : null;
     },
 
     getVariableById: (id: string): ScriptVariable | null => {
-      const hit = findVariableDefinition(working, id);
+      const hit = findVariableDefinition(ctx.working, id);
       return hit ? wrapVariable(ctx, hit.collection, hit.variable) : null;
     },
 
@@ -266,7 +272,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       type?: VariableDefinition['resolvedType']
     ): Promise<ScriptVariable[]> => {
       const out: ScriptVariable[] = [];
-      for (const col of working.variableCollections ?? []) {
+      for (const col of ctx.working.variableCollections ?? []) {
         for (const v of col.variables) {
           if (type && v.resolvedType !== type) continue;
           out.push(wrapVariable(ctx, col, v));
@@ -277,7 +283,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
 
     getLocalVariables: (type?: VariableDefinition['resolvedType']): ScriptVariable[] => {
       const out: ScriptVariable[] = [];
-      for (const col of working.variableCollections ?? []) {
+      for (const col of ctx.working.variableCollections ?? []) {
         for (const v of col.variables) {
           if (type && v.resolvedType !== type) continue;
           out.push(wrapVariable(ctx, col, v));
@@ -290,7 +296,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       const collectionId = ulid();
       const defaultModeId = ulid();
       queueEnv(ctx, { op: 'createVariableCollection', collectionId, name, defaultModeId });
-      const col = working.variableCollections!.find((c) => c.id === collectionId)!;
+      const col = ctx.working.variableCollections!.find((c) => c.id === collectionId)!;
       return wrapCollection(ctx, col);
     },
 
@@ -302,7 +308,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       const collectionId = collectionIdOf(collection);
       const variableId = ulid();
       queueEnv(ctx, { op: 'createVariable', collectionId, variableId, name, resolvedType });
-      const hit = findVariableDefinition(working, variableId)!;
+      const hit = findVariableDefinition(ctx.working, variableId)!;
       return wrapVariable(ctx, hit.collection, hit.variable);
     },
 
@@ -357,7 +363,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       variable: ScriptVariable | { id: string } | null
     ): Paint => {
       if (variable === null) return paint;
-      const hit = findVariableDefinition(working, variable.id);
+      const hit = findVariableDefinition(ctx.working, variable.id);
       if (!hit || hit.variable.resolvedType !== 'COLOR') {
         throw new ValidationErr('VALIDATION_ERROR', 'setBoundVariableForPaint requires COLOR variable');
       }
@@ -376,7 +382,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       if (variable === null) {
         delete bv[field];
       } else {
-        const hit = findVariableDefinition(working, variable.id);
+        const hit = findVariableDefinition(ctx.working, variable.id);
         if (!hit) throw new ValidationErr('VALIDATION_ERROR', `Unknown variable ${variable.id}`);
         if (field === 'color') {
           if (hit.variable.resolvedType !== 'COLOR') {
@@ -403,7 +409,7 @@ export function createVariablesApi(ctx: { working: FileEnvelope; ops: EngineOper
       if (variable === null) {
         delete bv[field];
       } else {
-        const hit = findVariableDefinition(working, variable.id);
+        const hit = findVariableDefinition(ctx.working, variable.id);
         if (!hit) throw new ValidationErr('VALIDATION_ERROR', `Unknown variable ${variable.id}`);
         if (hit.variable.resolvedType !== 'FLOAT') {
           throw new ValidationErr('VALIDATION_ERROR', `Layout grid ${field} binding requires FLOAT variable`);
