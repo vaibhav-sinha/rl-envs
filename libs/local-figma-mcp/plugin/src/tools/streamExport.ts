@@ -1,3 +1,4 @@
+import { buildExportExcludeIds } from '../exportScope.js';
 import type { ExportMetricsCollector } from '../exportMetrics.js';
 import { shouldEmitProgressMetrics } from '../exportMetrics.js';
 import type { ExportUploadGate } from '../exportUploadGate.js';
@@ -87,6 +88,7 @@ export interface RunFigmaStreamExportOptions {
   exportId: string;
   hfcFileName: string;
   excludeNodeIds?: string[];
+  includePageIds?: string[];
   gate: ExportUploadGate;
   metrics: ExportMetricsCollector;
   progress: ExportProgressReporter;
@@ -243,7 +245,7 @@ export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions)
   const { exportId, gate, metrics, progress } = options;
   clearImageHashesForExport();
   const name = options.hfcFileName.trim() || figma.root.name;
-  const excludeIds = new Set(options.excludeNodeIds ?? []);
+  const excludeIds = buildExportExcludeIds(options.excludeNodeIds, options.includePageIds);
 
   metrics.setPhase('meta');
   await gate.postLine(

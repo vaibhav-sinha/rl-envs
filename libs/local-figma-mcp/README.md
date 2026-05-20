@@ -86,6 +86,8 @@ MCP client → HTTP /mcp → local-figma-mcp (Node)
 
 The plugin UI has three tabs: **Connection** (MCP logs), **Export** (standalone HFC export via Task Builder), and **Task Builder** (wizard for Harbor `figma-design` tasks).
 
+On **Export** and Task Builder **baseline export**, a page multi-select lists every page in the open file (all selected by default). Only checked pages are streamed; **Export with exclusions** applies frame/layer exclusions within that page scope.
+
 ### Streaming export (OOM-safe)
 
 Large files are exported via **NDJSON streaming** to Task Builder (not a single giant JSON blob in the Figma plugin):

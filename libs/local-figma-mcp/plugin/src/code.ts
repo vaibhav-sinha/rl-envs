@@ -10,6 +10,7 @@ import { ExportMetricsCollector } from './exportMetrics.js';
 import { ExportUploadGate } from './exportUploadGate.js';
 import { ExportProgressReporter } from './exportProgressReporter.js';
 import type { ExportProgressSnapshot } from './exportProgressSnapshot.js';
+import { listFilePages } from './exportScope.js';
 import { getSelectedNodeIds, getSingleSelectedNode } from './selection.js';
 
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
@@ -23,7 +24,9 @@ type UiToMain =
       hfcFileName: string;
       exportId: string;
       excludeNodeIds?: string[];
+      includePageIds?: string[];
     }
+  | { type: 'get_file_pages' }
   | { type: 'export_stream_ack'; seq: number }
   | { type: 'export_stream_upload_failed'; exportId: string; seq: number; error: string }
   | { type: 'get_selection_node_id' }
@@ -46,6 +49,8 @@ type MainToUi =
   | { type: 'export_stream_done'; ok: boolean; exportId?: string; error?: string }
   | { type: 'selection_node_id'; nodeId: string; name: string }
   | { type: 'selection_node_ids'; nodeIds: string[] }
+  | { type: 'file_pages'; pages: { id: string; name: string }[] }
+  | { type: 'pages_error'; message: string }
   | { type: 'selection_error'; message: string }
   | {
       type: 'selection_screenshot';
@@ -146,7 +151,8 @@ async function dispatchTool(
 async function runExportFile(
   exportId: string,
   hfcFileName: string,
-  excludeNodeIds?: string[]
+  excludeNodeIds?: string[],
+  includePageIds?: string[]
 ): Promise<void> {
   const metrics = new ExportMetricsCollector();
   let progressReporter: ExportProgressReporter;
@@ -170,6 +176,7 @@ async function runExportFile(
       exportId,
       hfcFileName,
       excludeNodeIds,
+      includePageIds,
       gate,
       metrics,
       progress: progressReporter,
@@ -235,7 +242,27 @@ figma.ui.onmessage = async (msg: UiToMain) => {
       } satisfies MainToUi);
       return;
     }
-    void runExportFile(msg.exportId, msg.hfcFileName, msg.excludeNodeIds);
+    void runExportFile(
+      msg.exportId,
+      msg.hfcFileName,
+      msg.excludeNodeIds,
+      msg.includePageIds
+    );
+    return;
+  }
+
+  if (msg.type === 'get_file_pages') {
+    try {
+      figma.ui.postMessage({
+        type: 'file_pages',
+        pages: listFilePages(),
+      } satisfies MainToUi);
+    } catch (e) {
+      figma.ui.postMessage({
+        type: 'pages_error',
+        message: formatExportError(e, 'Failed to list pages'),
+      } satisfies MainToUi);
+    }
     return;
   }
 

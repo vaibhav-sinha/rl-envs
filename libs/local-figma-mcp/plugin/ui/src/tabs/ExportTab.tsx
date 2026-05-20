@@ -11,6 +11,8 @@ import {
 } from '../lib/plugin-bridge';
 import type { ExportOutcome, MultiPhaseExportProgress } from '../lib/export-progress-state';
 import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportProgress';
+import { PageMultiSelect } from '../components/PageMultiSelect';
+import { useFilePages } from '../hooks/useFilePages';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -28,6 +30,7 @@ export function ExportTab({
   const [outcome, setOutcome] = useState<ExportOutcome | null>(null);
   const [pendingExportId, setPendingExportId] = useState<string | null>(null);
   const [readySessions, setReadySessions] = useState<PendingExportSession[]>([]);
+  const filePages = useFilePages();
 
   const reportProgress = (snapshot: Parameters<typeof applyExportProgressSnapshot>[1]) => {
     setProgress((prev) => applyExportProgressSnapshot(prev, snapshot));
@@ -81,6 +84,7 @@ export function ExportTab({
     onLog('Starting streaming export…');
     try {
       const { exportId } = await exportSnapshotStreaming(name, {
+        includePageIds: [...filePages.selectedPageIds],
         onProgress: reportProgress,
       });
 
@@ -125,9 +129,20 @@ export function ExportTab({
   return (
     <div className="p-3 flex flex-col gap-3">
       <p className="text-[11px] text-muted m-0">
-        Export the current Figma file to HFC workspace via Task Builder (port 3856). Large files stream
-        incrementally to avoid memory limits.
+        Export the current Figma file to HFC workspace via Task Builder (port 3856). Only selected pages
+        are streamed. Large files stream incrementally to avoid memory limits.
       </p>
+      <PageMultiSelect
+        pages={filePages.pages}
+        selectedIds={filePages.selectedPageIds}
+        onToggle={filePages.togglePage}
+        onSelectAll={filePages.selectAll}
+        onClearAll={filePages.clearAll}
+        onRefresh={() => void filePages.refresh()}
+        disabled={busy}
+        loading={filePages.loading}
+        error={filePages.error}
+      />
       <div>
         <Label htmlFor="export-name">File name</Label>
         <Input id="export-name" value={fileName} onChange={(e) => setFileName(e.target.value)} className="mt-1" />
@@ -172,7 +187,11 @@ export function ExportTab({
           ))}
         </div>
       ) : null}
-      <Button variant="primary" disabled={busy} onClick={() => void runExport()}>
+      <Button
+        variant="primary"
+        disabled={busy || !filePages.hasSelection || filePages.loading}
+        onClick={() => void runExport()}
+      >
         {busy ? 'Exporting…' : 'Export File'}
       </Button>
     </div>

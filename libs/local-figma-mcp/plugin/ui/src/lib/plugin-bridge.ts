@@ -55,6 +55,11 @@ export {
   createInitialExportProgress,
 } from './export-progress-state';
 
+export interface FilePageInfo {
+  id: string;
+  name: string;
+}
+
 export type PluginMessage =
   | { type: 'request_hello' }
   | {
@@ -62,7 +67,9 @@ export type PluginMessage =
       hfcFileName: string;
       exportId: string;
       excludeNodeIds?: string[];
+      includePageIds?: string[];
     }
+  | { type: 'get_file_pages' }
   | { type: 'get_selection_node_id' }
   | { type: 'get_selection_node_ids' }
   | { type: 'capture_selection_screenshot' }
@@ -78,6 +85,8 @@ export type PluginReply =
   | { type: 'export_stream_done'; ok: boolean; exportId?: string; error?: string }
   | { type: 'selection_node_id'; nodeId: string; name: string }
   | { type: 'selection_node_ids'; nodeIds: string[] }
+  | { type: 'file_pages'; pages: FilePageInfo[] }
+  | { type: 'pages_error'; message: string }
   | { type: 'selection_error'; message: string }
   | { type: 'selection_screenshot'; ok: boolean; data?: string; mimeType?: string; error?: string }
   | { type: 'tool_response'; id: string; ok: boolean; content?: unknown[]; error?: { message: string } };
@@ -123,6 +132,7 @@ async function tbPostPartBody(exportId: string, body: string): Promise<{ seq: nu
 
 export interface StreamingExportOptions {
   excludeNodeIds?: string[];
+  includePageIds?: string[];
   /** Latest progress snapshot from the plugin main thread (merge with applyExportProgressSnapshot). */
   onProgress?: (snapshot: ExportProgressSnapshot) => void;
 }
@@ -243,7 +253,13 @@ export async function exportSnapshotStreaming(
   options: StreamingExportOptions = {}
 ): Promise<StreamingExportResult> {
   const { exportId } = await createExportStreamSession();
-  postToPlugin({ type: 'export_file', hfcFileName, exportId, excludeNodeIds: options.excludeNodeIds });
+  postToPlugin({
+    type: 'export_file',
+    hfcFileName,
+    exportId,
+    excludeNodeIds: options.excludeNodeIds,
+    includePageIds: options.includePageIds,
+  });
 
   const uploadQueue = new HybridUploadQueue(EXPORT_UI_ASSET_UPLOAD_CONCURRENCY);
   const uiUploadMetrics = new UiUploadMetrics();
@@ -341,22 +357,23 @@ export async function exportSnapshot(
   return { exportId };
 }
 
-async function waitForSelection<T extends PluginReply['type']>(
+async function waitForPluginReply<T extends PluginReply['type']>(
   successType: T,
+  errorTypes: Array<'selection_error' | 'pages_error'> = ['selection_error'],
   timeoutMs = 10_000
 ): Promise<Extract<PluginReply, { type: T }>> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler);
-      reject(new Error('Selection request timed out'));
+      reject(new Error('Plugin request timed out'));
     }, timeoutMs);
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage as PluginReply | undefined;
       if (!msg) return;
-      if (msg.type === 'selection_error') {
+      if (errorTypes.includes(msg.type as 'selection_error' | 'pages_error')) {
         clearTimeout(timer);
         window.removeEventListener('message', handler);
-        reject(new Error(msg.message));
+        reject(new Error((msg as { message: string }).message));
         return;
       }
       if (msg.type !== successType) return;
@@ -368,15 +385,21 @@ async function waitForSelection<T extends PluginReply['type']>(
   });
 }
 
+export async function fetchFilePages(): Promise<FilePageInfo[]> {
+  postToPlugin({ type: 'get_file_pages' });
+  const reply = await waitForPluginReply('file_pages', ['pages_error', 'selection_error']);
+  return reply.pages;
+}
+
 export async function pickNodeId(): Promise<string> {
   postToPlugin({ type: 'get_selection_node_id' });
-  const reply = await waitForSelection('selection_node_id');
+  const reply = await waitForPluginReply('selection_node_id');
   return reply.nodeId;
 }
 
 export async function pickExcludeNodeIds(): Promise<string[]> {
   postToPlugin({ type: 'get_selection_node_ids' });
-  const reply = await waitForSelection('selection_node_ids');
+  const reply = await waitForPluginReply('selection_node_ids');
   return reply.nodeIds;
 }
 

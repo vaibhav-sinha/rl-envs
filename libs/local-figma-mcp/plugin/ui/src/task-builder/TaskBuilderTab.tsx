@@ -24,6 +24,8 @@ import {
 } from '../lib/plugin-bridge';
 import type { ExportOutcome, MultiPhaseExportProgress } from '../lib/export-progress-state';
 import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportProgress';
+import { PageMultiSelect } from '../components/PageMultiSelect';
+import { useFilePages } from '../hooks/useFilePages';
 import { WIZARD_STEPS, stepMeta } from './catalog-helpers';
 import { CheckCard } from './components/CheckCard';
 import { FieldHelp } from './components/FieldHelp';
@@ -43,6 +45,7 @@ function slugify(s: string): string {
 }
 
 export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => void }) {
+  const filePages = useFilePages();
   const [view, setView] = useState<'idle' | 'list' | 'wizard'>('idle');
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -200,6 +203,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
       onLog('Streaming Figma export…');
       const { exportId } = await exportSnapshotStreaming(taskId, {
         excludeNodeIds,
+        includePageIds: [...filePages.selectedPageIds],
         onProgress: reportExportProgress,
       });
       streamFinished = true;
@@ -524,7 +528,18 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
           <>
             <SectionIntro
               title="Baseline export"
-              description="Captures the current Figma file as design.hfc.json — the before state agents are graded against."
+              description="Captures the current Figma file as design.hfc.json — the before state agents are graded against. Only selected pages are included; exclusions apply within that scope."
+            />
+            <PageMultiSelect
+              pages={filePages.pages}
+              selectedIds={filePages.selectedPageIds}
+              onToggle={filePages.togglePage}
+              onSelectAll={filePages.selectAll}
+              onClearAll={filePages.clearAll}
+              onRefresh={() => void filePages.refresh()}
+              disabled={busy}
+              loading={filePages.loading}
+              error={filePages.error}
             />
             {busy && exportProgress ? <ExportProgressPanel progress={exportProgress} /> : null}
             {exportOutcome ? (
@@ -564,10 +579,17 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
                 Retry finalize
               </Button>
             ) : null}
-            <Button variant="primary" disabled={busy} onClick={() => void runExport('full')}>
-              Export entire file
+            <Button
+              variant="primary"
+              disabled={busy || !filePages.hasSelection || filePages.loading}
+              onClick={() => void runExport('full')}
+            >
+              {filePages.allSelected ? 'Export entire file' : 'Export selected pages'}
             </Button>
-            <Button disabled={busy} onClick={() => setShowExcludeDialog(true)}>
+            <Button
+              disabled={busy || !filePages.hasSelection || filePages.loading}
+              onClick={() => setShowExcludeDialog(true)}
+            >
               Export with exclusions
             </Button>
             <Button disabled={busy} onClick={() => void openCopyDialog()}>
@@ -580,6 +602,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
                 </p>
                 <Button
                   size="sm"
+                  disabled={!filePages.hasSelection || filePages.loading}
                   onClick={async () => {
                     try {
                       const ids = await pickExcludeNodeIds();
