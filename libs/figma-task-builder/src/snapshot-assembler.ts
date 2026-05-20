@@ -1,4 +1,4 @@
-import type { SerializedNodeWire, StreamPart } from './stream-protocol.js';
+import type { ExportTotals, SerializedNodeWire, StreamPart } from './stream-protocol.js';
 
 export interface AssembledMeta {
   exportedAt: string;
@@ -25,6 +25,7 @@ export interface AssembledSnapshot {
   document: SerializedNodeWire & { children?: SerializedNodeWire[] };
   meta: AssembledMeta;
   assets: AssembledAsset[];
+  sessionTotals?: ExportTotals;
 }
 
 type StackEntry = SerializedNodeWire & { children: SerializedNodeWire[] };
@@ -32,16 +33,26 @@ type StackEntry = SerializedNodeWire & { children: SerializedNodeWire[] };
 export class SnapshotAssembler {
   private stack: StackEntry[] = [];
   private documentRoot: StackEntry | null = null;
+  private readonly nodeById = new Map<string, StackEntry>();
   private meta: AssembledMeta | null = null;
   private readonly assets: AssembledAsset[] = [];
   private snapshotVersion = 1;
   private figmaFileKey: string | null = null;
   private figmaFileName = 'Untitled';
+  private sessionTotals: ExportTotals | null = null;
 
   applySessionStart(part: Extract<StreamPart, { kind: 'session_start' }>): void {
     this.snapshotVersion = part.snapshotVersion;
     this.figmaFileKey = part.figmaFileKey;
     this.figmaFileName = part.figmaFileName;
+  }
+
+  applySessionTotals(part: Extract<StreamPart, { kind: 'session_totals' }>): void {
+    this.sessionTotals = {
+      nodes: part.nodes,
+      iconExports: part.iconExports,
+      rasterImages: part.rasterImages,
+    };
   }
 
   applyMeta(part: Extract<StreamPart, { kind: 'meta' }>): void {
@@ -60,7 +71,7 @@ export class SnapshotAssembler {
       id: part.node.id,
       type: part.node.type,
       name: part.node.name,
-      properties: part.node.properties,
+      properties: { ...part.node.properties },
       children: [],
     };
     const parent = this.stack[this.stack.length - 1];
@@ -70,6 +81,7 @@ export class SnapshotAssembler {
       this.documentRoot = node;
     }
     this.stack.push(node);
+    this.nodeById.set(node.id, node);
   }
 
   applyTreeExit(): void {
@@ -77,6 +89,12 @@ export class SnapshotAssembler {
       throw new Error('TREE_EXIT_UNDERFLOW');
     }
     this.stack.pop();
+  }
+
+  applyNodeProps(part: Extract<StreamPart, { kind: 'node_props' }>): void {
+    const node = this.nodeById.get(part.nodeId);
+    if (!node) throw new Error(`NODE_PROPS_UNKNOWN_ID: ${part.nodeId}`);
+    node.properties = { ...node.properties, ...part.properties };
   }
 
   applyAsset(part: Extract<StreamPart, { kind: 'asset' }>): void {
@@ -103,6 +121,7 @@ export class SnapshotAssembler {
       document,
       meta: this.meta,
       assets: this.assets,
+      sessionTotals: this.sessionTotals ?? undefined,
     };
   }
 }
@@ -173,4 +192,33 @@ export function assembledToFigmaPluginSnapshot(assembled: AssembledSnapshot): {
     gridStyles: assembled.meta.gridStyles,
     assets,
   };
+}
+
+/** Apply a parsed stream part to an assembler (shared by append and finish recovery). */
+export function applyStreamPart(assembler: SnapshotAssembler, part: StreamPart): void {
+  switch (part.kind) {
+    case 'session_start':
+      assembler.applySessionStart(part);
+      break;
+    case 'session_totals':
+      assembler.applySessionTotals(part);
+      break;
+    case 'meta':
+      assembler.applyMeta(part);
+      break;
+    case 'tree_enter':
+      assembler.applyTreeEnter(part);
+      break;
+    case 'tree_exit':
+      assembler.applyTreeExit();
+      break;
+    case 'node_props':
+      assembler.applyNodeProps(part);
+      break;
+    case 'asset':
+      assembler.applyAsset(part);
+      break;
+    case 'session_end':
+      break;
+  }
 }

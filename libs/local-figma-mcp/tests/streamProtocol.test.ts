@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   EXPORT_TREE_BATCH_SIZE,
+  STREAM_PROTOCOL_VERSION,
   estimateUploadPartTotal,
   isTreeStreamLine,
   streamPartToLine,
@@ -11,6 +12,25 @@ describe('streamProtocol batch helpers', () => {
     expect(isTreeStreamLine(streamPartToLine({ kind: 'tree_enter', node: { id: '1', type: 'FRAME', name: 'F', properties: {} } }))).toBe(true);
     expect(isTreeStreamLine(streamPartToLine({ kind: 'tree_exit' }))).toBe(true);
     expect(isTreeStreamLine(streamPartToLine({ kind: 'session_end', exportId: 'x' }))).toBe(false);
+  });
+
+  it('uses stream protocol v3', () => {
+    expect(STREAM_PROTOCOL_VERSION).toBe(3);
+  });
+
+  it('serializes session_totals and node_props lines', () => {
+    expect(JSON.parse(streamPartToLine({ kind: 'session_totals', nodes: 1, iconExports: 2, rasterImages: 3 }).trim()).kind).toBe(
+      'session_totals'
+    );
+    expect(
+      JSON.parse(
+        streamPartToLine({
+          kind: 'node_props',
+          nodeId: '1:1',
+          properties: { hfcIconSvgAsset: '1:1' },
+        }).trim()
+      ).kind
+    ).toBe('node_props');
   });
 
   it('estimates fewer upload parts when tree lines are batched', () => {

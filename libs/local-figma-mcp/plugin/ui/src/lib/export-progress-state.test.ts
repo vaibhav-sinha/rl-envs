@@ -4,12 +4,11 @@ import { applyExportProgressUpdate, createInitialExportProgress } from './export
 describe('applyExportProgressUpdate', () => {
   it('does not mark pending icons/images as skipped when upload starts during serialize', () => {
     let p = createInitialExportProgress();
-    p = applyExportProgressUpdate(p, { phase: 'count', current: 1, total: 1, percent: 100 });
     p = applyExportProgressUpdate(p, { phase: 'meta', current: 1, total: 1, percent: 100 });
     p = applyExportProgressUpdate(p, {
       phase: 'serialize',
       current: 100,
-      total: 38000,
+      total: 0,
       percent: 0,
     });
     p = applyExportProgressUpdate(p, {
@@ -22,9 +21,10 @@ describe('applyExportProgressUpdate', () => {
     expect(p.phases.icons.status).toBe('pending');
     expect(p.phases.images.status).toBe('pending');
     expect(p.phases.upload.status).toBe('running');
+    expect(p.phases.serialize.status).toBe('running');
   });
 
-  it('marks icons skipped only on explicit zero-total update', () => {
+  it('marks icons skipped only on explicit zero-total zero-current update', () => {
     let p = createInitialExportProgress();
     p = applyExportProgressUpdate(p, { phase: 'icons', current: 0, total: 0, percent: 100 });
     expect(p.phases.icons.status).toBe('skipped');

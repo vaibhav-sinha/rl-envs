@@ -21,10 +21,13 @@ describe('ExportStreamSessionStore.appendPart batch', () => {
     process.env.TB_EXPORT_DIR = join(baseDir, 'exports');
     const store = new ExportStreamSessionStore(loadConfig());
     const { exportId } = store.createSession();
-    const lineA = streamPartToLine({ kind: 'tree_exit' }).trim();
-    const lineB = streamPartToLine({ kind: 'tree_exit' }).trim();
-    const first = store.appendPart(exportId, `${lineA}\n${lineB}`);
-    const second = store.appendPart(exportId, lineA);
+    const enter = streamPartToLine({
+      kind: 'tree_enter',
+      node: { id: '0:0', type: 'DOCUMENT', name: 'Doc', properties: {} },
+    }).trim();
+    const exit = streamPartToLine({ kind: 'tree_exit' }).trim();
+    const first = store.appendPart(exportId, `${enter}\n${exit}`);
+    const second = store.appendPart(exportId, enter);
     expect(first.lineCount).toBe(2);
     expect(first.seq).toBe(1);
     expect(second.seq).toBe(2);

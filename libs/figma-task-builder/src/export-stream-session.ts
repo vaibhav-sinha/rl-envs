@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { TaskBuilderConfig } from './config.js';
 import { HfcClient, type HfcAssetFileRef } from './hfc-client.js';
 import {
+  applyStreamPart,
   assembledToFigmaPluginSnapshot,
   SnapshotAssembler,
   type AssembledAsset,
@@ -36,6 +37,7 @@ export interface FinishStreamResult {
 
 export class ExportStreamSessionStore {
   private readonly sessionsDir: string;
+  private readonly assemblers = new Map<string, SnapshotAssembler>();
 
   constructor(private readonly config: TaskBuilderConfig) {
     this.sessionsDir = join(config.tasksDir, '.export-sessions');
@@ -48,6 +50,7 @@ export class ExportStreamSessionStore {
     mkdirSync(dir, { recursive: true });
     mkdirSync(join(dir, 'assets'), { recursive: true });
     writeFileSync(join(dir, 'parts.jsonl'), '', 'utf8');
+    this.assemblers.set(exportId, new SnapshotAssembler());
     return {
       exportId,
       uploadUrl: `/export/stream/${exportId}/part`,
@@ -57,6 +60,9 @@ export class ExportStreamSessionStore {
   appendPart(exportId: string, body: string): { seq: number; lineCount: number } {
     const dir = sessionDir(this.sessionsDir, exportId);
     if (!existsSync(dir)) throw new Error(`NOT_FOUND: export session ${exportId}`);
+
+    const assembler = this.assemblers.get(exportId);
+    if (!assembler) throw new Error(`NOT_FOUND: export session assembler ${exportId}`);
 
     const lines = splitNdjsonBody(body);
     if (lines.length === 0) throw new Error('EMPTY_PART_LINE');
@@ -70,6 +76,7 @@ export class ExportStreamSessionStore {
         throw new Error('PART_LINE_TOO_LARGE');
       }
       const part = parseStreamPartLine(trimmed);
+      applyStreamPart(assembler, part);
       chunks.push(trimmed + '\n');
       if (part.kind === 'asset') {
         writeAssetFile(dir, part);
@@ -84,36 +91,20 @@ export class ExportStreamSessionStore {
     const dir = sessionDir(this.sessionsDir, exportId);
     if (!existsSync(dir)) throw new Error(`NOT_FOUND: export session ${exportId}`);
 
-    const assembler = new SnapshotAssembler();
-    const lines = readFileSync(join(dir, 'parts.jsonl'), 'utf8').split('\n').filter(Boolean);
+    const assembler = this.assemblers.get(exportId);
+    if (!assembler) throw new Error(`NOT_FOUND: export session assembler ${exportId}`);
 
+    const lines = readFileSync(join(dir, 'parts.jsonl'), 'utf8').split('\n').filter(Boolean);
     for (const line of lines) {
       const part = parseStreamPartLine(line);
-      switch (part.kind) {
-        case 'session_start':
-          assembler.applySessionStart(part);
-          break;
-        case 'meta':
-          assembler.applyMeta(part);
-          break;
-        case 'tree_enter':
-          assembler.applyTreeEnter(part);
-          break;
-        case 'tree_exit':
-          assembler.applyTreeExit();
-          break;
-        case 'asset':
-          assembler.applyAsset(part);
-          break;
-        case 'session_end':
-          if (part.exportId !== exportId) {
-            throw new Error('SESSION_END_ID_MISMATCH');
-          }
-          break;
+      if (part.kind === 'session_end' && part.exportId !== exportId) {
+        throw new Error('SESSION_END_ID_MISMATCH');
       }
     }
 
     const assembled = assembler.finish();
+    this.assemblers.delete(exportId);
+
     const assetFiles = assetFilesFromSession(dir, assembled);
     const snapshot = assembledToFigmaPluginSnapshot({ ...assembled, assets: [] });
     const hfc = new HfcClient(this.config.hfcUrl);

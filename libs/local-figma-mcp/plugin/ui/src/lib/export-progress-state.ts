@@ -1,5 +1,4 @@
 export const EXPORT_PHASE_ORDER = [
-  'count',
   'meta',
   'serialize',
   'icons',
@@ -37,7 +36,6 @@ export type ExportOutcome =
   | { kind: 'error'; title: string; message: string };
 
 export const EXPORT_PHASE_LABEL: Record<ExportProgressPhase, string> = {
-  count: 'Count',
   meta: 'Metadata',
   serialize: 'Nodes',
   icons: 'Icons',
@@ -45,6 +43,8 @@ export const EXPORT_PHASE_LABEL: Record<ExportProgressPhase, string> = {
   upload: 'Stream parts',
   finalize: 'Finalize',
 };
+
+const INDETERMINATE_PHASES = new Set<ExportProgressPhase>(['serialize', 'icons', 'images']);
 
 function defaultPhase(status: PhaseStatus = 'pending'): PhaseProgress {
   return { status, current: 0, total: 0, percent: 0 };
@@ -70,15 +70,14 @@ export function applyExportProgressUpdate(
   const phases = { ...base.phases };
   const idx = phaseIndex(update.phase);
 
-  const skipped =
-    update.total <= 0 && update.phase !== 'count' && update.phase !== 'meta';
+  const indeterminate =
+    INDETERMINATE_PHASES.has(update.phase) && update.total <= 0 && update.current > 0;
+  const skipped = update.total <= 0 && update.current <= 0 && update.phase !== 'meta';
   const done =
     skipped ||
     (update.total > 0 && update.current >= update.total) ||
-    (update.phase === 'count' && update.current >= update.total && update.total > 0);
+    (update.phase === 'meta' && update.current >= update.total && update.total > 0);
 
-  // Only mark earlier *running* phases done when a later phase starts. Never mark
-  // still-pending phases as skipped (upload runs during serialize, before icons/images).
   for (let i = 0; i < idx; i++) {
     const id = EXPORT_PHASE_ORDER[i]!;
     const p = phases[id];
@@ -96,7 +95,7 @@ export function applyExportProgressUpdate(
     status: skipped ? 'skipped' : done ? 'done' : 'running',
     current: update.current,
     total: update.total,
-    percent: skipped ? 100 : update.percent,
+    percent: skipped ? 100 : indeterminate ? 0 : update.percent,
     detail: update.detail,
   };
 

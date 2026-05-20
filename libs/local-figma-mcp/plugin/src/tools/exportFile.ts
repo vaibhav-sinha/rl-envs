@@ -8,6 +8,8 @@ import {
   ICON_RASTER_EXPORT_SCALE,
   prefersRasterIconExport,
   resolveMixedFillVectorExportIds,
+  tagSerializedIconPngExport,
+  tagSerializedIconSvgExport,
 } from './iconDetector.js';
 import { ExportAssetDedup } from './exportAssetDedup.js';
 import { keysForNodeType } from './nodePropertyKeys.js';
@@ -99,15 +101,22 @@ export type TreeStreamEvent =
   | { kind: 'tree_enter'; node: SerializedNodeWire }
   | { kind: 'tree_exit' };
 
+export interface SerializeTreeOptions {
+  onNodeVisit?: (node: BaseNode) => void;
+}
+
 export function* serializeTreeEvents(
   node: BaseNode,
   excludeIds: Set<string>,
-  ancestorExcluded: boolean
+  ancestorExcluded: boolean,
+  options: SerializeTreeOptions = {}
 ): Generator<TreeStreamEvent> {
   const selfExcluded = ancestorExcluded || excludeIds.has(node.id);
   if (selfExcluded && node.type !== 'DOCUMENT') {
     return;
   }
+
+  options.onNodeVisit?.(node);
 
   const props =
     node.type === 'DOCUMENT' && !('absoluteBoundingBox' in node)
@@ -126,7 +135,7 @@ export function* serializeTreeEvents(
 
   if ('children' in node && Array.isArray(node.children)) {
     for (const c of node.children) {
-      yield* serializeTreeEvents(c, excludeIds, selfExcluded);
+      yield* serializeTreeEvents(c, excludeIds, selfExcluded, options);
     }
   }
 
@@ -235,10 +244,12 @@ async function buildIconExportAssets(document: SerializedNode, dedup: ExportAsse
           contentsOnly: true,
           constraint: { type: 'SCALE', value: ICON_RASTER_EXPORT_SCALE },
         });
-        dedup.registerNodeExport(nodeId, bytes, 'image/png', document, ICON_RASTER_EXPORT_SCALE);
+        const reg = dedup.registerNodeExport(nodeId, bytes, 'image/png', ICON_RASTER_EXPORT_SCALE);
+        tagSerializedIconPngExport(document, nodeId, reg.canonicalNodeId);
       } else {
         const bytes = await exportNode.exportAsync(SVG_EXPORT_SETTINGS);
-        dedup.registerNodeExport(nodeId, bytes, 'image/svg+xml', document);
+        const reg = dedup.registerNodeExport(nodeId, bytes, 'image/svg+xml');
+        tagSerializedIconSvgExport(document, nodeId, reg.canonicalNodeId);
       }
     } catch {
       /* skip failed icon export */
@@ -286,7 +297,8 @@ async function buildMixedFillVectorExportAssets(document: SerializedNode, dedup:
 
     try {
       const bytes = await exportNode.exportAsync(SVG_EXPORT_SETTINGS);
-      dedup.registerNodeExport(nodeId, bytes, 'image/svg+xml', document);
+      const reg = dedup.registerNodeExport(nodeId, bytes, 'image/svg+xml');
+      tagSerializedIconSvgExport(document, nodeId, reg.canonicalNodeId);
     } catch {
       /* skip failed mixed-fill vector export */
     }

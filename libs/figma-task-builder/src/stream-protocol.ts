@@ -1,11 +1,11 @@
-/** NDJSON streaming export protocol v2 (plugin → Task Builder). */
+/** NDJSON streaming export protocol v3 (plugin → Task Builder). */
 
-export const STREAM_PROTOCOL_VERSION = 2 as const;
+export const STREAM_PROTOCOL_VERSION = 3 as const;
 
 /** Max bytes per NDJSON line in a stream part request body (and per-line after split). */
 export const EXPORT_STREAM_PART_MAX_BYTES = 20 * 1024 * 1024;
 
-export type ExportProgressPhase = 'count' | 'serialize' | 'icons' | 'images' | 'upload';
+export type ExportProgressPhase = 'serialize' | 'icons' | 'images' | 'upload';
 
 export interface ExportTotals {
   nodes: number;
@@ -40,6 +40,12 @@ export type StreamPart =
       totals: ExportTotals;
     }
   | {
+      kind: 'session_totals';
+      nodes: number;
+      iconExports: number;
+      rasterImages: number;
+    }
+  | {
       kind: 'meta';
       exportedAt: string;
       variableCollections: Record<string, unknown>[];
@@ -50,6 +56,11 @@ export type StreamPart =
     }
   | { kind: 'tree_enter'; node: SerializedNodeWire }
   | { kind: 'tree_exit' }
+  | {
+      kind: 'node_props';
+      nodeId: string;
+      properties: Record<string, unknown>;
+    }
   | {
       kind: 'asset';
       contentHash: string;

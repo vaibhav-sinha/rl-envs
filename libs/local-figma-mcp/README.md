@@ -91,11 +91,11 @@ The plugin UI has three tabs: **Connection** (MCP logs), **Export** (standalone 
 Large files are exported via **NDJSON streaming** to Task Builder (not a single giant JSON blob in the Figma plugin):
 
 1. Plugin UI creates `POST /export/stream/session` on Task Builder (`3856`).
-2. Plugin main thread yields NDJSON lines; tree enter/exit lines are batched (128 per request). Raster images are fetched with parallel `getBytesAsync` (8 concurrent). UI relays to Task Builder with ack backpressure.
-3. Task Builder spools parts under `envs/figma-design/task-drafts/.export-sessions/{exportId}/`.
-4. `POST .../finish` assembles the snapshot, imports via HFC using on-disk asset files (no base64 in the HFC request body), and writes `design.hfc.json`.
+2. Plugin main thread yields NDJSON lines incrementally (protocol v3: no full in-memory tree); tree enter/exit lines are batched (128 per request). Icon tags use `node_props` parts; raster images stream as they complete (8 concurrent `getBytesAsync`). UI relays to Task Builder with ack backpressure.
+3. Task Builder assembles each part on append and spools audit lines under `envs/figma-design/task-drafts/.export-sessions/{exportId}/`.
+4. `POST .../finish` finalizes the snapshot, imports via HFC using on-disk asset files (no base64 in the HFC request body), and writes `design.hfc.json`.
 
-Progress phases: **count → serialize → icons → images → upload**. Requires Task Builder and HFC running.
+Progress phases: **meta → serialize → icons → images → upload**. Requires Task Builder and HFC running.
 
 ### Services required
 

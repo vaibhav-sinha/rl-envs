@@ -42,7 +42,7 @@ type MainToUi =
   | { type: 'log'; line: string }
   | {
       type: 'export_progress';
-      phase: 'count' | 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
+      phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
       current: number;
       total: number;
       percent: number;
@@ -76,7 +76,7 @@ function waitForStreamAck(seq: number): Promise<void> {
 }
 
 function postProgress(
-  phase: 'count' | 'meta' | 'serialize' | 'icons' | 'images' | 'upload',
+  phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload',
   current: number,
   total: number,
   detail?: string
@@ -128,7 +128,7 @@ async function dispatchTool(
 }
 
 
-function parseSessionStartTotals(line: string): {
+function parseSessionTotals(line: string): {
   nodes: number;
   iconExports: number;
   rasterImages: number;
@@ -136,13 +136,15 @@ function parseSessionStartTotals(line: string): {
   try {
     const part = JSON.parse(line.trim()) as {
       kind?: string;
-      totals?: { nodes?: number; iconExports?: number; rasterImages?: number };
+      nodes?: number;
+      iconExports?: number;
+      rasterImages?: number;
     };
-    if (part.kind !== 'session_start' || !part.totals) return null;
+    if (part.kind !== 'session_totals') return null;
     return {
-      nodes: part.totals.nodes ?? 0,
-      iconExports: part.totals.iconExports ?? 0,
-      rasterImages: part.totals.rasterImages ?? 0,
+      nodes: part.nodes ?? 0,
+      iconExports: part.iconExports ?? 0,
+      rasterImages: part.rasterImages ?? 0,
     };
   } catch {
     return null;
@@ -217,7 +219,7 @@ async function runExportFile(
         },
       }
     )) {
-      const totals = parseSessionStartTotals(line);
+      const totals = parseSessionTotals(line);
       if (totals) {
         uploadTotal = estimateUploadPartTotal(totals);
       }

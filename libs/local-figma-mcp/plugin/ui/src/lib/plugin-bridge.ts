@@ -32,7 +32,7 @@ export type PluginReply =
   | { type: 'log'; line: string }
   | {
       type: 'export_progress';
-      phase: 'count' | 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
+      phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
       current: number;
       total: number;
       percent: number;

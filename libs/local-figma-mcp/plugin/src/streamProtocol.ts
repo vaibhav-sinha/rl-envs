@@ -1,6 +1,6 @@
-/** NDJSON streaming export protocol v2 — keep in sync with figma-task-builder/src/stream-protocol.ts */
+/** NDJSON streaming export protocol v3 — keep in sync with figma-task-builder/src/stream-protocol.ts */
 
-export const STREAM_PROTOCOL_VERSION = 2 as const;
+export const STREAM_PROTOCOL_VERSION = 3 as const;
 
 /** Max bytes per NDJSON line in a stream part (enforced by Task Builder). */
 export const EXPORT_STREAM_PART_MAX_BYTES = 20 * 1024 * 1024;
@@ -11,7 +11,10 @@ export const EXPORT_TREE_BATCH_SIZE = 128;
 /** Parallel `getBytesAsync` calls for raster image fills. */
 export const RASTER_IMAGE_CONCURRENCY = 8;
 
-export type ExportProgressPhase = 'count' | 'serialize' | 'icons' | 'images' | 'upload';
+/** Yield to the event loop every N nodes during tree serialization. */
+export const TREE_SERIALIZE_YIELD_EVERY = 200;
+
+export type ExportProgressPhase = 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
 
 export interface ExportTotals {
   nodes: number;
@@ -46,6 +49,12 @@ export type StreamPart =
       totals: ExportTotals;
     }
   | {
+      kind: 'session_totals';
+      nodes: number;
+      iconExports: number;
+      rasterImages: number;
+    }
+  | {
       kind: 'meta';
       exportedAt: string;
       variableCollections: Record<string, unknown>[];
@@ -56,6 +65,11 @@ export type StreamPart =
     }
   | { kind: 'tree_enter'; node: SerializedNodeWire }
   | { kind: 'tree_exit' }
+  | {
+      kind: 'node_props';
+      nodeId: string;
+      properties: Record<string, unknown>;
+    }
   | {
       kind: 'asset';
       contentHash: string;

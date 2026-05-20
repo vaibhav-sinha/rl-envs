@@ -110,6 +110,47 @@ describe('SnapshotAssembler', () => {
     expect(hfcSnapshot.assets).toEqual([]);
   });
 
+  it('merges node_props into assembled document', () => {
+    const exportId = 'test-export-id-0000-0000-000000000003';
+    const raw = readFileSync(join(fixturesDir, 'minimal-frame.snapshot.json'), 'utf8');
+    const snapshot = JSON.parse(raw) as SnapshotFixture;
+    const parts = snapshotToStreamParts(exportId, snapshot);
+    const frameId = snapshot.document.children?.[0]?.id;
+    expect(frameId).toBeDefined();
+    parts.push({
+      kind: 'node_props',
+      nodeId: frameId!,
+      properties: { hfcIconSvgAsset: frameId! },
+    });
+
+    const assembler = new SnapshotAssembler();
+    for (const part of parts) {
+      switch (part.kind) {
+        case 'session_start':
+          assembler.applySessionStart(part);
+          break;
+        case 'meta':
+          assembler.applyMeta(part);
+          break;
+        case 'tree_enter':
+          assembler.applyTreeEnter(part);
+          break;
+        case 'tree_exit':
+          assembler.applyTreeExit();
+          break;
+        case 'node_props':
+          assembler.applyNodeProps(part);
+          break;
+        case 'session_end':
+          break;
+      }
+    }
+
+    const assembled = assembler.finish();
+    const frame = assembled.document.children?.[0];
+    expect(frame?.properties.hfcIconSvgAsset).toBe(frameId);
+  });
+
   it('parses NDJSON lines from streamPartToLine', () => {
     const exportId = 'test-export-id-0000-0000-000000000002';
     const part: StreamPart = {

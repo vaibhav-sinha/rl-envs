@@ -106,7 +106,7 @@ describe('ExportStreamSessionStore.finish', () => {
         snapshotVersion: snapshot.snapshotVersion,
         figmaFileKey: snapshot.figmaFileKey,
         figmaFileName: snapshot.figmaFileName,
-        totals: { nodes: 4, iconExports: 0, rasterImages: 0 },
+        totals: { nodes: 0, iconExports: 0, rasterImages: 0 },
       }),
       streamPartToLine({
         kind: 'meta',
@@ -119,6 +119,14 @@ describe('ExportStreamSessionStore.finish', () => {
       }),
     ];
     walk(snapshot.document, (line) => lines.push(line));
+    lines.push(
+      streamPartToLine({
+        kind: 'session_totals',
+        nodes: 4,
+        iconExports: 0,
+        rasterImages: 0,
+      })
+    );
     lines.push(streamPartToLine({ kind: 'session_end', exportId }));
 
     for (const line of lines) {
