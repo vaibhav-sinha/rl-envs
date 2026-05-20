@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  EXPORT_TREE_BATCH_MAX_CHARS,
   EXPORT_TREE_BATCH_SIZE,
   STREAM_PROTOCOL_VERSION,
   estimateUploadPartTotal,
   isTreeStreamLine,
+  shouldFlushTreeBatch,
   streamPartToLine,
+  treeBatchCharCount,
 } from '../plugin/src/streamProtocol.js';
 
 describe('streamProtocol batch helpers', () => {
@@ -31,6 +34,20 @@ describe('streamProtocol batch helpers', () => {
         }).trim()
       ).kind
     ).toBe('node_props');
+  });
+
+  it('flushes tree batch by line count or char budget', () => {
+    const line = streamPartToLine({
+      kind: 'tree_enter',
+      node: { id: '1', type: 'FRAME', name: 'F', properties: {} },
+    });
+    const few = Array.from({ length: EXPORT_TREE_BATCH_SIZE - 1 }, () => line);
+    expect(shouldFlushTreeBatch(few)).toBe(false);
+    expect(shouldFlushTreeBatch([...few, line])).toBe(true);
+
+    const big = 'x'.repeat(EXPORT_TREE_BATCH_MAX_CHARS);
+    expect(treeBatchCharCount([big])).toBeGreaterThanOrEqual(EXPORT_TREE_BATCH_MAX_CHARS);
+    expect(shouldFlushTreeBatch([big])).toBe(true);
   });
 
   it('estimates fewer upload parts when tree lines are batched', () => {

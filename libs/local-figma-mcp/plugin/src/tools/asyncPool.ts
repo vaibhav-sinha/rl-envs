@@ -49,6 +49,10 @@ export async function* poolMapStream<T, R>(
         const result = await fn(items[i]!, i);
         queue.push(result);
         notify();
+      } catch (error) {
+        done = true;
+        notify();
+        throw error;
       } finally {
         pending -= 1;
         if (pending === 0 && nextIndex >= items.length) {
@@ -59,13 +63,17 @@ export async function* poolMapStream<T, R>(
     }
   }
 
-  const workers = Array.from({ length: limit }, () => worker());
-  void Promise.all(workers).then(() => {
-    done = true;
-    notify();
-  });
+  let poolError: unknown = null;
+  const workers = Array.from({ length: limit }, () =>
+    worker().catch((error) => {
+      poolError = error;
+      done = true;
+      notify();
+    })
+  );
+  void Promise.all(workers);
 
-  while (!done || queue.length > 0) {
+  while (!poolError && (!done || queue.length > 0)) {
     while (queue.length > 0) {
       yield queue.shift()!;
     }
@@ -74,4 +82,6 @@ export async function* poolMapStream<T, R>(
       resolveNext = resolve;
     });
   }
+
+  if (poolError) throw poolError;
 }

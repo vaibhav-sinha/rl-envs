@@ -5,11 +5,12 @@ import { runGetVariableDefs } from './tools/getVariableDefs.js';
 import { runSearchDesignSystem } from './tools/searchDesignSystem.js';
 import { runUseFigma } from './tools/useFigma.js';
 import { streamFigmaExportLines } from './tools/streamExport.js';
+import { formatExportError } from './exportError.js';
 import {
-  EXPORT_TREE_BATCH_SIZE,
   estimateUploadPartTotal,
   exportPercent,
   isTreeStreamLine,
+  shouldFlushTreeBatch,
 } from './streamProtocol.js';
 import { getSelectedNodeIds, getSingleSelectedNode } from './selection.js';
 
@@ -26,6 +27,7 @@ type UiToMain =
       excludeNodeIds?: string[];
     }
   | { type: 'export_stream_ack'; seq: number }
+  | { type: 'export_stream_upload_failed'; exportId: string; seq: number; error: string }
   | { type: 'get_selection_node_id' }
   | { type: 'get_selection_node_ids' }
   | { type: 'capture_selection_screenshot' };
@@ -62,17 +64,48 @@ type MainToUi =
       error?: string;
     };
 
+const STREAM_ACK_TIMEOUT_MS = 120_000;
+
 let ackWaiter: ((seq: number) => void) | null = null;
+let uploadAbortError: string | null = null;
 
 function waitForStreamAck(seq: number): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ackWaiter = null;
+      reject(
+        new Error(
+          `Upload ack timed out waiting for seq ${seq} (UI may have failed posting to Task Builder)`
+        )
+      );
+    }, STREAM_ACK_TIMEOUT_MS);
+
     ackWaiter = (acked) => {
+      if (uploadAbortError) {
+        clearTimeout(timer);
+        ackWaiter = null;
+        const msg = uploadAbortError;
+        uploadAbortError = null;
+        reject(new Error(msg));
+        return;
+      }
       if (acked >= seq) {
+        clearTimeout(timer);
         ackWaiter = null;
         resolve();
       }
     };
   });
+}
+
+function postUiMessage(msg: MainToUi): void {
+  try {
+    figma.ui.postMessage(msg);
+  } catch (e) {
+    throw new Error(
+      `Failed to send message to plugin UI (${msg.type}): ${formatExportError(e)}`
+    );
+  }
 }
 
 function postProgress(
@@ -172,7 +205,7 @@ async function runExportFile(
     const postUploadAck = async (seq: number): Promise<void> => {
       uploadSeq = seq;
       if (uploadSeq > uploadTotal) uploadTotal = uploadSeq;
-      reportUploadProgress(`upload batches (tree ×${EXPORT_TREE_BATCH_SIZE})`);
+      reportUploadProgress('upload batches (tree)');
       await waitForStreamAck(seq);
     };
 
@@ -181,7 +214,7 @@ async function runExportFile(
       const lines = treeBatch;
       treeBatch = [];
       const seq = uploadSeq + 1;
-      figma.ui.postMessage({
+      postUiMessage({
         type: 'export_stream_batch',
         exportId,
         seq,
@@ -193,14 +226,14 @@ async function runExportFile(
     const sendLine = async (line: string): Promise<void> => {
       if (isTreeStreamLine(line)) {
         treeBatch.push(line);
-        if (treeBatch.length >= EXPORT_TREE_BATCH_SIZE) {
+        if (shouldFlushTreeBatch(treeBatch)) {
           await flushTreeBatch();
         }
         return;
       }
       await flushTreeBatch();
       const seq = uploadSeq + 1;
-      figma.ui.postMessage({
+      postUiMessage({
         type: 'export_stream_part',
         exportId,
         seq,
@@ -229,15 +262,15 @@ async function runExportFile(
     await flushTreeBatch();
     postProgress('upload', uploadTotal, uploadTotal, 'upload complete');
 
-    figma.ui.postMessage({
+    postUiMessage({
       type: 'export_stream_done',
       ok: true,
       exportId,
     } satisfies MainToUi);
     figma.notify('Export streamed — finalizing…');
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    figma.ui.postMessage({
+    const message = formatExportError(e);
+    postUiMessage({
       type: 'export_stream_done',
       ok: false,
       error: message,
@@ -264,6 +297,12 @@ figma.ui.onmessage = async (msg: UiToMain) => {
 
   if (msg.type === 'export_stream_ack') {
     ackWaiter?.(msg.seq);
+    return;
+  }
+
+  if (msg.type === 'export_stream_upload_failed') {
+    uploadAbortError = formatExportError(msg.error, 'Task Builder upload failed');
+    ackWaiter?.(Number.MAX_SAFE_INTEGER);
     return;
   }
 

@@ -1,4 +1,38 @@
 import { TB_URL } from './constants';
+
+function formatExportError(error: unknown, fallback = 'Export failed'): string {
+  if (error instanceof Error) {
+    const msg = error.message.trim();
+    if (msg) return msg;
+    if (error.name && error.name !== 'Error' && error.name !== 'undefined') {
+      return `${error.name} (no message)`;
+    }
+  }
+  if (typeof error === 'string') {
+    const msg = error.trim();
+    if (msg) return msg;
+  }
+  if (error !== undefined && error !== null && !(error instanceof Error)) {
+    const msg = String(error).trim();
+    if (msg && msg !== '[object Object]') return msg;
+  }
+  return fallback;
+}
+
+async function readTbErrorMessage(res: Response): Promise<string> {
+  const text = await res.text().catch(() => '');
+  if (!text.trim()) {
+    return res.statusText.trim() || `HTTP ${res.status}`;
+  }
+  try {
+    const parsed = JSON.parse(text) as { error?: { message?: string } };
+    const msg = parsed.error?.message?.trim();
+    if (msg) return msg;
+  } catch {
+    /* not JSON */
+  }
+  return text.trim().slice(0, 500) || `HTTP ${res.status}`;
+}
 import { fetchWithExportRetry } from './export-fetch-retry';
 import {
   isImagePartUploadFallbackError,
@@ -25,7 +59,8 @@ export type PluginMessage =
   | { type: 'get_selection_node_id' }
   | { type: 'get_selection_node_ids' }
   | { type: 'capture_selection_screenshot' }
-  | { type: 'tool_request'; id: string; tool: string; args: Record<string, unknown> };
+  | { type: 'tool_request'; id: string; tool: string; args: Record<string, unknown> }
+  | { type: 'export_stream_upload_failed'; exportId: string; seq: number; error: string };
 
 export type PluginReply =
   | { type: 'hello_data'; fileKey: string; fileName: string; pluginVersion: string }
@@ -61,10 +96,12 @@ async function tbPostPartBodyOnce(exportId: string, body: string): Promise<{ seq
     headers: { 'Content-Type': 'application/x-ndjson' },
     body,
   });
-  const parsed = (await res.json().catch(() => ({}))) as { seq?: number; error?: { message?: string } };
   if (!res.ok) {
-    throw new Error(parsed.error?.message ?? res.statusText);
+    const message = await readTbErrorMessage(res);
+    console.error('[export] Task Builder part upload failed:', res.status, message);
+    throw new Error(message);
   }
+  const parsed = (await res.json().catch(() => ({}))) as { seq?: number };
   return { seq: parsed.seq ?? 0 };
 }
 
@@ -127,7 +164,7 @@ export async function finishExportStreamSession(
     error?: { message?: string };
   };
   if (!res.ok) {
-    throw new Error(body.error?.message ?? res.statusText);
+    throw new Error(body.error?.message?.trim() || res.statusText.trim() || `HTTP ${res.status}`);
   }
   return body;
 }
@@ -165,26 +202,41 @@ export async function exportSnapshotStreaming(
         return;
       }
 
+      const failUpload = (seq: number, error: unknown): void => {
+        const message = formatExportError(error);
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: 'export_stream_upload_failed',
+              exportId,
+              seq,
+              error: message,
+            },
+          },
+          '*'
+        );
+        clearTimeout(timer);
+        window.removeEventListener('message', handler);
+        reject(new Error(message));
+      };
+
       if (msg.type === 'export_stream_part' && msg.exportId === exportId) {
         try {
           await tbPostPartBody(exportId, msg.line);
           postStreamAck(msg.seq);
         } catch (e) {
-          clearTimeout(timer);
-          window.removeEventListener('message', handler);
-          reject(e instanceof Error ? e : new Error(String(e)));
+          failUpload(msg.seq, e);
         }
         return;
       }
 
       if (msg.type === 'export_stream_batch' && msg.exportId === exportId) {
         try {
-          await tbPostPartBody(exportId, msg.lines.join(''));
+          const body = msg.lines.join('');
+          await tbPostPartBody(exportId, body);
           postStreamAck(msg.seq);
         } catch (e) {
-          clearTimeout(timer);
-          window.removeEventListener('message', handler);
-          reject(e instanceof Error ? e : new Error(String(e)));
+          failUpload(msg.seq, e);
         }
         return;
       }
@@ -193,7 +245,7 @@ export async function exportSnapshotStreaming(
         clearTimeout(timer);
         window.removeEventListener('message', handler);
         if (!msg.ok) {
-          reject(new Error(msg.error ?? 'Export failed'));
+          reject(new Error(formatExportError(msg.error, 'Export failed in plugin')));
           return;
         }
         resolve({ exportId });

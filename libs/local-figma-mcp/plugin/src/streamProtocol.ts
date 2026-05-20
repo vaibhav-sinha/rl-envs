@@ -6,7 +6,13 @@ export const STREAM_PROTOCOL_VERSION = 3 as const;
 export const EXPORT_STREAM_PART_MAX_BYTES = 20 * 1024 * 1024;
 
 /** Tree enter/exit lines batched per upload request (main → UI → Task Builder). */
-export const EXPORT_TREE_BATCH_SIZE = 128;
+export const EXPORT_TREE_BATCH_SIZE = 32;
+
+/**
+ * Max UTF-16 code units per tree batch postMessage body (main → UI).
+ * Figma iframe postMessage and Task Builder readTextBody must stay under limits.
+ */
+export const EXPORT_TREE_BATCH_MAX_CHARS = 3 * 1024 * 1024;
 
 /** Parallel `getBytesAsync` calls for raster image fills. */
 export const RASTER_IMAGE_CONCURRENCY = 8;
@@ -95,8 +101,26 @@ export function isTreeStreamLine(line: string): boolean {
 }
 
 /** Estimated upload requests after tree batching (for progress UI). */
+export function treeBatchCharCount(lines: readonly string[]): number {
+  let n = 0;
+  for (const line of lines) n += line.length;
+  return n;
+}
+
+export function shouldFlushTreeBatch(lines: readonly string[]): boolean {
+  if (lines.length === 0) return false;
+  if (lines.length >= EXPORT_TREE_BATCH_SIZE) return true;
+  return treeBatchCharCount(lines) >= EXPORT_TREE_BATCH_MAX_CHARS;
+}
+
 export function estimateUploadPartTotal(totals: ExportTotals): number {
   const treeLines = Math.max(0, totals.nodes * 2);
-  const treeBatches = Math.max(1, Math.ceil(treeLines / EXPORT_TREE_BATCH_SIZE));
+  const treeBatches = Math.max(
+    1,
+    Math.ceil(treeLines / EXPORT_TREE_BATCH_SIZE),
+    Math.ceil(
+      (treeLines * 800) / EXPORT_TREE_BATCH_MAX_CHARS
+    )
+  );
   return treeBatches + totals.iconExports + totals.rasterImages + 5;
 }
