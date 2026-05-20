@@ -44,6 +44,8 @@ export type StreamPart =
       nodes: number;
       iconExports: number;
       rasterImages: number;
+      iconUniqueAssets?: number;
+      iconExportCalls?: number;
     }
   | {
       kind: 'meta';

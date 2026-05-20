@@ -84,14 +84,24 @@ export class ExportMetricsCollector {
     this.nodesSerialized += 1;
   }
 
-  onTreeBatchPosted(): void {
+  onStreamBatchPosted(): void {
     this.treeBatchesPosted += 1;
     this.uploadInflight += 1;
   }
 
-  onTreeBatchAcked(): void {
+  onStreamBatchAcked(): void {
     this.treeBatchesAcked += 1;
     this.uploadInflight = Math.max(0, this.uploadInflight - 1);
+  }
+
+  /** @deprecated use onStreamBatchPosted */
+  onTreeBatchPosted(): void {
+    this.onStreamBatchPosted();
+  }
+
+  /** @deprecated use onStreamBatchAcked */
+  onTreeBatchAcked(): void {
+    this.onStreamBatchAcked();
   }
 
   onUploadPosted(): void {

@@ -2,7 +2,10 @@ import type { ExportMetricsCollector } from './exportMetrics.js';
 import {
   EXPORT_ASSET_MAX_INFLIGHT,
   EXPORT_UPLOAD_MAX_INFLIGHT,
+  isAssetStreamLine,
+  isIconPropsLine,
   isTreeStreamLine,
+  shouldFlushIconPropsBatch,
   shouldFlushTreeBatch,
 } from './streamProtocol.js';
 
@@ -40,9 +43,10 @@ export class ExportUploadGate {
   private nextSeq = 0;
   private inflight = 0;
   private treeBatch: string[] = [];
+  private iconPropsBatch: string[] = [];
   private inflightWaiters: Array<() => void> = [];
   private drainWaiters: Array<() => void> = [];
-  private pendingAckIsTreeBatch = false;
+  private pendingAckIsBatch = false;
 
   constructor(options: ExportUploadGateOptions) {
     this.exportId = options.exportId;
@@ -61,9 +65,9 @@ export class ExportUploadGate {
 
   handleAck(_seq: number): void {
     this.inflight = Math.max(0, this.inflight - 1);
-    if (this.pendingAckIsTreeBatch) this.metrics.onTreeBatchAcked();
+    if (this.pendingAckIsBatch) this.metrics.onStreamBatchAcked();
     else this.metrics.onUploadAcked();
-    this.pendingAckIsTreeBatch = false;
+    this.pendingAckIsBatch = false;
     this.wakeInflightWaiters();
     if (this.inflight === 0) {
       for (const w of this.drainWaiters) w();
@@ -116,11 +120,31 @@ export class ExportUploadGate {
     if (this.treeBatch.length === 0) return;
     const lines = this.treeBatch;
     this.treeBatch = [];
+    await this.postStreamBatch(lines);
+  }
+
+  pushIconPropsLine(line: string): void {
+    this.iconPropsBatch.push(line);
+  }
+
+  async flushIconPropsBatchIfNeeded(): Promise<void> {
+    if (!shouldFlushIconPropsBatch(this.iconPropsBatch)) return;
+    await this.flushIconPropsBatch();
+  }
+
+  async flushIconPropsBatch(): Promise<void> {
+    if (this.iconPropsBatch.length === 0) return;
+    const lines = this.iconPropsBatch;
+    this.iconPropsBatch = [];
+    await this.postStreamBatch(lines);
+  }
+
+  private async postStreamBatch(lines: string[]): Promise<void> {
     await this.waitForInflightBelow(EXPORT_UPLOAD_MAX_INFLIGHT);
     const seq = ++this.nextSeq;
     this.inflight += 1;
-    this.metrics.onTreeBatchPosted();
-    this.pendingAckIsTreeBatch = true;
+    this.metrics.onStreamBatchPosted();
+    this.pendingAckIsBatch = true;
     this.postMessage({
       type: 'export_stream_batch',
       exportId: this.exportId,
@@ -129,21 +153,31 @@ export class ExportUploadGate {
     });
   }
 
+  async postIconPropsLine(line: string): Promise<void> {
+    this.pushIconPropsLine(line);
+    await this.flushIconPropsBatchIfNeeded();
+  }
+
   async postLine(line: string): Promise<void> {
     if (isTreeStreamLine(line)) {
       this.pushTreeLine(line);
       await this.flushTreeBatchIfNeeded();
       return;
     }
+    if (isIconPropsLine(line)) {
+      await this.postIconPropsLine(line);
+      return;
+    }
     await this.flushTreeBatch();
-    const maxInflight = line.includes('"asset"')
+    await this.flushIconPropsBatch();
+    const maxInflight = isAssetStreamLine(line)
       ? EXPORT_ASSET_MAX_INFLIGHT
       : EXPORT_UPLOAD_MAX_INFLIGHT;
     await this.waitForInflightBelow(maxInflight);
     const seq = ++this.nextSeq;
     this.inflight += 1;
     this.metrics.onUploadPosted();
-    this.pendingAckIsTreeBatch = false;
+    this.pendingAckIsBatch = false;
     this.postMessage({
       type: 'export_stream_part',
       exportId: this.exportId,
@@ -154,6 +188,7 @@ export class ExportUploadGate {
 
   async drain(): Promise<void> {
     await this.flushTreeBatch();
+    await this.flushIconPropsBatch();
     if (this.inflight === 0) return;
     await new Promise<void>((resolve) => {
       this.drainWaiters.push(resolve);

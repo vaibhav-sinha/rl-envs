@@ -5,7 +5,7 @@ const EXPORTABLE_CONTAINER_TYPES = new Set(['FRAME', 'COMPONENT', 'GROUP', 'INST
 
 const VECTOR_TYPES = new Set(['VECTOR', 'LINE', 'ELLIPSE', 'POLYGON', 'STAR']);
 
-const MAX_ICON_PX = 128;
+const MAX_ICON_PX = 64;
 const MIN_ICON_PX = 8;
 const MAX_ASPECT = 3;
 

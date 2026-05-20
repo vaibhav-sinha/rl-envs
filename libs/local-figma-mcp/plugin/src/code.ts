@@ -12,6 +12,8 @@ import { ExportUploadGate } from './exportUploadGate.js';
 import {
   estimateUploadPartTotal,
   exportPercent,
+  type ExportTotals,
+  type IconUploadStats,
 } from './streamProtocol.js';
 import { getSelectedNodeIds, getSingleSelectedNode } from './selection.js';
 
@@ -173,6 +175,7 @@ async function runExportFile(
   const metrics = new ExportMetricsCollector();
   let uploadTotal = 1;
   let uploadSeq = 0;
+  let sessionTotalsRef: ExportTotals = { nodes: 0, iconExports: 0, rasterImages: 0 };
   const reportUploadProgress = (detail: string, metricsSnapshot?: ExportRunMetrics) => {
     const shouldReport =
       uploadSeq === 1 || uploadSeq >= uploadTotal || uploadSeq % 50 === 0;
@@ -212,7 +215,13 @@ async function runExportFile(
         postProgress(phase, current, total, detail, metricsSnapshot);
       },
       onSessionTotals: (totals) => {
+        sessionTotalsRef = totals;
         uploadTotal = estimateUploadPartTotal(totals);
+      },
+      onIconPhaseComplete: (stats: IconUploadStats) => {
+        uploadTotal = estimateUploadPartTotal(sessionTotalsRef, stats);
+        const detail = `${stats.uniqueIconAssets} unique assets · ${stats.iconExportCalls} exports · ${stats.iconMcSkips} MC skips`;
+        postProgress('upload', uploadSeq, uploadTotal, detail, metrics.snapshot('upload'));
       },
     });
 

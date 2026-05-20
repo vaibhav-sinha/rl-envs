@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  EXPORT_ICON_PROPS_BATCH_SIZE,
   EXPORT_TREE_BATCH_MAX_CHARS,
   EXPORT_TREE_BATCH_SIZE,
   STREAM_PROTOCOL_VERSION,
   estimateUploadPartTotal,
+  iconPropsBatchCount,
+  isIconPropsLine,
   isTreeStreamLine,
+  shouldFlushIconPropsBatch,
   shouldFlushTreeBatch,
   streamPartToLine,
   treeBatchCharCount,
@@ -56,5 +60,37 @@ describe('streamProtocol batch helpers', () => {
     const batched = estimateUploadPartTotal(totals);
     expect(batched).toBe(Math.ceil((totals.nodes * 2) / EXPORT_TREE_BATCH_SIZE) + 5);
     expect(batched).toBeLessThan(unbatched);
+  });
+
+  it('detects icon props lines and flushes by batch size', () => {
+    const line = streamPartToLine({
+      kind: 'node_props',
+      nodeId: '1:1',
+      properties: { hfcIconSvgAsset: '1:0' },
+    });
+    expect(isIconPropsLine(line)).toBe(true);
+
+    const few = Array.from({ length: EXPORT_ICON_PROPS_BATCH_SIZE - 1 }, () => line);
+    expect(shouldFlushIconPropsBatch(few)).toBe(false);
+    expect(shouldFlushIconPropsBatch([...few, line])).toBe(true);
+  });
+
+  it('estimates icon upload parts from batched props and unique assets', () => {
+    const totals = { nodes: 100, iconExports: 500, rasterImages: 10 };
+    const iconStats = {
+      iconRoots: 500,
+      uniqueIconAssets: 40,
+      iconPropsBatches: iconPropsBatchCount(500),
+      iconExportCalls: 45,
+      iconMcSkips: 455,
+    };
+    const refined = estimateUploadPartTotal(totals, iconStats);
+    const treeBatches = Math.max(
+      1,
+      Math.ceil((totals.nodes * 2) / EXPORT_TREE_BATCH_SIZE),
+      Math.ceil((totals.nodes * 2 * 800) / EXPORT_TREE_BATCH_MAX_CHARS)
+    );
+    expect(refined).toBe(treeBatches + iconStats.iconPropsBatches + iconStats.uniqueIconAssets + 10 + 5);
+    expect(refined).toBeLessThan(estimateUploadPartTotal(totals));
   });
 });

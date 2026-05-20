@@ -8,6 +8,9 @@ export const EXPORT_STREAM_PART_MAX_BYTES = 20 * 1024 * 1024;
 /** Tree enter/exit lines batched per upload request (main → UI → Task Builder). */
 export const EXPORT_TREE_BATCH_SIZE = 256;
 
+/** Icon `node_props` lines batched per upload request (main → UI → Task Builder). */
+export const EXPORT_ICON_PROPS_BATCH_SIZE = 128;
+
 /**
  * Max UTF-16 code units per tree batch postMessage body (main → UI).
  * Figma iframe postMessage and Task Builder readTextBody must stay under limits.
@@ -35,6 +38,15 @@ export interface ExportTotals {
   nodes: number;
   iconExports: number;
   rasterImages: number;
+}
+
+/** Upload progress inputs after the icon phase completes. */
+export interface IconUploadStats {
+  iconRoots: number;
+  uniqueIconAssets: number;
+  iconPropsBatches: number;
+  iconExportCalls: number;
+  iconMcSkips: number;
 }
 
 export interface ExportProgress {
@@ -68,6 +80,8 @@ export type StreamPart =
       nodes: number;
       iconExports: number;
       rasterImages: number;
+      iconUniqueAssets?: number;
+      iconExportCalls?: number;
     }
   | {
       kind: 'meta';
@@ -109,6 +123,14 @@ export function isTreeStreamLine(line: string): boolean {
   return line.includes('"tree_enter"') || line.includes('"tree_exit"');
 }
 
+export function isIconPropsLine(line: string): boolean {
+  return line.includes('"node_props"');
+}
+
+export function isAssetStreamLine(line: string): boolean {
+  return line.includes('"asset"');
+}
+
 /** Estimated upload requests after tree batching (for progress UI). */
 export function treeBatchCharCount(lines: readonly string[]): number {
   let n = 0;
@@ -122,14 +144,29 @@ export function shouldFlushTreeBatch(lines: readonly string[]): boolean {
   return treeBatchCharCount(lines) >= EXPORT_TREE_BATCH_MAX_CHARS;
 }
 
-export function estimateUploadPartTotal(totals: ExportTotals): number {
+export function shouldFlushIconPropsBatch(lines: readonly string[]): boolean {
+  if (lines.length === 0) return false;
+  if (lines.length >= EXPORT_ICON_PROPS_BATCH_SIZE) return true;
+  return treeBatchCharCount(lines) >= EXPORT_TREE_BATCH_MAX_CHARS;
+}
+
+export function iconPropsBatchCount(iconRoots: number): number {
+  if (iconRoots <= 0) return 0;
+  return Math.ceil(iconRoots / EXPORT_ICON_PROPS_BATCH_SIZE);
+}
+
+export function estimateUploadPartTotal(
+  totals: ExportTotals,
+  iconStats?: IconUploadStats
+): number {
   const treeLines = Math.max(0, totals.nodes * 2);
   const treeBatches = Math.max(
     1,
     Math.ceil(treeLines / EXPORT_TREE_BATCH_SIZE),
-    Math.ceil(
-      (treeLines * 800) / EXPORT_TREE_BATCH_MAX_CHARS
-    )
+    Math.ceil((treeLines * 800) / EXPORT_TREE_BATCH_MAX_CHARS)
   );
-  return treeBatches + totals.iconExports + totals.rasterImages + 5;
+  const iconParts = iconStats
+    ? iconStats.iconPropsBatches + iconStats.uniqueIconAssets
+    : iconPropsBatchCount(totals.iconExports) + totals.iconExports;
+  return treeBatches + iconParts + totals.rasterImages + 5;
 }
