@@ -12,6 +12,7 @@ export interface TaskBuilderConfig {
   harborTasksDir: string;
   hfcUrl: string;
   exportDir: string;
+  exportSessionsDir: string;
   sharedVerifierDir: string;
   evalSpecSchemaPath: string;
 }
@@ -24,12 +25,14 @@ export function loadConfig(): TaskBuilderConfig {
     process.env.TB_HARBOR_TASKS_DIR?.trim() ||
     join(repoRoot, 'envs', 'figma-design', 'tasks');
 
+  const resolvedTasksDir = resolve(tasksDir);
   return {
     httpHost: process.env.TB_HTTP_HOST?.trim() || '127.0.0.1',
     httpPort: Number(process.env.TB_HTTP_PORT ?? '3856'),
-    tasksDir: resolve(tasksDir),
+    tasksDir: resolvedTasksDir,
     harborTasksDir: resolve(harborTasksDir),
     hfcUrl: (process.env.TB_HFC_URL?.trim() || 'http://127.0.0.1:3847').replace(/\/$/, ''),
+    exportSessionsDir: join(resolvedTasksDir, '.export-sessions'),
     exportDir:
       process.env.TB_EXPORT_DIR?.trim() ||
       join(homedir(), '.headless-figma-clone', 'workspace'),

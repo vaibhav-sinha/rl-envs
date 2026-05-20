@@ -143,15 +143,42 @@ export async function createExportStreamSession(): Promise<{ exportId: string }>
   return { exportId: body.exportId };
 }
 
+export type FinishExportSource = 'auto' | 'memory' | 'disk';
+
+export interface FinishExportStreamOptions {
+  taskId?: string;
+  mode?: 'full' | 'exclude';
+  excludeNodeIds?: string[];
+  standaloneFileName?: string;
+  source?: FinishExportSource;
+}
+
+export interface PendingExportSession {
+  exportId: string;
+  hfcFileName: string;
+  figmaFileName: string;
+  sessionEnd: boolean;
+  finished: boolean;
+  partsReceived: number;
+  lastError: string | null;
+}
+
+export async function listReadyExportSessions(): Promise<PendingExportSession[]> {
+  const res = await fetchWithExportRetry(`${TB_URL}/export/sessions?status=ready`, { method: 'GET' });
+  const body = (await res.json().catch(() => ({}))) as {
+    sessions?: PendingExportSession[];
+    error?: { message?: string };
+  };
+  if (!res.ok) {
+    throw new Error(body.error?.message ?? 'Failed to list export sessions');
+  }
+  return body.sessions ?? [];
+}
+
 export async function finishExportStreamSession(
   exportId: string,
-  options: {
-    taskId?: string;
-    mode?: 'full' | 'exclude';
-    excludeNodeIds?: string[];
-    standaloneFileName?: string;
-  }
-): Promise<{ saved?: boolean; filePath?: string; slug?: string }> {
+  options: FinishExportStreamOptions = {}
+): Promise<{ saved?: boolean; filePath?: string; slug?: string; replayedFromDisk?: boolean }> {
   const res = await fetchWithExportRetry(`${TB_URL}/export/stream/${exportId}/finish`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -161,6 +188,29 @@ export async function finishExportStreamSession(
     saved?: boolean;
     filePath?: string;
     slug?: string;
+    error?: { message?: string };
+  };
+  if (!res.ok) {
+    throw new Error(body.error?.message?.trim() || res.statusText.trim() || `HTTP ${res.status}`);
+  }
+  return body;
+}
+
+/** Finalize from on-disk session data (survives Task Builder restart). */
+export async function replayFinishExportStreamSession(
+  exportId: string,
+  options: FinishExportStreamOptions = {}
+): Promise<{ saved?: boolean; filePath?: string; slug?: string; replayedFromDisk?: boolean }> {
+  const res = await fetchWithExportRetry(`${TB_URL}/export/stream/${exportId}/replay-finish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    saved?: boolean;
+    filePath?: string;
+    slug?: string;
+    replayedFromDisk?: boolean;
     error?: { message?: string };
   };
   if (!res.ok) {

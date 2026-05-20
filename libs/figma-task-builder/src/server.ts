@@ -144,6 +144,13 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
         return;
       }
 
+      if (req.method === 'GET' && url === '/export/sessions') {
+        const statusParam = new URL(req.url ?? '', 'http://localhost').searchParams.get('status');
+        const status = statusParam === 'all' ? 'all' : statusParam === 'ready' ? 'ready' : undefined;
+        sendJson(res, 200, { sessions: streamStore.listSessions(status) });
+        return;
+      }
+
       if (req.method === 'POST' && url === '/export/stream/session') {
         const session = streamStore.createSession();
         sendJson(res, 201, session);
@@ -160,18 +167,26 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
           return;
         }
 
-        if (req.method === 'POST' && url === `/export/stream/${streamExportId}/finish`) {
+        if (
+          req.method === 'POST' &&
+          (url === `/export/stream/${streamExportId}/finish` ||
+            url === `/export/stream/${streamExportId}/replay-finish`)
+        ) {
           const body = (await readJsonBody(req)) as {
             taskId?: string;
             mode?: 'full' | 'exclude';
             excludeNodeIds?: string[];
             standaloneFileName?: string;
+            source?: 'auto' | 'memory' | 'disk';
           };
+          const source =
+            url.endsWith('/replay-finish') ? 'disk' : (body.source ?? 'auto');
           const result = await streamStore.finish(streamExportId, {
             taskId: body.taskId,
             mode: body.mode,
             excludeNodeIds: body.excludeNodeIds,
             standaloneFileName: body.standaloneFileName,
+            source,
           });
           sendJson(res, 200, result);
           return;

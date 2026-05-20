@@ -11,6 +11,10 @@ export function normalizeHttpPath(pathname: string): string {
       /\/export\/stream\/[a-f0-9-]{36}\/finish$/i,
       '/export/stream/:exportId/finish'
     )
+    .replace(
+      /\/export\/stream\/[a-f0-9-]{36}\/replay-finish$/i,
+      '/export/stream/:exportId/replay-finish'
+    )
     .replace(/\/tasks\/[^/]+/g, (m) => {
       if (m === '/tasks') return m;
       const rest = m.slice('/tasks/'.length);

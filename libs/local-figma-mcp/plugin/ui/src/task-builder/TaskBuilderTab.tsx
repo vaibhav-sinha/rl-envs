@@ -18,6 +18,7 @@ import {
   createInitialExportProgress,
   exportSnapshotStreaming,
   finishExportStreamSession,
+  replayFinishExportStreamSession,
   pickExcludeNodeIds,
   pickNodeId,
 } from '../lib/plugin-bridge';
@@ -68,6 +69,9 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
 
   const [exportProgress, setExportProgress] = useState<MultiPhaseExportProgress | null>(null);
   const [exportOutcome, setExportOutcome] = useState<ExportOutcome | null>(null);
+  const [pendingExportId, setPendingExportId] = useState<string | null>(null);
+  const [pendingExportMode, setPendingExportMode] = useState<'full' | 'exclude'>('full');
+  const [pendingExcludeNodeIds, setPendingExcludeNodeIds] = useState<string[] | undefined>();
   const [showExcludeDialog, setShowExcludeDialog] = useState(false);
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [copyFromTaskId, setCopyFromTaskId] = useState<string | null>(null);
@@ -190,25 +194,35 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     setBusy(true);
     setExportProgress(createInitialExportProgress());
     setExportOutcome(null);
+    setPendingExportId(null);
+    let streamFinished = false;
     try {
       onLog('Streaming Figma export…');
       const { exportId } = await exportSnapshotStreaming(taskId, {
         excludeNodeIds,
         onProgress: reportExportProgress,
       });
+      streamFinished = true;
 
-      setExportProgress((prev) =>
-        prev
-          ? applyFinalizeProgress(prev, 0, 1, 'Saving to task draft…')
-          : prev
-      );
-      onLog('Finalizing on Task Builder…');
-      await finishExportStreamSession(exportId, {
-        taskId,
-        mode,
-        excludeNodeIds,
-      });
-      setExportProgress((prev) => (prev ? applyFinalizeProgress(prev, 1, 1) : prev));
+      try {
+        setExportProgress((prev) =>
+          prev
+            ? applyFinalizeProgress(prev, 0, 1, 'Saving to task draft…')
+            : prev
+        );
+        onLog('Finalizing on Task Builder…');
+        await finishExportStreamSession(exportId, {
+          taskId,
+          mode,
+          excludeNodeIds,
+        });
+        setExportProgress((prev) => (prev ? applyFinalizeProgress(prev, 1, 1) : prev));
+      } catch (finalizeError) {
+        setPendingExportId(exportId);
+        setPendingExportMode(mode);
+        setPendingExcludeNodeIds(excludeNodeIds);
+        throw finalizeError;
+      }
 
       const updated = await taskBuilderApi.getTask(taskId);
       setTask(updated);
@@ -223,7 +237,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
       const message = e instanceof Error ? e.message : String(e);
       setExportOutcome({
         kind: 'error',
-        title: 'Export failed',
+        title: streamFinished ? 'Finalize failed' : 'Export failed',
         message,
       });
       onLog(message, true);
@@ -515,6 +529,40 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
             {busy && exportProgress ? <ExportProgressPanel progress={exportProgress} /> : null}
             {exportOutcome ? (
               <ExportOutcomeBanner outcome={exportOutcome} onDismiss={() => setExportOutcome(null)} />
+            ) : null}
+            {pendingExportId && taskId ? (
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      onLog('Replaying finalize from disk…');
+                      await replayFinishExportStreamSession(pendingExportId, {
+                        taskId,
+                        mode: pendingExportMode,
+                        excludeNodeIds: pendingExcludeNodeIds,
+                      });
+                      setPendingExportId(null);
+                      const updated = await taskBuilderApi.getTask(taskId);
+                      setTask(updated);
+                      setExportOutcome({
+                        kind: 'success',
+                        title: 'Export complete',
+                        message: `Baseline design saved for task “${taskId}”.`,
+                      });
+                      setStep('gates');
+                    } catch (e) {
+                      onLog(e instanceof Error ? e.message : String(e), true);
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
+                Retry finalize
+              </Button>
             ) : null}
             <Button variant="primary" disabled={busy} onClick={() => void runExport('full')}>
               Export entire file

@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   applyExportProgressSnapshot,
   applyFinalizeProgress,
   createInitialExportProgress,
   exportSnapshotStreaming,
   finishExportStreamSession,
+  listReadyExportSessions,
+  replayFinishExportStreamSession,
+  type PendingExportSession,
 } from '../lib/plugin-bridge';
 import type { ExportOutcome, MultiPhaseExportProgress } from '../lib/export-progress-state';
 import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportProgress';
@@ -23,9 +26,50 @@ export function ExportTab({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<MultiPhaseExportProgress | null>(null);
   const [outcome, setOutcome] = useState<ExportOutcome | null>(null);
+  const [pendingExportId, setPendingExportId] = useState<string | null>(null);
+  const [readySessions, setReadySessions] = useState<PendingExportSession[]>([]);
 
   const reportProgress = (snapshot: Parameters<typeof applyExportProgressSnapshot>[1]) => {
     setProgress((prev) => applyExportProgressSnapshot(prev, snapshot));
+  };
+
+  const refreshReadySessions = async () => {
+    try {
+      const sessions = await listReadyExportSessions();
+      setReadySessions(sessions);
+    } catch {
+      setReadySessions([]);
+    }
+  };
+
+  useEffect(() => {
+    void refreshReadySessions();
+  }, []);
+
+  const runFinalize = async (
+    exportId: string,
+    name: string,
+    replay: boolean
+  ): Promise<void> => {
+    setProgress((prev) =>
+      prev ? applyFinalizeProgress(prev, 0, 1, 'Importing on Task Builder…') : createInitialExportProgress()
+    );
+    onLog(replay ? 'Replaying finalize from disk…' : 'Finalizing on Task Builder…');
+    const finish = replay ? replayFinishExportStreamSession : finishExportStreamSession;
+    const result = await finish(exportId, {
+      standaloneFileName: name,
+      ...(replay ? { source: 'disk' as const } : {}),
+    });
+    setProgress((prev) => (prev ? applyFinalizeProgress(prev, 1, 1) : prev));
+    const path = result.filePath ?? `${name}.hfc.json`;
+    setOutcome({
+      kind: 'success',
+      title: 'Export complete',
+      message: `Saved to ${path}`,
+    });
+    setPendingExportId(null);
+    onLog(`Saved: ${path}`);
+    void refreshReadySessions();
   };
 
   const runExport = async () => {
@@ -33,33 +77,43 @@ export function ExportTab({
     setBusy(true);
     setProgress(createInitialExportProgress());
     setOutcome(null);
+    setPendingExportId(null);
     onLog('Starting streaming export…');
     try {
       const { exportId } = await exportSnapshotStreaming(name, {
         onProgress: reportProgress,
       });
 
-      setProgress((prev) =>
-        prev ? applyFinalizeProgress(prev, 0, 1, 'Importing on Task Builder…') : prev
-      );
-      onLog('Finalizing on Task Builder…');
-      const result = await finishExportStreamSession(exportId, {
-        standaloneFileName: name,
-      });
-      setProgress((prev) => (prev ? applyFinalizeProgress(prev, 1, 1) : prev));
-
-      const path = result.filePath ?? `${name}.hfc.json`;
-      setOutcome({
-        kind: 'success',
-        title: 'Export complete',
-        message: `Saved to ${path}`,
-      });
-      onLog(`Saved: ${path}`);
+      try {
+        await runFinalize(exportId, name, false);
+      } catch (finalizeError) {
+        setPendingExportId(exportId);
+        throw finalizeError;
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setOutcome({
         kind: 'error',
-        title: 'Export failed',
+        title: pendingExportId ? 'Finalize failed' : 'Export failed',
+        message,
+      });
+      onLog(message, true);
+      void refreshReadySessions();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const retryFinalize = async (exportId: string, sessionName: string) => {
+    setBusy(true);
+    setOutcome(null);
+    try {
+      await runFinalize(exportId, sessionName, true);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setOutcome({
+        kind: 'error',
+        title: 'Finalize failed',
         message,
       });
       onLog(message, true);
@@ -80,6 +134,44 @@ export function ExportTab({
       </div>
       {busy && progress ? <ExportProgressPanel progress={progress} /> : null}
       {outcome ? <ExportOutcomeBanner outcome={outcome} onDismiss={() => setOutcome(null)} /> : null}
+      {pendingExportId ? (
+        <div className="flex flex-col gap-2 p-2 border border-border rounded">
+          <p className="text-[10px] text-muted m-0">
+            Stream upload finished; finalize failed. You can retry without re-exporting from Figma.
+          </p>
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => void retryFinalize(pendingExportId, fileName.trim() || defaultFileName)}
+          >
+            Retry finalize
+          </Button>
+        </div>
+      ) : null}
+      {readySessions.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-[10px] text-muted m-0 font-medium">Sessions ready to finalize</p>
+          {readySessions.map((s) => (
+            <div
+              key={s.exportId}
+              className="flex flex-col gap-1 p-2 border border-border rounded text-[10px]"
+            >
+              <span className="text-foreground">{s.figmaFileName || s.hfcFileName}</span>
+              <span className="text-muted font-mono truncate">{s.exportId}</span>
+              {s.lastError ? <span className="text-destructive">{s.lastError}</span> : null}
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() =>
+                  void retryFinalize(s.exportId, s.hfcFileName || s.figmaFileName || defaultFileName)
+                }
+              >
+                Finalize from disk
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <Button variant="primary" disabled={busy} onClick={() => void runExport()}>
         {busy ? 'Exporting…' : 'Export File'}
       </Button>

@@ -67,7 +67,8 @@ export type StreamPart =
       kind: 'asset';
       contentHash: string;
       mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'image/svg+xml';
-      bytesBase64: string;
+      /** Omitted in parts.jsonl spool after bytes are written under session assets/. */
+      bytesBase64?: string;
       figmaNodeId?: string;
       figmaImageHash?: string;
       exportScale?: number;

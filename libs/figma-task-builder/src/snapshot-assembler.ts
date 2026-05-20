@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ExportTotals, SerializedNodeWire, StreamPart } from './stream-protocol.js';
 
 export interface AssembledMeta {
@@ -12,7 +14,7 @@ export interface AssembledMeta {
 export interface AssembledAsset {
   contentHash: string;
   mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'image/svg+xml';
-  bytesBase64: string;
+  /** Not retained during assembly; bytes live under session assets/ on disk. */
   figmaNodeId?: string;
   figmaImageHash?: string;
   exportScale?: number;
@@ -101,7 +103,6 @@ export class SnapshotAssembler {
     this.assets.push({
       contentHash: part.contentHash,
       mimeType: part.mimeType,
-      bytesBase64: part.bytesBase64,
       figmaNodeId: part.figmaNodeId,
       figmaImageHash: part.figmaImageHash,
       exportScale: part.exportScale,
@@ -161,21 +162,21 @@ export function assembledToFigmaPluginSnapshot(assembled: AssembledSnapshot): {
       return {
         figmaImageHash: a.figmaImageHash,
         mimeType: a.mimeType,
-        base64: a.bytesBase64,
+        base64: '',
       };
     }
     if (a.mimeType === 'image/png') {
       return {
         figmaNodeId: a.figmaNodeId!,
         mimeType: 'image/png' as const,
-        base64: a.bytesBase64,
+        base64: '',
         exportScale: a.exportScale,
       };
     }
     return {
       figmaNodeId: a.figmaNodeId!,
       mimeType: 'image/svg+xml' as const,
-      base64: a.bytesBase64,
+      base64: '',
     };
   });
 
@@ -194,7 +195,40 @@ export function assembledToFigmaPluginSnapshot(assembled: AssembledSnapshot): {
   };
 }
 
-/** Apply a parsed stream part to an assembler (shared by append and finish recovery). */
+export function hydrateAssetPartFromDisk(
+  sessionDir: string,
+  part: Extract<StreamPart, { kind: 'asset' }>
+): Extract<StreamPart, { kind: 'asset' }> {
+  if (part.bytesBase64) return part;
+  const ext = assetMimeToExt(part.mimeType);
+  const assetPath = join(sessionDir, 'assets', `${part.contentHash}.${ext}`);
+  if (!existsSync(assetPath)) {
+    throw new Error(`MISSING_ASSET_FILE: ${part.contentHash}`);
+  }
+  return {
+    ...part,
+    bytesBase64: readFileSync(assetPath).toString('base64'),
+  };
+}
+
+function assetMimeToExt(mime: AssembledAsset['mimeType']): string {
+  switch (mime) {
+    case 'image/png':
+      return 'png';
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    case 'image/svg+xml':
+      return 'svg';
+    default:
+      return 'bin';
+  }
+}
+
+/** Apply a parsed stream part to an assembler (shared by append and disk replay). */
 export function applyStreamPart(assembler: SnapshotAssembler, part: StreamPart): void {
   switch (part.kind) {
     case 'session_start':

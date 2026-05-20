@@ -13,6 +13,7 @@ import { CHECK_CATALOG } from './check-catalog.js';
 import type { TaskBuilderConfig } from './config.js';
 import { defaultEvalSpec, validateEvalSpec } from './eval-spec-validator.js';
 import { HfcClient, type ImportHfcResponse } from './hfc-client.js';
+import { writeJsonFile } from './write-json-stream.js';
 import { cloneHarborToDraft, finalizeTask } from './finalize.js';
 import { envelopeHasSourceFigmaIds, pruneEnvelopeBySourceFigmaIds } from './prune-hfc.js';
 import { remapEvalSpecIds } from './remap-eval-spec.js';
@@ -264,7 +265,7 @@ export class TasksStore {
     mkdirSync(envDir, { recursive: true });
 
     const designPath = join(envDir, 'design.hfc.json');
-    writeFileSync(designPath, JSON.stringify(envelope, null, 2) + '\n', 'utf8');
+    writeJsonFile(designPath, envelope);
 
     const sidecarName = `${basename(designPath, '.hfc.json')}.hfc.assets`;
     const sidecarDir = join(envDir, sidecarName);
@@ -387,7 +388,7 @@ export class TasksStore {
   persistStandaloneImport(imported: ImportHfcResponse): { filePath: string } {
     mkdirSync(this.config.exportDir, { recursive: true });
     const filePath = join(this.config.exportDir, `${imported.slug}.hfc.json`);
-    writeFileSync(filePath, JSON.stringify(imported.envelope, null, 2) + '\n', 'utf8');
+    writeJsonFile(filePath, imported.envelope);
 
     const sidecarDir = join(this.config.exportDir, `${imported.slug}.hfc.assets`);
     mkdirSync(sidecarDir, { recursive: true });

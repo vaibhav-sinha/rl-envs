@@ -39,8 +39,15 @@ Default URL: `http://127.0.0.1:3856`
 - `POST /tasks/:id/assets` — `{ filename, dataBase64 }`
 - `POST /tasks/:id/complete` — finalize into `tasks/`
 - `POST /export` — standalone export (Export tab)
+- `POST /export/stream/session` — create NDJSON export session
+- `POST /export/stream/:exportId/part` — append NDJSON lines (tree batches + assets)
+- `POST /export/stream/:exportId/finish` — finalize; body may include `source`: `auto` | `memory` | `disk`
+- `POST /export/stream/:exportId/replay-finish` — same as finish with `source: disk` (works after Task Builder restart)
+- `GET /export/sessions?status=ready` — list sessions with `session_end` on disk, not yet finalized
 
-HFC conversion uses `POST /import/hfc` (no disk write in HFC; this service persists files).
+Streaming sessions are stored under `{TB_TASKS_DIR}/.export-sessions/{exportId}/` (`parts.jsonl`, `assets/`, `session.json`, `assembled/`).
+
+Finalize calls HFC **in-process** when `libs/headless-figma-clone` is built (`npm run build` in that package), avoiding giant `JSON.stringify` of the document tree. Set `TB_HFC_HTTP_ONLY=1` to force HTTP `POST /import/hfc-from-session` instead. Set `HFC_IMPORT_SESSION_ROOTS` if sessions live outside the default `task-drafts/.export-sessions` tree.
 
 ## After finalize
 

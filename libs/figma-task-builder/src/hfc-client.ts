@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 export interface ImportHfcResponse {
   fileKey: string;
   fileName: string;
@@ -31,6 +33,30 @@ export class HfcClient {
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
       throw new Error(err.error?.message ?? `HFC import failed: ${res.status}`);
+    }
+    return (await res.json()) as ImportHfcResponse;
+  }
+
+  /** Import from Task Builder export session dir (assembled/ + assets/). Avoids giant HTTP JSON bodies. */
+  async importFromSession(
+    sessionDir: string,
+    hfcFileName: string,
+    assetFiles: HfcAssetFileRef[],
+    allowedImportRoot: string
+  ): Promise<ImportHfcResponse> {
+    const res = await fetch(`${this.baseUrl}/import/hfc-from-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hfcFileName,
+        sessionDir: resolve(sessionDir),
+        assetFiles,
+        allowedImportRoot: resolve(allowedImportRoot),
+      }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      throw new Error(err.error?.message ?? `HFC import-from-session failed: ${res.status}`);
     }
     return (await res.json()) as ImportHfcResponse;
   }

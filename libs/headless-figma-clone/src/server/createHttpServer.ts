@@ -12,7 +12,7 @@ import { designCompiler } from '../render/DesignCompiler.js';
 import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
 import type { Logger } from '../util/logger.js';
 import { createHeadlessMcpServer } from '../mcp/registerTools.js';
-import { ExportError, handleImportHfc } from '../import/exportHandler.js';
+import { ExportError, handleImportHfc, handleImportHfcFromSession } from '../import/exportHandler.js';
 import { collectPagesIndex } from '../mcp/metadata.js';
 import { renderFilesBrowserHtml } from './ui/filesBrowser.js';
 import { previewEmptyShell, wrapPreviewWithToolbar, type PreviewShellParams } from './ui/previewShell.js';
@@ -284,9 +284,37 @@ export async function createHttpServer(params: {
           status: 'ok',
           version: config.version,
           importEndpoint: '/import/hfc',
+          importFromSessionEndpoint: '/import/hfc-from-session',
           exportEndpoint: '/export/hfc',
           previewEndpoint: '/preview',
         });
+        return;
+      }
+
+      if (req.method === 'POST' && url === '/import/hfc-from-session') {
+        let body: unknown;
+        try {
+          body = await readJsonBody(req);
+        } catch (e) {
+          if (e instanceof Error && e.message === 'PAYLOAD_TOO_LARGE') {
+            sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds size limit');
+            return;
+          }
+          throw e;
+        }
+        try {
+          const result = handleImportHfcFromSession(
+            body as import('../import/exportHandler.js').ImportHfcFromSessionBody
+          );
+          sendJson(res, 200, result);
+        } catch (e) {
+          if (e instanceof ExportError) {
+            const status = e.code === 'BAD_REQUEST' ? 400 : 422;
+            sendError(res, status, e.code, e.message);
+            return;
+          }
+          throw e;
+        }
         return;
       }
 

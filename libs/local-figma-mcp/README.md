@@ -93,7 +93,7 @@ Large files are exported via **NDJSON streaming** to Task Builder (not a single 
 1. Plugin UI creates `POST /export/stream/session` on Task Builder (`3856`).
 2. Plugin main thread yields NDJSON lines incrementally (protocol v3: no full in-memory tree); tree enter/exit lines are batched (128 per request). Icon tags use `node_props` parts; raster images stream as they complete (8 concurrent `getBytesAsync`). UI relays to Task Builder with ack backpressure.
 3. Task Builder assembles each part on append and spools audit lines under `envs/figma-design/task-drafts/.export-sessions/{exportId}/`.
-4. `POST .../finish` finalizes the snapshot, imports via HFC using on-disk asset files (no base64 in the HFC request body), and writes `design.hfc.json`.
+4. `POST .../finish` finalizes the snapshot, writes `assembled/` under the session dir, and imports via HFC `POST /import/hfc-from-session` (file paths; no giant JSON body). Use `POST .../replay-finish` or `finish` with `"source":"disk"` after a Task Builder restart if upload completed but finalize failed.
 
 Progress phases: **meta → serialize → icons → images → upload**. Requires Task Builder and HFC running.
 

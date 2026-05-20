@@ -1,9 +1,15 @@
 import { mkdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ulid } from 'ulid';
 import type { AssetRecord, FileEnvelope } from '../model/types.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
 import { persistAssetBytesOnDisk, registerAssetBytesInEnvelope } from '../engine/DocumentEngine.js';
+import {
+  assetFilesFromAssembledSession,
+  loadSnapshotFromAssembledSession,
+  resolveAllowedSessionDir,
+} from './importFromSession.js';
 import { parseFigmaPluginSnapshot, type FigmaPluginSnapshot } from './snapshotSchema.js';
 import { importFigmaPluginSnapshot, slugHfcFileName } from './figmaPluginSnapshot.js';
 
@@ -21,6 +27,14 @@ export interface ExportHfcRequest {
   snapshot: unknown;
   /** When set, asset bytes are read from disk instead of `snapshot.assets[].base64`. */
   assetFiles?: ExportHfcAssetFile[];
+}
+
+export interface ImportHfcFromSessionBody {
+  hfcFileName: string;
+  sessionDir: string;
+  assetFiles?: ExportHfcAssetFile[];
+  /** Task Builder passes its `.export-sessions` parent for path validation. */
+  allowedImportRoot?: string;
 }
 
 export interface ImportHfcAsset {
@@ -134,6 +148,44 @@ export function handleImportHfc(body: ExportHfcRequest): ImportHfcResponse {
     assets: converted.assets,
     figmaToHfc: converted.figmaToHfc,
   };
+}
+
+export function defaultHfcImportSessionRoots(): string[] {
+  const env = process.env.HFC_IMPORT_SESSION_ROOTS?.trim();
+  if (env) {
+    return env.split(',').map((p) => resolve(p.trim())).filter(Boolean);
+  }
+  return [
+    resolve(process.cwd(), 'envs', 'figma-design', 'task-drafts', '.export-sessions'),
+    resolve(process.cwd(), '..', '..', 'envs', 'figma-design', 'task-drafts', '.export-sessions'),
+    join(homedir(), '.rl-envs', 'export-sessions'),
+  ];
+}
+
+export function handleImportHfcFromSession(
+  body: ImportHfcFromSessionBody,
+  allowedRoots: readonly string[] = defaultHfcImportSessionRoots()
+): ImportHfcResponse {
+  if (!body?.hfcFileName || typeof body.hfcFileName !== 'string') {
+    throw new ExportError('BAD_REQUEST', 'Missing hfcFileName');
+  }
+  if (!body?.sessionDir || typeof body.sessionDir !== 'string') {
+    throw new ExportError('BAD_REQUEST', 'Missing sessionDir');
+  }
+
+  const roots = [
+    ...(body.allowedImportRoot ? [resolve(body.allowedImportRoot)] : []),
+    ...allowedRoots,
+  ];
+  const sessionDir = resolveAllowedSessionDir(body.sessionDir, roots);
+  const snapshot = loadSnapshotFromAssembledSession(sessionDir);
+  const assetFiles = assetFilesFromAssembledSession(sessionDir, body.assetFiles);
+
+  return handleImportHfc({
+    hfcFileName: body.hfcFileName,
+    snapshot,
+    assetFiles,
+  });
 }
 
 export async function saveConvertedHfc(
