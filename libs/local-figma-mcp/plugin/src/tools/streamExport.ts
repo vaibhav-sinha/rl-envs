@@ -1,5 +1,9 @@
-import type { StreamPart } from '../streamProtocol.js';
+import type { ExportMetricsCollector, ExportRunMetrics } from '../exportMetrics.js';
+import { shouldEmitProgressMetrics } from '../exportMetrics.js';
+import type { ExportUploadGate } from '../exportUploadGate.js';
+import type { ExportTotals, StreamPart } from '../streamProtocol.js';
 import {
+  EXPORT_PROGRESS_EVERY_NODES,
   RASTER_IMAGE_CONCURRENCY,
   STREAM_PROTOCOL_VERSION,
   TREE_SERIALIZE_YIELD_EVERY,
@@ -80,54 +84,68 @@ function visitMixedFillVector(node: BaseNode, walk: IncrementalIconWalk): void {
   }
 }
 
-export interface StreamExportCallbacks {
-  onProgress: (
-    phase: 'meta' | 'serialize' | 'icons' | 'images',
+export interface StreamExportProgressCallback {
+  (
+    phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload',
     current: number,
     total: number,
-    detail?: string
-  ) => void;
+    detail?: string,
+    metrics?: ExportRunMetrics
+  ): void;
 }
 
-/** Yields NDJSON lines for Task Builder streaming import. */
-export async function* streamFigmaExportLines(
-  exportId: string,
-  hfcFileName: string,
-  options: BuildSnapshotOptions,
-  callbacks: StreamExportCallbacks
-): AsyncGenerator<string> {
+export interface RunFigmaStreamExportOptions {
+  exportId: string;
+  hfcFileName: string;
+  excludeNodeIds?: string[];
+  gate: ExportUploadGate;
+  metrics: ExportMetricsCollector;
+  onProgress: StreamExportProgressCallback;
+  onSessionTotals?: (totals: ExportTotals) => void;
+}
+
+/** Run full NDJSON export through the upload gate (sync tree serialize, pipelined upload). */
+export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions): Promise<void> {
+  const { exportId, gate, metrics, onProgress } = options;
   clearImageHashesForExport();
-  const name = hfcFileName.trim() || figma.root.name;
+  const name = options.hfcFileName.trim() || figma.root.name;
   const excludeIds = new Set(options.excludeNodeIds ?? []);
 
-  yield streamPartToLine({
-    kind: 'session_start',
-    streamProtocol: STREAM_PROTOCOL_VERSION,
-    exportId,
-    hfcFileName: name,
-    snapshotVersion: SNAPSHOT_VERSION,
-    figmaFileKey: figma.fileKey ?? null,
-    figmaFileName: figma.root.name,
-    totals: { nodes: 0, iconExports: 0, rasterImages: 0 },
-  });
+  metrics.setPhase('meta');
+  await gate.postLine(
+    streamPartToLine({
+      kind: 'session_start',
+      streamProtocol: STREAM_PROTOCOL_VERSION,
+      exportId,
+      hfcFileName: name,
+      snapshotVersion: SNAPSHOT_VERSION,
+      figmaFileKey: figma.fileKey ?? null,
+      figmaFileName: figma.root.name,
+      totals: { nodes: 0, iconExports: 0, rasterImages: 0 },
+    })
+  );
 
-  callbacks.onProgress('meta', 0, 1, 'Loading styles and variables…');
+  onProgress('meta', 0, 1, 'Loading styles and variables…', metrics.snapshot('meta'));
   const meta = await serializeMetaAndStyles();
-  callbacks.onProgress('meta', 1, 1);
-  yield streamPartToLine({
-    kind: 'meta',
-    exportedAt: new Date().toISOString(),
-    variableCollections: meta.variableCollections,
-    paintStyles: meta.paintStyles,
-    textStyles: meta.textStyles,
-    effectStyles: meta.effectStyles,
-    gridStyles: meta.gridStyles,
-  });
+  onProgress('meta', 1, 1, undefined, metrics.snapshot('meta'));
+
+  await gate.postLine(
+    streamPartToLine({
+      kind: 'meta',
+      exportedAt: new Date().toISOString(),
+      variableCollections: meta.variableCollections,
+      paintStyles: meta.paintStyles,
+      textStyles: meta.textStyles,
+      effectStyles: meta.effectStyles,
+      gridStyles: meta.gridStyles,
+    })
+  );
 
   for (const s of meta.styleRecords) {
     collectImageHashesForExport(s);
   }
 
+  metrics.setPhase('serialize');
   const iconWalk = new IncrementalIconWalk();
   const treeStack: string[] = [];
   let serializeCurrent = 0;
@@ -135,22 +153,31 @@ export async function* streamFigmaExportLines(
   for (const ev of serializeTreeEvents(figma.root, excludeIds, false, {
     onNodeVisit: (node) => visitMixedFillVector(node, iconWalk),
   })) {
+    metrics.beginSerializeSlice();
     if (ev.kind === 'tree_enter') {
       const parentId = treeStack[treeStack.length - 1] ?? null;
       iconWalk.onTreeEnter(ev.node, parentId);
       collectImageHashesForExport(ev.node.properties);
       treeStack.push(ev.node.id);
       serializeCurrent += 1;
-      callbacks.onProgress('serialize', serializeCurrent, 0);
-      yield streamPartToLine({ kind: 'tree_enter', node: ev.node });
+      metrics.incrementNodesSerialized();
+
+      gate.pushTreeLine(streamPartToLine({ kind: 'tree_enter', node: ev.node }));
+      await gate.flushTreeBatchIfNeeded();
     } else {
       treeStack.pop();
       iconWalk.onTreeExit();
-      yield streamPartToLine({ kind: 'tree_exit' });
+      gate.pushTreeLine(streamPartToLine({ kind: 'tree_exit' }));
+      await gate.flushTreeBatchIfNeeded();
     }
+    metrics.endSerializeSlice();
 
     if (serializeCurrent > 0 && serializeCurrent % TREE_SERIALIZE_YIELD_EVERY === 0) {
       await new Promise<void>((r) => setTimeout(r, 0));
+    }
+
+    if (shouldEmitProgressMetrics(serializeCurrent, EXPORT_PROGRESS_EVERY_NODES)) {
+      onProgress('serialize', serializeCurrent, 0, undefined, metrics.snapshot('serialize'));
     }
   }
 
@@ -158,32 +185,47 @@ export async function* streamFigmaExportLines(
     throw new Error('EXPORT_ERROR: document tree empty after exclusions');
   }
 
+  await gate.flushTreeBatch();
+
   const iconRootIds = iconWalk.finishIconRootIds();
   const mixedExportIds = iconWalk.finishMixedFillExportIds(iconRootIds);
   const iconWorkTotal = iconRootIds.length + mixedExportIds.length;
   const rasterTotal = getImageHashesSet().size;
 
-  yield streamPartToLine({
-    kind: 'session_totals',
+  const totals: ExportTotals = {
     nodes: serializeCurrent,
     iconExports: iconWorkTotal,
     rasterImages: rasterTotal,
-  });
+  };
+  options.onSessionTotals?.(totals);
 
-  callbacks.onProgress('serialize', serializeCurrent, serializeCurrent);
+  await gate.postLine(
+    streamPartToLine({
+      kind: 'session_totals',
+      ...totals,
+    })
+  );
 
+  onProgress('serialize', serializeCurrent, serializeCurrent, undefined, metrics.snapshot('serialize'));
+
+  metrics.setPhase('icons');
   const iconDedup = new ExportAssetDedup();
   let iconCurrent = 0;
 
   if (iconWorkTotal === 0) {
-    callbacks.onProgress('icons', 0, 0);
+    onProgress('icons', 0, 0, undefined, metrics.snapshot('icons'));
   }
 
   for (const nodeId of iconRootIds) {
     iconCurrent += 1;
-    callbacks.onProgress('icons', iconCurrent, iconWorkTotal);
+    if (
+      iconCurrent % EXPORT_PROGRESS_EVERY_NODES === 0 ||
+      iconCurrent === iconWorkTotal
+    ) {
+      onProgress('icons', iconCurrent, iconWorkTotal, undefined, metrics.snapshot('icons'));
+    }
 
-    const wire = iconWalk.wireById.get(nodeId);
+    const wire = iconWalk.getIconWire(nodeId);
     const analysis = iconWalk.iconAnalysisById.get(nodeId);
     if (!wire || !analysis) continue;
 
@@ -204,21 +246,25 @@ export async function* streamFigmaExportLines(
           constraint: { type: 'SCALE', value: ICON_RASTER_EXPORT_SCALE },
         });
         const reg = iconDedup.registerNodeExport(nodeId, bytes, 'image/png', ICON_RASTER_EXPORT_SCALE);
-        yield streamPartToLine(iconPropsPart(nodeId, 'image/png', reg.canonicalNodeId));
+        await gate.postLine(streamPartToLine(iconPropsPart(nodeId, 'image/png', reg.canonicalNodeId)));
         if (reg.emitAsset) {
-          yield streamPartToLine(
-            assetPartFromBytes(bytes, 'image/png', {
-              figmaNodeId: nodeId,
-              exportScale: ICON_RASTER_EXPORT_SCALE,
-            })
+          await gate.postLine(
+            streamPartToLine(
+              assetPartFromBytes(bytes, 'image/png', {
+                figmaNodeId: nodeId,
+                exportScale: ICON_RASTER_EXPORT_SCALE,
+              })
+            )
           );
         }
       } else {
         const bytes = await exportNode.exportAsync(SVG_EXPORT_SETTINGS);
         const reg = iconDedup.registerNodeExport(nodeId, bytes, 'image/svg+xml');
-        yield streamPartToLine(iconPropsPart(nodeId, 'image/svg+xml', reg.canonicalNodeId));
+        await gate.postLine(streamPartToLine(iconPropsPart(nodeId, 'image/svg+xml', reg.canonicalNodeId)));
         if (reg.emitAsset) {
-          yield streamPartToLine(assetPartFromBytes(bytes, 'image/svg+xml', { figmaNodeId: nodeId }));
+          await gate.postLine(
+            streamPartToLine(assetPartFromBytes(bytes, 'image/svg+xml', { figmaNodeId: nodeId }))
+          );
         }
       }
     } catch {
@@ -228,7 +274,12 @@ export async function* streamFigmaExportLines(
 
   for (const nodeId of mixedExportIds) {
     iconCurrent += 1;
-    callbacks.onProgress('icons', iconCurrent, iconWorkTotal);
+    if (
+      iconCurrent % EXPORT_PROGRESS_EVERY_NODES === 0 ||
+      iconCurrent === iconWorkTotal
+    ) {
+      onProgress('icons', iconCurrent, iconWorkTotal, undefined, metrics.snapshot('icons'));
+    }
 
     const node = await figma.getNodeByIdAsync(nodeId);
     if (!node || !('exportAsync' in node)) continue;
@@ -240,19 +291,22 @@ export async function* streamFigmaExportLines(
     try {
       const bytes = await exportNode.exportAsync(SVG_EXPORT_SETTINGS);
       const reg = iconDedup.registerNodeExport(nodeId, bytes, 'image/svg+xml');
-      yield streamPartToLine(iconPropsPart(nodeId, 'image/svg+xml', reg.canonicalNodeId));
+      await gate.postLine(streamPartToLine(iconPropsPart(nodeId, 'image/svg+xml', reg.canonicalNodeId)));
       if (reg.emitAsset) {
-        yield streamPartToLine(assetPartFromBytes(bytes, 'image/svg+xml', { figmaNodeId: nodeId }));
+        await gate.postLine(
+          streamPartToLine(assetPartFromBytes(bytes, 'image/svg+xml', { figmaNodeId: nodeId }))
+        );
       }
     } catch {
       /* skip */
     }
   }
 
+  metrics.setPhase('images');
   const rasterHashes = [...getImageHashesSet()];
 
   if (rasterTotal === 0) {
-    callbacks.onProgress('images', 0, 0);
+    onProgress('images', 0, 0, undefined, metrics.snapshot('images'));
   }
 
   let imageDone = 0;
@@ -271,12 +325,19 @@ export async function* streamFigmaExportLines(
     }
   })) {
     imageDone += 1;
-    callbacks.onProgress('images', imageDone, rasterTotal);
+    if (
+      imageDone % EXPORT_PROGRESS_EVERY_NODES === 0 ||
+      imageDone === rasterTotal
+    ) {
+      onProgress('images', imageDone, rasterTotal, undefined, metrics.snapshot('images'));
+    }
     const contentKey = `${row.mime}:${sha256Hex(row.bytes)}`;
     if (seenRasterKeys.has(contentKey)) continue;
     seenRasterKeys.add(contentKey);
-    yield streamPartToLine(assetPartFromBytes(row.bytes, row.mime, { figmaImageHash: row.hash }));
+    await gate.postLine(
+      streamPartToLine(assetPartFromBytes(row.bytes, row.mime, { figmaImageHash: row.hash }))
+    );
   }
 
-  yield streamPartToLine({ kind: 'session_end', exportId });
+  await gate.postLine(streamPartToLine({ kind: 'session_end', exportId }));
 }

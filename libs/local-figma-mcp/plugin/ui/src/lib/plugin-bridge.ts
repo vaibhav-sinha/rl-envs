@@ -38,12 +38,15 @@ import {
   isImagePartUploadFallbackError,
   substituteBlankRasterImageLine,
 } from './export-stream-part-fallback';
+import type { ExportRunMetrics } from './export-metrics';
+import { UiUploadMetrics } from './export-metrics';
 import {
   applyExportProgressUpdate,
   type ExportProgressPhase,
   type ExportProgressUpdate,
   type MultiPhaseExportProgress,
 } from './export-progress-state';
+import { OrderedUploadQueue } from './ordered-upload-queue';
 
 export type { ExportProgressPhase, MultiPhaseExportProgress, ExportProgressUpdate };
 export { applyExportProgressUpdate, createInitialExportProgress } from './export-progress-state';
@@ -72,6 +75,7 @@ export type PluginReply =
       total: number;
       percent: number;
       detail?: string;
+      metrics?: ExportRunMetrics;
     }
   | { type: 'export_stream_part'; exportId: string; seq: number; line: string }
   | { type: 'export_stream_batch'; exportId: string; seq: number; lines: string[] }
@@ -177,6 +181,19 @@ export async function exportSnapshotStreaming(
   const { exportId } = await createExportStreamSession();
   postToPlugin({ type: 'export_file', hfcFileName, exportId, excludeNodeIds: options.excludeNodeIds });
 
+  const uploadQueue = new OrderedUploadQueue();
+  const uiUploadMetrics = new UiUploadMetrics();
+
+  const uploadPart = async (body: string, seq: number): Promise<void> => {
+    const started = Date.now();
+    try {
+      await tbPostPartBody(exportId, body);
+    } finally {
+      uiUploadMetrics.recordUpload(Date.now() - started);
+    }
+    postStreamAck(seq);
+  };
+
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler);
@@ -187,17 +204,22 @@ export async function exportSnapshotStreaming(
       );
     }, 72_000_000);
 
-    const handler = async (event: MessageEvent) => {
+    const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage as PluginReply | undefined;
       if (!msg) return;
 
       if (msg.type === 'export_progress') {
+        const metrics =
+          msg.metrics !== undefined
+            ? uiUploadMetrics.mergeWith(msg.metrics)
+            : undefined;
         options.onProgress?.({
           phase: msg.phase,
           current: msg.current,
           total: msg.total,
           percent: msg.percent,
           detail: msg.detail,
+          metrics,
         });
         return;
       }
@@ -221,34 +243,30 @@ export async function exportSnapshotStreaming(
       };
 
       if (msg.type === 'export_stream_part' && msg.exportId === exportId) {
-        try {
-          await tbPostPartBody(exportId, msg.line);
-          postStreamAck(msg.seq);
-        } catch (e) {
-          failUpload(msg.seq, e);
-        }
+        void uploadQueue
+          .enqueue(() => uploadPart(msg.line, msg.seq))
+          .catch((e) => failUpload(msg.seq, e));
         return;
       }
 
       if (msg.type === 'export_stream_batch' && msg.exportId === exportId) {
-        try {
-          const body = msg.lines.join('');
-          await tbPostPartBody(exportId, body);
-          postStreamAck(msg.seq);
-        } catch (e) {
-          failUpload(msg.seq, e);
-        }
+        const body = msg.lines.join('');
+        void uploadQueue
+          .enqueue(() => uploadPart(body, msg.seq))
+          .catch((e) => failUpload(msg.seq, e));
         return;
       }
 
       if (msg.type === 'export_stream_done') {
-        clearTimeout(timer);
-        window.removeEventListener('message', handler);
-        if (!msg.ok) {
-          reject(new Error(formatExportError(msg.error, 'Export failed in plugin')));
-          return;
-        }
-        resolve({ exportId });
+        void uploadQueue.whenIdle().then(() => {
+          clearTimeout(timer);
+          window.removeEventListener('message', handler);
+          if (!msg.ok) {
+            reject(new Error(formatExportError(msg.error, 'Export failed in plugin')));
+            return;
+          }
+          resolve({ exportId });
+        });
       }
     };
 

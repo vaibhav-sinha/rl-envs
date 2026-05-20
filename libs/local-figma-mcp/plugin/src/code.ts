@@ -4,13 +4,14 @@ import { runGetScreenshot } from './tools/getScreenshot.js';
 import { runGetVariableDefs } from './tools/getVariableDefs.js';
 import { runSearchDesignSystem } from './tools/searchDesignSystem.js';
 import { runUseFigma } from './tools/useFigma.js';
-import { streamFigmaExportLines } from './tools/streamExport.js';
+import { runFigmaStreamExport } from './tools/streamExport.js';
 import { formatExportError } from './exportError.js';
+import type { ExportRunMetrics } from './exportMetrics.js';
+import { ExportMetricsCollector } from './exportMetrics.js';
+import { ExportUploadGate } from './exportUploadGate.js';
 import {
   estimateUploadPartTotal,
   exportPercent,
-  isTreeStreamLine,
-  shouldFlushTreeBatch,
 } from './streamProtocol.js';
 import { getSelectedNodeIds, getSingleSelectedNode } from './selection.js';
 
@@ -49,6 +50,7 @@ type MainToUi =
       total: number;
       percent: number;
       detail?: string;
+      metrics?: ExportRunMetrics;
     }
   | { type: 'export_stream_part'; exportId: string; seq: number; line: string }
   | { type: 'export_stream_batch'; exportId: string; seq: number; lines: string[] }
@@ -68,6 +70,7 @@ const STREAM_ACK_TIMEOUT_MS = 120_000;
 
 let ackWaiter: ((seq: number) => void) | null = null;
 let uploadAbortError: string | null = null;
+let activeExportGate: ExportUploadGate | null = null;
 
 function waitForStreamAck(seq: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -112,7 +115,8 @@ function postProgress(
   phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload',
   current: number,
   total: number,
-  detail?: string
+  detail?: string,
+  metrics?: ExportRunMetrics
 ): void {
   figma.ui.postMessage({
     type: 'export_progress',
@@ -121,6 +125,7 @@ function postProgress(
     total,
     percent: exportPercent(current, total),
     detail,
+    metrics,
   } satisfies MainToUi);
 }
 
@@ -160,107 +165,60 @@ async function dispatchTool(
   }
 }
 
-
-function parseSessionTotals(line: string): {
-  nodes: number;
-  iconExports: number;
-  rasterImages: number;
-} | null {
-  try {
-    const part = JSON.parse(line.trim()) as {
-      kind?: string;
-      nodes?: number;
-      iconExports?: number;
-      rasterImages?: number;
-    };
-    if (part.kind !== 'session_totals') return null;
-    return {
-      nodes: part.nodes ?? 0,
-      iconExports: part.iconExports ?? 0,
-      rasterImages: part.rasterImages ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
 async function runExportFile(
   exportId: string,
   hfcFileName: string,
   excludeNodeIds?: string[]
 ): Promise<void> {
+  const metrics = new ExportMetricsCollector();
+  let uploadTotal = 1;
+  let uploadSeq = 0;
+  const reportUploadProgress = (detail: string, metricsSnapshot?: ExportRunMetrics) => {
+    const shouldReport =
+      uploadSeq === 1 || uploadSeq >= uploadTotal || uploadSeq % 50 === 0;
+    if (shouldReport) {
+      metrics.setPhase('upload');
+      postProgress(
+        'upload',
+        uploadSeq,
+        uploadTotal,
+        detail,
+        metricsSnapshot ?? metrics.snapshot('upload')
+      );
+    }
+  };
+
+  const gate = new ExportUploadGate({
+    exportId,
+    metrics,
+    postMessage: (msg) => {
+      uploadSeq = msg.seq;
+      postUiMessage(msg satisfies MainToUi);
+      reportUploadProgress('stream parts', metrics.snapshot('upload'));
+    },
+    onAbortError: () => uploadAbortError,
+  });
+
+  activeExportGate = gate;
+
   try {
-    let uploadSeq = 0;
-    let uploadTotal = 1;
-    let treeBatch: string[] = [];
-
-    const reportUploadProgress = (detail: string) => {
-      const shouldReport =
-        uploadSeq === 1 || uploadSeq >= uploadTotal || uploadSeq % 50 === 0;
-      if (shouldReport) {
-        postProgress('upload', uploadSeq, uploadTotal, detail);
-      }
-    };
-
-    const postUploadAck = async (seq: number): Promise<void> => {
-      uploadSeq = seq;
-      if (uploadSeq > uploadTotal) uploadTotal = uploadSeq;
-      reportUploadProgress('upload batches (tree)');
-      await waitForStreamAck(seq);
-    };
-
-    const flushTreeBatch = async (): Promise<void> => {
-      if (treeBatch.length === 0) return;
-      const lines = treeBatch;
-      treeBatch = [];
-      const seq = uploadSeq + 1;
-      postUiMessage({
-        type: 'export_stream_batch',
-        exportId,
-        seq,
-        lines,
-      } satisfies MainToUi);
-      await postUploadAck(seq);
-    };
-
-    const sendLine = async (line: string): Promise<void> => {
-      if (isTreeStreamLine(line)) {
-        treeBatch.push(line);
-        if (shouldFlushTreeBatch(treeBatch)) {
-          await flushTreeBatch();
-        }
-        return;
-      }
-      await flushTreeBatch();
-      const seq = uploadSeq + 1;
-      postUiMessage({
-        type: 'export_stream_part',
-        exportId,
-        seq,
-        line,
-      } satisfies MainToUi);
-      await postUploadAck(seq);
-    };
-
-    for await (const line of streamFigmaExportLines(
+    await runFigmaStreamExport({
       exportId,
       hfcFileName,
-      { excludeNodeIds },
-      {
-        onProgress: (phase, current, total, detail) => {
-          postProgress(phase, current, total, detail);
-        },
-      }
-    )) {
-      const totals = parseSessionTotals(line);
-      if (totals) {
+      excludeNodeIds,
+      gate,
+      metrics,
+      onProgress: (phase, current, total, detail, metricsSnapshot) => {
+        postProgress(phase, current, total, detail, metricsSnapshot);
+      },
+      onSessionTotals: (totals) => {
         uploadTotal = estimateUploadPartTotal(totals);
-      }
-      await sendLine(line);
-    }
+      },
+    });
 
-    await flushTreeBatch();
-    postProgress('upload', uploadTotal, uploadTotal, 'upload complete');
+    await gate.drain();
+    metrics.setPhase('upload');
+    postProgress('upload', uploadTotal, uploadTotal, 'upload complete', metrics.finalize());
 
     postUiMessage({
       type: 'export_stream_done',
@@ -270,12 +228,15 @@ async function runExportFile(
     figma.notify('Export streamed — finalizing…');
   } catch (e) {
     const message = formatExportError(e);
+    postProgress('upload', uploadSeq, uploadTotal, message, metrics.finalize());
     postUiMessage({
       type: 'export_stream_done',
       ok: false,
       error: message,
     } satisfies MainToUi);
     figma.notify('Export failed: ' + message, { error: true });
+  } finally {
+    activeExportGate = null;
   }
 }
 
@@ -296,6 +257,7 @@ figma.ui.onmessage = async (msg: UiToMain) => {
   }
 
   if (msg.type === 'export_stream_ack') {
+    activeExportGate?.handleAck(msg.seq);
     ackWaiter?.(msg.seq);
     return;
   }

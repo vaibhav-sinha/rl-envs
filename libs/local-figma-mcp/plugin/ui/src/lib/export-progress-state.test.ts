@@ -29,4 +29,30 @@ describe('applyExportProgressUpdate', () => {
     p = applyExportProgressUpdate(p, { phase: 'icons', current: 0, total: 0, percent: 100 });
     expect(p.phases.icons.status).toBe('skipped');
   });
+
+  it('stores metrics snapshot when provided', () => {
+    let p = createInitialExportProgress();
+    p = applyExportProgressUpdate(p, {
+      phase: 'serialize',
+      current: 1000,
+      total: 0,
+      percent: 0,
+      metrics: {
+        elapsedMs: 5000,
+        phase: 'serialize',
+        serializeMs: 4000,
+        uploadWaitMs: 100,
+        metaMs: 200,
+        iconsMs: 0,
+        imagesMs: 0,
+        nodesSerialized: 1000,
+        treeBatchesPosted: 4,
+        treeBatchesAcked: 3,
+        uploadInflight: 1,
+        nodesPerSec: 250,
+      },
+    });
+    expect(p.metrics?.nodesSerialized).toBe(1000);
+    expect(p.metrics?.nodesPerSec).toBe(250);
+  });
 });

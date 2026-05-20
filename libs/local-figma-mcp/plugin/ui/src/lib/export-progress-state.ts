@@ -1,3 +1,5 @@
+import type { ExportRunMetrics } from './export-metrics';
+
 export const EXPORT_PHASE_ORDER = [
   'meta',
   'serialize',
@@ -21,6 +23,7 @@ export interface PhaseProgress {
 
 export interface MultiPhaseExportProgress {
   phases: Record<ExportProgressPhase, PhaseProgress>;
+  metrics?: ExportRunMetrics;
 }
 
 export interface ExportProgressUpdate {
@@ -29,6 +32,7 @@ export interface ExportProgressUpdate {
   total: number;
   percent: number;
   detail?: string;
+  metrics?: ExportRunMetrics;
 }
 
 export type ExportOutcome =
@@ -55,7 +59,7 @@ export function createInitialExportProgress(): MultiPhaseExportProgress {
   for (const id of EXPORT_PHASE_ORDER) {
     phases[id] = defaultPhase();
   }
-  return { phases };
+  return { phases, metrics: undefined };
 }
 
 function phaseIndex(phase: ExportProgressPhase): number {
@@ -106,7 +110,8 @@ export function applyExportProgressUpdate(
     }
   }
 
-  return { phases };
+  const metrics = update.metrics ?? base.metrics;
+  return { phases, metrics };
 }
 
 export function markAllPhasesDone(progress: MultiPhaseExportProgress): MultiPhaseExportProgress {
@@ -122,5 +127,5 @@ export function markAllPhasesDone(progress: MultiPhaseExportProgress): MultiPhas
       total: p.total > 0 ? p.total : 1,
     };
   }
-  return { phases };
+  return { phases, metrics: progress.metrics };
 }

@@ -1,4 +1,8 @@
 import {
+  formatCount,
+  formatDurationMs,
+} from '../lib/export-metrics';
+import {
   EXPORT_PHASE_LABEL,
   EXPORT_PHASE_ORDER,
   type ExportOutcome,
@@ -18,12 +22,54 @@ function phaseStatusIcon(status: MultiPhaseExportProgress['phases'][keyof MultiP
   }
 }
 
+function ExportTimingPanel({ progress }: { progress: MultiPhaseExportProgress }) {
+  const m = progress.metrics;
+  if (!m) return null;
+
+  return (
+    <div className="rounded border border-[#3a3a3a] bg-[#1e1e1e] p-2 space-y-1">
+      <p className="text-[10px] font-medium text-muted m-0">Timing</p>
+      <p className="text-[10px] text-muted m-0 tabular-nums">
+        Elapsed {formatDurationMs(m.elapsedMs)}
+      </p>
+      <p className="text-[10px] text-muted m-0 tabular-nums">
+        Serialize {formatDurationMs(m.serializeMs)}
+        {m.nodesPerSec > 0 ? ` · ${formatCount(m.nodesPerSec)} nodes/s` : ''}
+        {m.nodesSerialized > 0 ? ` · ${formatCount(m.nodesSerialized)} nodes` : ''}
+      </p>
+      <p className="text-[10px] text-muted m-0 tabular-nums">
+        Upload wait (main) {formatDurationMs(m.uploadWaitMs)}
+        {m.uploadInflight > 0 ? ` · ${m.uploadInflight} in flight` : ''}
+        {m.treeBatchesAcked > 0 ? ` · ${formatCount(m.treeBatchesAcked)} batches acked` : ''}
+      </p>
+      {m.httpUploadMs !== undefined && m.httpUploadMs > 0 ? (
+        <p className="text-[10px] text-muted m-0 tabular-nums">
+          HTTP upload (UI) {formatDurationMs(m.httpUploadMs)}
+          {m.partsUploaded !== undefined && m.partsUploaded > 0
+            ? ` · ${formatCount(m.partsUploaded)} parts`
+            : ''}
+        </p>
+      ) : null}
+      {m.metaMs > 0 || m.iconsMs > 0 || m.imagesMs > 0 ? (
+        <p className="text-[10px] text-muted m-0 tabular-nums">
+          {m.metaMs > 0 ? `Meta ${formatDurationMs(m.metaMs)}` : ''}
+          {m.iconsMs > 0 ? `${m.metaMs > 0 ? ' · ' : ''}Icons ${formatDurationMs(m.iconsMs)}` : ''}
+          {m.imagesMs > 0
+            ? `${m.metaMs > 0 || m.iconsMs > 0 ? ' · ' : ''}Images ${formatDurationMs(m.imagesMs)}`
+            : ''}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function ExportProgressPanel({ progress }: { progress: MultiPhaseExportProgress | null }) {
   if (!progress) return null;
 
   return (
     <div className="rounded-md border border-[#444] bg-[#252525] p-2.5 space-y-2">
       <p className="text-[10px] font-medium text-foreground m-0">Export progress</p>
+      <ExportTimingPanel progress={progress} />
       <ul className="m-0 p-0 list-none space-y-2">
         {EXPORT_PHASE_ORDER.map((id) => {
           const phase = progress.phases[id];

@@ -105,12 +105,17 @@ export class IncrementalIconWalk {
   readonly parentById = new Map<string, string | null>();
   readonly iconCandidates: string[] = [];
   readonly iconAnalysisById = new Map<string, IconTreeAnalysis>();
-  readonly wireById = new Map<string, SerializedNodeWire>();
+  readonly iconWireById = new Map<string, SerializedNodeWire>();
+  readonly mixedFillWireById = new Map<string, SerializedNodeWire>();
   readonly mixedFillVectorIds: string[] = [];
+  private readonly pendingMixedFillIds = new Set<string>();
 
   onTreeEnter(wire: SerializedNodeWire, parentId: string | null): void {
     this.parentById.set(wire.id, parentId);
-    this.wireById.set(wire.id, wire);
+    if (this.pendingMixedFillIds.has(wire.id)) {
+      this.mixedFillWireById.set(wire.id, wire);
+      this.pendingMixedFillIds.delete(wire.id);
+    }
 
     const parentFrame = this.stack[this.stack.length - 1];
     const isMask = propWire(wire, 'isMask') === true;
@@ -132,6 +137,7 @@ export class IncrementalIconWalk {
       if (isStructuralIconExportRoot(node, frame.analysis)) {
         this.iconCandidates.push(frame.wire.id);
         this.iconAnalysisById.set(frame.wire.id, frame.analysis);
+        this.iconWireById.set(frame.wire.id, frame.wire);
       }
     }
 
@@ -143,6 +149,11 @@ export class IncrementalIconWalk {
 
   recordMixedFillVector(nodeId: string): void {
     this.mixedFillVectorIds.push(nodeId);
+    this.pendingMixedFillIds.add(nodeId);
+  }
+
+  getIconWire(nodeId: string): SerializedNodeWire | undefined {
+    return this.iconWireById.get(nodeId);
   }
 
   finishIconRootIds(): string[] {
@@ -155,7 +166,7 @@ export class IncrementalIconWalk {
 
     for (const nodeId of this.mixedFillVectorIds) {
       if (structuralRoots.has(nodeId)) continue;
-      const wire = this.wireById.get(nodeId);
+      const wire = this.mixedFillWireById.get(nodeId);
       if (!wire || wire.type !== 'VECTOR') continue;
       const { width, height } = boundsFromWire(wire);
       if (!isCompactVectorExportSize(width, height)) continue;

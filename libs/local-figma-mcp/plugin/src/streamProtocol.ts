@@ -6,7 +6,7 @@ export const STREAM_PROTOCOL_VERSION = 3 as const;
 export const EXPORT_STREAM_PART_MAX_BYTES = 20 * 1024 * 1024;
 
 /** Tree enter/exit lines batched per upload request (main → UI → Task Builder). */
-export const EXPORT_TREE_BATCH_SIZE = 32;
+export const EXPORT_TREE_BATCH_SIZE = 256;
 
 /**
  * Max UTF-16 code units per tree batch postMessage body (main → UI).
@@ -14,11 +14,20 @@ export const EXPORT_TREE_BATCH_SIZE = 32;
  */
 export const EXPORT_TREE_BATCH_MAX_CHARS = 3 * 1024 * 1024;
 
+/** Max tree batches posted to UI before main blocks on ack (backpressure). */
+export const EXPORT_UPLOAD_MAX_INFLIGHT = 6;
+
+/** Max non-tree parts in flight (assets are large). */
+export const EXPORT_ASSET_MAX_INFLIGHT = 2;
+
 /** Parallel `getBytesAsync` calls for raster image fills. */
 export const RASTER_IMAGE_CONCURRENCY = 8;
 
 /** Yield to the event loop every N nodes during tree serialization. */
-export const TREE_SERIALIZE_YIELD_EVERY = 200;
+export const TREE_SERIALIZE_YIELD_EVERY = 1000;
+
+/** Throttle export_progress + metrics during long serialize/icons/images phases. */
+export const EXPORT_PROGRESS_EVERY_NODES = 1000;
 
 export type ExportProgressPhase = 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
 
