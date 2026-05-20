@@ -2,6 +2,7 @@ import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import {
   applyCreateNodeOp,
   applyEngineOp,
+  findComponentIdByKey,
   findEnvelopeNode,
   findParentNode,
   registerAssetBytesInEnvelope,
@@ -26,6 +27,7 @@ import type {
   BooleanOperationNode,
   Effect,
   ComponentPropertyValue,
+  InstanceNode,
   FileEnvelope,
   FontName,
   FrameNode,
@@ -119,6 +121,117 @@ const TRAVERSAL_METHODS = new Set([
   'findAllWithCriteria',
 ]);
 
+const HANDLE_METHOD_KEYS = new Set([
+  'remove',
+  'appendChild',
+  'insertChild',
+  'resize',
+  'clone',
+  'duplicate',
+  'getMainComponentAsync',
+  'setProperties',
+  'setComponentProperty',
+  'setBoundVariable',
+  'setFillStyleIdAsync',
+  'setTextStyleIdAsync',
+  'swapComponent',
+  'detachInstance',
+  'createInstance',
+  'defaultVariant',
+  'setExplicitVariableModeForCollection',
+]);
+
+function nodeExposesChildren(live: import('../model/types.js').AnyTreeNode): boolean {
+  return (
+    live.type === 'PAGE' ||
+    live.type === 'FRAME' ||
+    live.type === 'TRANSFORM_GROUP' ||
+    live.type === 'GROUP' ||
+    live.type === 'SECTION' ||
+    live.type === 'BOOLEAN_OPERATION' ||
+    live.type === 'COMPONENT' ||
+    live.type === 'COMPONENT_SET' ||
+    live.type === 'INSTANCE' ||
+    live.type === 'COMPONENT_INSTANCE'
+  );
+}
+
+function enumerateHandleKeys(live: import('../model/types.js').AnyTreeNode): string[] {
+  const keys = new Set<string>(['id', 'type', 'name', HFC_HANDLE_FLAG]);
+  const allowed = (ENGINE_MATRIX.patchKeysByType as Record<string, Set<string> | undefined>)[live.type];
+  if (allowed) {
+    for (const k of allowed) keys.add(k);
+  }
+  if (nodeExposesChildren(live)) {
+    keys.add('children');
+    for (const m of TRAVERSAL_METHODS) keys.add(m);
+  }
+  if (live.type === 'INSTANCE' || live.type === 'COMPONENT_INSTANCE') {
+    keys.add('mainComponent');
+    keys.add('componentProperties');
+    keys.add('variantProperties');
+    for (const m of [
+      'getMainComponentAsync',
+      'setProperties',
+      'setComponentProperty',
+      'swapComponent',
+      'detachInstance',
+    ]) {
+      keys.add(m);
+    }
+  }
+  if (live.type === 'COMPONENT') {
+    keys.add('createInstance');
+    keys.add('componentPropertyDefinitions');
+  }
+  if (live.type === 'COMPONENT_SET') {
+    keys.add('defaultVariant');
+    keys.add('createInstance');
+  }
+  for (const m of HANDLE_METHOD_KEYS) keys.add(m);
+  return [...keys];
+}
+
+function resolveMainComponentHandle(
+  ctx: ScriptContext,
+  inst: InstanceNode | import('../model/types.js').ComponentInstanceNode
+): unknown {
+  const main = findEnvelopeNode(ctx.working, inst.mainComponentId);
+  if (!main) return null;
+  if (main.type === 'COMPONENT') return createHandleProxy(ctx, main.id);
+  if (main.type === 'COMPONENT_SET') {
+    const set = main as import('../model/types.js').ComponentSetNode;
+    const key = set.variantPropertyKey ?? 'variant';
+    const selectedValue = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
+    const options = set.variantOptions ?? set.componentIds;
+    const idx = options.indexOf(String(selectedValue));
+    const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];
+    return selectedComponentId ? createHandleProxy(ctx, selectedComponentId) : null;
+  }
+  if (main.type === 'COMPONENT_INSTANCE') return createHandleProxy(ctx, main.id);
+  return null;
+}
+
+function mergeComponentPropertyValues(
+  current: Record<string, ComponentPropertyValue> | undefined,
+  values: Record<string, string | boolean>
+): Record<string, ComponentPropertyValue> {
+  const next: Record<string, ComponentPropertyValue> = { ...(current ?? {}) };
+  for (const [key, raw] of Object.entries(values)) {
+    const existing = current?.[key];
+    if (existing?.type === 'VARIANT' || (typeof raw === 'string' && existing?.type === 'VARIANT')) {
+      next[key] = { type: 'VARIANT', value: String(raw) };
+    } else if (existing?.type === 'BOOLEAN' || typeof raw === 'boolean') {
+      next[key] = { type: 'BOOLEAN', value: Boolean(raw) };
+    } else if (existing?.type === 'INSTANCE_SWAP') {
+      next[key] = { type: 'INSTANCE_SWAP', value: String(raw) };
+    } else {
+      next[key] = { type: 'TEXT', value: String(raw) };
+    }
+  }
+  return next;
+}
+
 function createHandleProxy(ctx: ScriptContext, id: string): unknown {
   const traversal = () =>
     createTraversalMethods(
@@ -177,22 +290,52 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       if (prop === 'mainComponent') {
         const live = findEnvelopeNode(ctx.working, id);
-        if (!live || ctx.deletedIds.has(id) || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) return null;
-        if (live.type === 'COMPONENT_INSTANCE') return createHandleProxy(ctx, live.mainComponentId);
-        const inst = live as import('../model/types.js').InstanceNode;
-        const main = findEnvelopeNode(ctx.working, inst.mainComponentId);
-        if (!main) return null;
-        if (main.type === 'COMPONENT') return createHandleProxy(ctx, main.id);
-        if (main.type === 'COMPONENT_SET') {
-          const set = main as import('../model/types.js').ComponentSetNode;
-          const key = set.variantPropertyKey ?? 'variant';
-          const selectedValue = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
-          const options = set.variantOptions ?? set.componentIds;
-          const idx = options.indexOf(String(selectedValue));
-          const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];
-          return createHandleProxy(ctx, selectedComponentId);
+        if (!live || ctx.deletedIds.has(id) || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) {
+          return null;
         }
-        return null;
+        if (live.type === 'COMPONENT_INSTANCE') {
+          return createHandleProxy(ctx, live.mainComponentId);
+        }
+        return resolveMainComponentHandle(ctx, live as InstanceNode);
+      }
+      if (prop === 'getMainComponentAsync') {
+        return async (): Promise<unknown> => {
+          const live = findEnvelopeNode(ctx.working, id);
+          if (!live || ctx.deletedIds.has(id) || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) {
+            return null;
+          }
+          if (live.type === 'COMPONENT_INSTANCE') {
+            return createHandleProxy(ctx, live.mainComponentId);
+          }
+          return resolveMainComponentHandle(ctx, live as InstanceNode);
+        };
+      }
+      if (prop === 'componentProperties') {
+        const live = findEnvelopeNode(ctx.working, id);
+        if (!live || ctx.deletedIds.has(id) || (live.type !== 'INSTANCE' && live.type !== 'COMPONENT_INSTANCE')) {
+          return undefined;
+        }
+        return (live as InstanceNode).componentProperties;
+      }
+      if (prop === 'setProperties' || prop === 'setComponentProperty') {
+        return (values: Record<string, string | boolean>): void => {
+          const live = findEnvelopeNode(ctx.working, id);
+          if (!live || ctx.deletedIds.has(id) || live.type !== 'INSTANCE') {
+            throw new ValidationErr('VALIDATION_ERROR', `${String(prop)} requires INSTANCE node`);
+          }
+          const inst = live as InstanceNode;
+          const next = mergeComponentPropertyValues(inst.componentProperties, values);
+          queueUpdate(ctx, id, { componentProperties: next });
+        };
+      }
+      if (prop === 'clone' || prop === 'duplicate') {
+        return (): unknown => {
+          if (ctx.deletedIds.has(id)) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
+          const op: EngineOperation = { op: 'duplicateNode', nodeId: id };
+          ctx.ops.push(op);
+          const cloneId = applyEngineOp(ctx.working, op)!;
+          return createHandleProxy(ctx, cloneId);
+        };
       }
       if (prop === 'variantProperties') {
         const live = findEnvelopeNode(ctx.working, id);
@@ -351,6 +494,33 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       queueUpdate(ctx, id, { [p]: value });
       return true;
     },
+    has(_t, prop) {
+      if (prop === 'id' || prop === HFC_HANDLE_MARKER || prop === HFC_HANDLE_FLAG) return true;
+      if (typeof prop === 'symbol') return false;
+      const p = prop as string;
+      if (TRAVERSAL_METHODS.has(p) || HANDLE_METHOD_KEYS.has(p)) return true;
+      const live = findEnvelopeNode(ctx.working, id);
+      if (!live || ctx.deletedIds.has(id)) return false;
+      if (p === 'children') return nodeExposesChildren(live);
+      if (p === 'parent') return findParentNode(ctx.working.document, id) !== null;
+      if (p === 'mainComponent') return live.type === 'INSTANCE' || live.type === 'COMPONENT_INSTANCE';
+      if (p === 'componentProperties') return live.type === 'INSTANCE' || live.type === 'COMPONENT_INSTANCE';
+      if (p === 'variantProperties') return live.type === 'INSTANCE';
+      if (p === 'componentPropertyDefinitions') return live.type === 'COMPONENT';
+      if (isPatchKeyForType(live.type, p)) return true;
+      return Object.prototype.hasOwnProperty.call(live, p);
+    },
+    ownKeys() {
+      const live = findEnvelopeNode(ctx.working, id);
+      if (!live || ctx.deletedIds.has(id)) return ['id', HFC_HANDLE_FLAG];
+      return enumerateHandleKeys(live);
+    },
+    getOwnPropertyDescriptor(_t, prop) {
+      if (typeof prop === 'string') {
+        return { enumerable: true, configurable: true };
+      }
+      return undefined;
+    },
   });
 }
 
@@ -423,7 +593,35 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
           .filter((c) => !ctx.deletedIds.has(c.id))
           .map((c) => createHandleProxy(ctx, c.id));
       }
+      if ((p === 'clone' || p === 'duplicate') && typeof Reflect.get(target, p, receiver) === 'function') {
+        const fn = Reflect.get(target, p, receiver) as () => unknown;
+        return fn.bind(target);
+      }
+      if (p === 'getMainComponentAsync' && target instanceof RuntimeComponentInstance) {
+        return Reflect.get(target, p, receiver);
+      }
+      if (
+        (p === 'setProperties' || p === 'setComponentProperty') &&
+        target instanceof RuntimeComponentInstance
+      ) {
+        return Reflect.get(target, p, receiver);
+      }
       return Reflect.get(target, prop, receiver);
+    },
+    has(target, prop) {
+      if (prop === 'children') {
+        if (target instanceof RuntimeComponentInstance) return true;
+        if (target.attached && target.getAttachedIdOrNull() !== null) {
+          const live = findEnvelopeNode(ctx.working, target.getAttachedIdOrNull()!);
+          return live ? nodeExposesChildren(live) : false;
+        }
+        return target.type === 'FRAME' || target.type === 'TRANSFORM_GROUP';
+      }
+      if (prop === 'clone' || prop === 'duplicate') return true;
+      if (prop === 'getMainComponentAsync' || prop === 'setProperties' || prop === 'setComponentProperty') {
+        return target instanceof RuntimeComponentInstance;
+      }
+      return Reflect.has(target, prop);
     },
     set(target, prop, value, receiver) {
       const p = prop as string;
@@ -575,6 +773,22 @@ abstract class RuntimeSceneNode {
       );
     }
     return this._id;
+  }
+
+  /** Duplicate this node as a sibling (Figma `clone` / `duplicate`). */
+  clone(): unknown {
+    const nid = this.getAttachedIdOrNull();
+    if (nid === null) {
+      throw new ValidationErr('VALIDATION_ERROR', 'clone requires the node to be appended to the document');
+    }
+    const op: EngineOperation = { op: 'duplicateNode', nodeId: nid };
+    this.ctx.ops.push(op);
+    const cloneId = applyEngineOp(this.ctx.working, op)!;
+    return createHandleProxy(this.ctx, cloneId);
+  }
+
+  duplicate(): unknown {
+    return this.clone();
   }
 
   /** Used by script helpers outside subclasses (reparent / booleans). */
@@ -1579,6 +1793,33 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
     return { [key]: value };
   }
 
+  async getMainComponentAsync(): Promise<unknown> {
+    return this.mainComponent;
+  }
+
+  setProperties(values: Record<string, string | boolean>): void {
+    const nid = this.getAttachedIdOrNull();
+    if (nid === null) {
+      throw new ValidationErr('VALIDATION_ERROR', 'setProperties requires the instance to be appended');
+    }
+    const next = mergeComponentPropertyValues(this.componentProperties, values);
+    this.componentProperties = next;
+    queueUpdate(this.ctx, nid, { componentProperties: next });
+  }
+
+  setComponentProperty(values: Record<string, string | boolean>): void {
+    this.setProperties(values);
+  }
+
+  get children(): unknown[] {
+    if (!this.attached || this._id === null) return [];
+    const live = findEnvelopeNode(this.ctx.working, this._id);
+    if (!live || live.type !== 'INSTANCE') return [];
+    return getImmediateSceneChildren(live, this.ctx.working)
+      .filter((c) => !this.ctx.deletedIds.has(c.id))
+      .map((c) => createHandleProxy(this.ctx, c.id));
+  }
+
   swapComponent(componentNode: { id: string }): void {
     const componentId = componentNode.id;
     const main = findEnvelopeNode(this.ctx.working, this.mainComponentId);
@@ -2197,6 +2438,16 @@ export async function runUseFigmaScript(
     createInstance(componentOrId: string | { id: string }): RuntimeComponentInstance {
       const mainComponentId = typeof componentOrId === 'string' ? componentOrId : componentOrId.id;
       return createComponentInstanceFromMainId(ctx, mainComponentId);
+    },
+    importComponentByKeyAsync: async (key: string): Promise<unknown> => {
+      const componentId = findComponentIdByKey(ctx.working, key);
+      if (!componentId) {
+        throw new ValidationErr(
+          'VALIDATION_ERROR',
+          `importComponentByKeyAsync: no local component with key ${key}`
+        );
+      }
+      return createHandleProxy(ctx, componentId);
     },
     loadAllPagesAsync: async (): Promise<void> => {},
     listAvailableFontsAsync: async (): Promise<FontName[]> => listAvailableFonts(),

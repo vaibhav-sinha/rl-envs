@@ -112,7 +112,8 @@ export type SceneGraphOperation =
   | { op: 'updateNode'; nodeId: string; patch: Record<string, unknown> }
   | { op: 'deleteNode'; nodeId: string }
   | { op: 'moveNode'; nodeId: string; newParentId: string; index?: number }
-  | { op: 'detachInstance'; nodeId: string };
+  | { op: 'detachInstance'; nodeId: string }
+  | { op: 'duplicateNode'; nodeId: string };
 
 /** Registers raster bytes on the file envelope and sidecar (used by `figma.createImage` script ops). */
 export type AssetRegisterOperation = {
@@ -287,6 +288,10 @@ function findInSceneList(nodes: SceneNode[], id: string): AnyTreeNode | null {
       const inner = findInSceneList(n.children as unknown as SceneNode[], id);
       if (inner) return inner;
     }
+    if (n.type === 'INSTANCE' && n.children?.length) {
+      const inner = findInSceneList(n.children, id);
+      if (inner) return inner;
+    }
   }
   return null;
 }
@@ -294,7 +299,16 @@ function findInSceneList(nodes: SceneNode[], id: string): AnyTreeNode | null {
 export function findParentNode(
   root: DocumentNode,
   id: string
-): DocumentNode | PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode | null {
+):
+  | DocumentNode
+  | PageNode
+  | FrameNode
+  | TransformGroupNode
+  | GroupNode
+  | SectionNode
+  | BooleanOperationNode
+  | InstanceNode
+  | null {
   for (const page of root.children) {
     if (page.id === id) return root;
     const hit = findParentInFrames(page.children, id, page);
@@ -306,15 +320,31 @@ export function findParentNode(
 function findParent(
   root: DocumentNode,
   id: string
-): DocumentNode | PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode | null {
+):
+  | DocumentNode
+  | PageNode
+  | FrameNode
+  | TransformGroupNode
+  | GroupNode
+  | SectionNode
+  | BooleanOperationNode
+  | InstanceNode
+  | null {
   return findParentNode(root, id);
 }
 
 function findParentInFrames(
   nodes: SceneNode[],
   id: string,
-  parent: PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode
-): PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode | null {
+  parent:
+    | PageNode
+    | FrameNode
+    | TransformGroupNode
+    | GroupNode
+    | SectionNode
+    | BooleanOperationNode
+    | InstanceNode
+): PageNode | FrameNode | TransformGroupNode | GroupNode | SectionNode | BooleanOperationNode | InstanceNode | null {
   for (const n of nodes) {
     if (n.id === id) return parent;
     if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
@@ -323,6 +353,10 @@ function findParentInFrames(
     }
     if (n.type === 'BOOLEAN_OPERATION') {
       const inner = findParentInFrames(n.children as unknown as SceneNode[], id, n);
+      if (inner) return inner;
+    }
+    if (n.type === 'INSTANCE' && n.children?.length) {
+      const inner = findParentInFrames(n.children, id, n);
       if (inner) return inner;
     }
   }
@@ -1422,6 +1456,18 @@ function normalizeNewInstance(
   if (n.visible !== undefined && typeof n.visible !== 'boolean') {
     throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
   }
+
+  if (spec.children !== undefined && Array.isArray(spec.children)) {
+    n.children = spec.children;
+  } else {
+    try {
+      const root = resolveInstanceRootFrame(env, n);
+      n.children = root.children.map((c) => cloneSceneSubtreeWithNewIds(env, c));
+    } catch {
+      // Unresolved main component — instance has no detached subtree.
+    }
+  }
+
   return n;
 }
 
@@ -1625,7 +1671,7 @@ function allocNodeId(working: FileEnvelope): string {
   return id;
 }
 
-function cloneSceneSubtreeWithNewIds(working: FileEnvelope, node: SceneNode): SceneNode {
+export function cloneSceneSubtreeWithNewIds(working: FileEnvelope, node: SceneNode): SceneNode {
   const cloned = structuredClone(node) as SceneNode;
   cloned.id = allocNodeId(working);
   if (
@@ -1638,8 +1684,69 @@ function cloneSceneSubtreeWithNewIds(working: FileEnvelope, node: SceneNode): Sc
   } else if (cloned.type === 'BOOLEAN_OPERATION') {
     const b = cloned;
     b.children = b.children.map((c) => cloneSceneSubtreeWithNewIds(working, c as SceneNode) as (typeof b.children)[number]);
+  } else if (cloned.type === 'INSTANCE' && cloned.children?.length) {
+    cloned.children = cloned.children.map((c) => cloneSceneSubtreeWithNewIds(working, c));
   }
   return cloned;
+}
+
+/** Duplicate a scene node as a sibling (Figma `clone` / `duplicate`). */
+export function duplicateNodeInEnvelope(working: FileEnvelope, nodeId: string): string {
+  const node = findNode(working.document, nodeId);
+  if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') {
+    throw new ValidationErr('VALIDATION_ERROR', 'duplicate: node must be a scene node');
+  }
+  const parent = findParent(working.document, nodeId);
+  if (!parent || parent.type === 'DOCUMENT') {
+    throw new ValidationErr('VALIDATION_ERROR', 'duplicate: node has no parent');
+  }
+  const list = parent.type === 'PAGE' ? parent.children : parent.children;
+  const idx = list.findIndex((c) => c.id === nodeId);
+  if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
+  const cloned = cloneSceneSubtreeWithNewIds(working, node as SceneNode);
+  list.splice(idx + 1, 0, cloned);
+  return cloned.id;
+}
+
+/** Resolve COMPONENT / COMPONENT_SET by published component key (local file only). */
+export function findComponentIdByKey(working: FileEnvelope, key: string): string | null {
+  for (const page of working.document.children) {
+    const hit = walkFindComponentKey(page.children, key);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function walkFindComponentKey(nodes: SceneNode[], key: string): string | null {
+  for (const n of nodes) {
+    if (n.type === 'COMPONENT') {
+      const k = (n as ComponentNode).componentKey;
+      if (k === key) return n.id;
+    }
+    if (n.type === 'COMPONENT_SET') {
+      const k = (n as ComponentSetNode).componentKey;
+      if (k === key) return n.id;
+    }
+    if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
+      const inner = walkFindComponentKey(n.children, key);
+      if (inner) return inner;
+    }
+    if (n.type === 'BOOLEAN_OPERATION') {
+      const inner = walkFindComponentKey(n.children as unknown as SceneNode[], key);
+      if (inner) return inner;
+    }
+  }
+  return null;
+}
+
+/** Rebuild INSTANCE detached subtree after variant / main changes (script-created instances). */
+export function refreshInstanceChildrenFromMain(working: FileEnvelope, inst: InstanceNode): void {
+  try {
+    const root = resolveInstanceRootFrame(working, inst);
+    inst.children = root.children.map((c) => cloneSceneSubtreeWithNewIds(working, c));
+  } catch {
+    delete inst.children;
+  }
 }
 
 function resolveInstanceRootFrame(working: FileEnvelope, inst: InstanceNode): FrameNode {
@@ -1953,6 +2060,9 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
   }
   if (op.op === 'detachInstance') {
     return detachInstanceInEnvelope(working, op.nodeId);
+  }
+  if (op.op === 'duplicateNode') {
+    return duplicateNodeInEnvelope(working, op.nodeId);
   }
   if (op.op === 'moveNode') {
     const subtree = detachSubtree(working.document, op.nodeId);
@@ -3532,6 +3642,14 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
         cn.componentPropertyDefinitions = cpd as import('../model/types.js').ComponentNode['componentPropertyDefinitions'];
       }
     }
+    if ('componentKey' in patch) {
+      const ck = patch.componentKey;
+      if (ck === undefined || ck === null) delete cn.componentKey;
+      else {
+        if (typeof ck !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'componentKey must be string');
+        cn.componentKey = ck;
+      }
+    }
     validateShapeBox(cn as unknown as import('../model/types.js').FrameNode);
     return;
   }
@@ -3566,6 +3684,14 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       validateBlendMode(patch.blendMode, 'COMPONENT_SET.blendMode');
       cs.blendMode = patch.blendMode as import('../model/types.js').ComponentSetNode['blendMode'];
     }
+    if ('componentKey' in patch) {
+      const ck = patch.componentKey;
+      if (ck === undefined || ck === null) delete cs.componentKey;
+      else {
+        if (typeof ck !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'componentKey must be string');
+        cs.componentKey = ck;
+      }
+    }
     validateShapeBox(cs as unknown as import('../model/types.js').FrameNode);
     return;
   }
@@ -3589,6 +3715,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
         throw new ValidationErr('VALIDATION_ERROR', 'mainComponentId must reference an existing COMPONENT or COMPONENT_SET');
       }
       inst.mainComponentId = mid as string;
+      refreshInstanceChildrenFromMain(env, inst);
     }
     if ('overrides' in patch) {
       const ovr = patch.overrides;
@@ -3634,6 +3761,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
         }
         inst.componentProperties = next;
       }
+      refreshInstanceChildrenFromMain(env, inst);
     }
     validateShapeBox(inst as unknown as import('../model/types.js').FrameNode);
     if ('visible' in patch) {

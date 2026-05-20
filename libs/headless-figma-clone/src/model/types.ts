@@ -871,6 +871,8 @@ export interface ComponentNode extends NodeBase, LayoutSelfFields {
   blendMode?: BlendMode;
   /** Frame node id containing the master artwork. */
   rootFrameId: string;
+  /** Figma published key for `importComponentByKeyAsync` (local components only). */
+  componentKey?: string;
   componentPropertyDefinitions?: Record<string, ComponentPropertyDefinition>;
 }
 
@@ -883,6 +885,8 @@ export interface ComponentSetNode extends NodeBase, LayoutSelfFields {
   rotation?: number;
   opacity?: number;
   blendMode?: BlendMode;
+  /** Figma published key for `importComponentSetByKeyAsync` (local sets only). */
+  componentKey?: string;
   /** Ordered variant component ids. */
   componentIds: string[];
   /** Component set "variant property" key. We implement a minimal subset. */

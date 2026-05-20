@@ -272,9 +272,10 @@ export const ENGINE_MATRIX = {
       'cells',
     ]),
     COMPONENT_INSTANCE: new Set([...shapePatchKeys, 'mainComponentId', 'overrides']),
-    COMPONENT: new Set([...shapePatchKeys, 'rootFrameId', 'componentPropertyDefinitions']),
+    COMPONENT: new Set([...shapePatchKeys, 'rootFrameId', 'componentKey', 'componentPropertyDefinitions']),
     COMPONENT_SET: new Set([
       ...shapePatchKeys,
+      'componentKey',
       'componentIds',
       'variantPropertyKey',
       'variantOptions',

@@ -45,12 +45,26 @@ function queueEnv(ctx: { working: FileEnvelope; ops: EngineOperation[] }, op: En
   applyEnvelopeOperation(ctx.working, op);
 }
 
+/** Proxy target only — style fields are resolved via the get trap from the envelope. */
+type StyleProxyTarget = {
+  id: string;
+  kind: string;
+  [HFC_STYLE_MARKER]: true;
+  [HFC_STYLE_FLAG]: true;
+};
+
 function wrapPaintStyle(ctx: { working: FileEnvelope; ops: EngineOperation[] }, id: string): ScriptPaintStyle {
-  return new Proxy(
-    { id, kind: 'paint', [HFC_STYLE_MARKER]: true as const, [HFC_STYLE_FLAG]: true as const } as ScriptPaintStyle,
-    {
+  const target: StyleProxyTarget = {
+    id,
+    kind: 'paint',
+    [HFC_STYLE_MARKER]: true,
+    [HFC_STYLE_FLAG]: true,
+  };
+  return new Proxy(target, {
     get(_t, prop) {
       if (prop === 'id') return id;
+      if (prop === HFC_STYLE_MARKER || prop === HFC_STYLE_FLAG) return true;
+      if (prop === 'kind') return 'paint';
       return findPaintStyle(ctx.working, id)?.[prop as keyof PaintStyleDefinition];
     },
     set(_t, prop, value) {
@@ -64,15 +78,21 @@ function wrapPaintStyle(ctx: { working: FileEnvelope; ops: EngineOperation[] }, 
       }
       return false;
     },
-  });
+  }) as unknown as ScriptPaintStyle;
 }
 
 function wrapTextStyle(ctx: { working: FileEnvelope; ops: EngineOperation[] }, id: string): ScriptTextStyle {
-  return new Proxy(
-    { id, kind: 'text', [HFC_STYLE_MARKER]: true as const, [HFC_STYLE_FLAG]: true as const } as ScriptTextStyle,
-    {
+  const target: StyleProxyTarget = {
+    id,
+    kind: 'text',
+    [HFC_STYLE_MARKER]: true,
+    [HFC_STYLE_FLAG]: true,
+  };
+  return new Proxy(target, {
     get(_t, prop) {
       if (prop === 'id') return id;
+      if (prop === HFC_STYLE_MARKER || prop === HFC_STYLE_FLAG) return true;
+      if (prop === 'kind') return 'text';
       return findTextStyle(ctx.working, id)?.[prop as keyof TextStyleDefinition];
     },
     set(_t, prop, value) {
@@ -94,7 +114,7 @@ function wrapTextStyle(ctx: { working: FileEnvelope; ops: EngineOperation[] }, i
       }
       return false;
     },
-  });
+  }) as unknown as ScriptTextStyle;
 }
 
 function findPaintStyle(env: FileEnvelope, id: string): PaintStyleDefinition | null {

@@ -398,6 +398,7 @@ function importSceneNode(
       });
       ctx.componentRootFrames.set(compId, rootFrame);
       registerComponentLookup(ctx, compId, node.name, p);
+      const componentKey = optStr(prop(p, 'componentKey')) ?? optStr(prop(p, 'key'));
       return {
         ...base,
         type: 'COMPONENT',
@@ -406,6 +407,7 @@ function importSceneNode(
         width: b.width,
         height: b.height,
         rootFrameId,
+        ...(componentKey ? { componentKey } : {}),
       } as SceneNode;
     }
     report.skippedNodes.push({
