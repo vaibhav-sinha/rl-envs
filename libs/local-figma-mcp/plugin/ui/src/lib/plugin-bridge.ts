@@ -1,5 +1,7 @@
 import { TB_URL } from './constants';
 
+const EXPORT_UI_ASSET_UPLOAD_CONCURRENCY = 4;
+
 function formatExportError(error: unknown, fallback = 'Export failed'): string {
   if (error instanceof Error) {
     const msg = error.message.trim();
@@ -38,18 +40,21 @@ import {
   isImagePartUploadFallbackError,
   substituteBlankRasterImageLine,
 } from './export-stream-part-fallback';
-import type { ExportRunMetrics } from './export-metrics';
 import { UiUploadMetrics } from './export-metrics';
 import {
-  applyExportProgressUpdate,
-  type ExportProgressPhase,
-  type ExportProgressUpdate,
+  applyExportProgressSnapshot,
+  applyFinalizeProgress,
+  type ExportProgressSnapshot,
   type MultiPhaseExportProgress,
 } from './export-progress-state';
-import { OrderedUploadQueue } from './ordered-upload-queue';
+import { HybridUploadQueue, isAssetUploadBody } from './hybrid-upload-queue';
 
-export type { ExportProgressPhase, MultiPhaseExportProgress, ExportProgressUpdate };
-export { applyExportProgressUpdate, createInitialExportProgress } from './export-progress-state';
+export type { MultiPhaseExportProgress, ExportProgressSnapshot };
+export {
+  applyExportProgressSnapshot,
+  applyFinalizeProgress,
+  createInitialExportProgress,
+} from './export-progress-state';
 
 export type PluginMessage =
   | { type: 'request_hello' }
@@ -68,15 +73,7 @@ export type PluginMessage =
 export type PluginReply =
   | { type: 'hello_data'; fileKey: string; fileName: string; pluginVersion: string }
   | { type: 'log'; line: string }
-  | {
-      type: 'export_progress';
-      phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
-      current: number;
-      total: number;
-      percent: number;
-      detail?: string;
-      metrics?: ExportRunMetrics;
-    }
+  | { type: 'export_progress_v2'; snapshot: ExportProgressSnapshot }
   | { type: 'export_stream_part'; exportId: string; seq: number; line: string }
   | { type: 'export_stream_batch'; exportId: string; seq: number; lines: string[] }
   | { type: 'export_stream_done'; ok: boolean; exportId?: string; error?: string }
@@ -127,8 +124,8 @@ async function tbPostPartBody(exportId: string, body: string): Promise<{ seq: nu
 
 export interface StreamingExportOptions {
   excludeNodeIds?: string[];
-  /** Receives a single phase update; merge with `applyExportProgressUpdate` in React state. */
-  onProgress?: (update: ExportProgressUpdate) => void;
+  /** Latest progress snapshot from the plugin main thread (merge with applyExportProgressSnapshot). */
+  onProgress?: (snapshot: ExportProgressSnapshot) => void;
 }
 
 export interface StreamingExportResult {
@@ -173,6 +170,24 @@ export async function finishExportStreamSession(
   return body;
 }
 
+function mergeSnapshotWithUiMetrics(
+  snapshot: ExportProgressSnapshot,
+  uiUploadMetrics: UiUploadMetrics
+): ExportProgressSnapshot {
+  const timing = uiUploadMetrics.mergeIntoTiming(snapshot.timing);
+  return {
+    ...snapshot,
+    timing,
+    tracks: {
+      ...snapshot.tracks,
+      upload: {
+        ...snapshot.tracks.upload,
+        httpPartsUploaded: uiUploadMetrics.partsUploaded,
+      },
+    },
+  };
+}
+
 /** Stream export from Figma plugin main thread → Task Builder (OOM-safe). */
 export async function exportSnapshotStreaming(
   hfcFileName: string,
@@ -181,7 +196,7 @@ export async function exportSnapshotStreaming(
   const { exportId } = await createExportStreamSession();
   postToPlugin({ type: 'export_file', hfcFileName, exportId, excludeNodeIds: options.excludeNodeIds });
 
-  const uploadQueue = new OrderedUploadQueue();
+  const uploadQueue = new HybridUploadQueue(EXPORT_UI_ASSET_UPLOAD_CONCURRENCY);
   const uiUploadMetrics = new UiUploadMetrics();
 
   const uploadPart = async (body: string, seq: number): Promise<void> => {
@@ -208,19 +223,9 @@ export async function exportSnapshotStreaming(
       const msg = event.data?.pluginMessage as PluginReply | undefined;
       if (!msg) return;
 
-      if (msg.type === 'export_progress') {
-        const metrics =
-          msg.metrics !== undefined
-            ? uiUploadMetrics.mergeWith(msg.metrics)
-            : undefined;
-        options.onProgress?.({
-          phase: msg.phase,
-          current: msg.current,
-          total: msg.total,
-          percent: msg.percent,
-          detail: msg.detail,
-          metrics,
-        });
+      if (msg.type === 'export_progress_v2') {
+        const merged = mergeSnapshotWithUiMetrics(msg.snapshot, uiUploadMetrics);
+        options.onProgress?.(merged);
         return;
       }
 
@@ -243,16 +248,19 @@ export async function exportSnapshotStreaming(
       };
 
       if (msg.type === 'export_stream_part' && msg.exportId === exportId) {
-        void uploadQueue
-          .enqueue(() => uploadPart(msg.line, msg.seq))
-          .catch((e) => failUpload(msg.seq, e));
+        const body = msg.line;
+        const job = () => uploadPart(body, msg.seq);
+        const enqueue = isAssetUploadBody(body)
+          ? () => uploadQueue.enqueueAsset(job)
+          : () => uploadQueue.enqueueBatch(job);
+        void enqueue().catch((e) => failUpload(msg.seq, e));
         return;
       }
 
       if (msg.type === 'export_stream_batch' && msg.exportId === exportId) {
         const body = msg.lines.join('');
         void uploadQueue
-          .enqueue(() => uploadPart(body, msg.seq))
+          .enqueueBatch(() => uploadPart(body, msg.seq))
           .catch((e) => failUpload(msg.seq, e));
         return;
       }

@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import {
-  applyExportProgressUpdate,
+  applyExportProgressSnapshot,
+  applyFinalizeProgress,
   createInitialExportProgress,
   exportSnapshotStreaming,
   finishExportStreamSession,
-  type ExportProgressUpdate,
 } from '../lib/plugin-bridge';
 import type { ExportOutcome, MultiPhaseExportProgress } from '../lib/export-progress-state';
 import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportProgress';
@@ -24,8 +24,8 @@ export function ExportTab({
   const [progress, setProgress] = useState<MultiPhaseExportProgress | null>(null);
   const [outcome, setOutcome] = useState<ExportOutcome | null>(null);
 
-  const reportProgress = (update: ExportProgressUpdate) => {
-    setProgress((prev) => applyExportProgressUpdate(prev, update));
+  const reportProgress = (snapshot: Parameters<typeof applyExportProgressSnapshot>[1]) => {
+    setProgress((prev) => applyExportProgressSnapshot(prev, snapshot));
   };
 
   const runExport = async () => {
@@ -39,18 +39,14 @@ export function ExportTab({
         onProgress: reportProgress,
       });
 
-      reportProgress({
-        phase: 'finalize',
-        current: 0,
-        total: 1,
-        percent: 0,
-        detail: 'Importing on Task Builder…',
-      });
+      setProgress((prev) =>
+        prev ? applyFinalizeProgress(prev, 0, 1, 'Importing on Task Builder…') : prev
+      );
       onLog('Finalizing on Task Builder…');
       const result = await finishExportStreamSession(exportId, {
         standaloneFileName: name,
       });
-      reportProgress({ phase: 'finalize', current: 1, total: 1, percent: 100 });
+      setProgress((prev) => (prev ? applyFinalizeProgress(prev, 1, 1) : prev));
 
       const path = result.filePath ?? `${name}.hfc.json`;
       setOutcome({

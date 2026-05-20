@@ -299,8 +299,8 @@
           log(msg.line, msg.line.startsWith('✗'));
           return;
         }
-        if (msg.type === 'export_progress') {
-          setLoader(true, msg.detail || msg.phase || 'Working…');
+        if (msg.type === 'export_progress_v2') {
+          setLoader(true, msg.snapshot?.activeDetail || msg.snapshot?.active || 'Exporting…');
           return;
         }
         if (msg.type === 'export_file_chunk') {

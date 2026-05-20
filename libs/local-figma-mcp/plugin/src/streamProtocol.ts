@@ -21,10 +21,16 @@ export const EXPORT_TREE_BATCH_MAX_CHARS = 3 * 1024 * 1024;
 export const EXPORT_UPLOAD_MAX_INFLIGHT = 6;
 
 /** Max non-tree parts in flight (assets are large). */
-export const EXPORT_ASSET_MAX_INFLIGHT = 2;
+export const EXPORT_ASSET_MAX_INFLIGHT = 5;
+
+/** Parallel `exportAsync` calls for icon roots. */
+export const ICON_EXPORT_CONCURRENCY = 3;
 
 /** Parallel `getBytesAsync` calls for raster image fills. */
-export const RASTER_IMAGE_CONCURRENCY = 8;
+export const RASTER_IMAGE_CONCURRENCY = 12;
+
+/** Max concurrent HTTP uploads for asset parts in the plugin UI. */
+export const EXPORT_UI_ASSET_UPLOAD_CONCURRENCY = 4;
 
 /** Yield to the event loop every N nodes during tree serialization. */
 export const TREE_SERIALIZE_YIELD_EVERY = 1000;

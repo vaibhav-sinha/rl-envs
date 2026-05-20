@@ -12,14 +12,14 @@ import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Textarea } from '../components/ui/textarea';
 import {
-  applyExportProgressUpdate,
+  applyExportProgressSnapshot,
+  applyFinalizeProgress,
   captureScreenshot,
   createInitialExportProgress,
   exportSnapshotStreaming,
   finishExportStreamSession,
   pickExcludeNodeIds,
   pickNodeId,
-  type ExportProgressUpdate,
 } from '../lib/plugin-bridge';
 import type { ExportOutcome, MultiPhaseExportProgress } from '../lib/export-progress-state';
 import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportProgress';
@@ -181,8 +181,8 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     }
   };
 
-  const reportExportProgress = (update: ExportProgressUpdate) => {
-    setExportProgress((prev) => applyExportProgressUpdate(prev, update));
+  const reportExportProgress = (snapshot: Parameters<typeof applyExportProgressSnapshot>[1]) => {
+    setExportProgress((prev) => applyExportProgressSnapshot(prev, snapshot));
   };
 
   const runExport = async (mode: 'full' | 'exclude', excludeNodeIds?: string[]) => {
@@ -197,20 +197,18 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
         onProgress: reportExportProgress,
       });
 
-      reportExportProgress({
-        phase: 'finalize',
-        current: 0,
-        total: 1,
-        percent: 0,
-        detail: 'Saving to task draft…',
-      });
+      setExportProgress((prev) =>
+        prev
+          ? applyFinalizeProgress(prev, 0, 1, 'Saving to task draft…')
+          : prev
+      );
       onLog('Finalizing on Task Builder…');
       await finishExportStreamSession(exportId, {
         taskId,
         mode,
         excludeNodeIds,
       });
-      reportExportProgress({ phase: 'finalize', current: 1, total: 1, percent: 100 });
+      setExportProgress((prev) => (prev ? applyFinalizeProgress(prev, 1, 1) : prev));
 
       const updated = await taskBuilderApi.getTask(taskId);
       setTask(updated);

@@ -11,6 +11,19 @@ import {
 
 const STREAM_ACK_TIMEOUT_MS = 120_000;
 
+export type StreamBatchKind = 'tree' | 'icon_props';
+
+export interface GateUploadCounters {
+  treeBatchesPosted: number;
+  treeBatchesAcked: number;
+  iconPropsBatchesPosted: number;
+  iconPropsBatchesAcked: number;
+  rasterAssetsPosted: number;
+  rasterAssetsAcked: number;
+  iconAssetsPosted: number;
+  iconAssetsAcked: number;
+}
+
 export interface ExportUploadGatePost {
   type: 'export_stream_batch';
   exportId: string;
@@ -32,6 +45,7 @@ export interface ExportUploadGateOptions {
   postMessage: (msg: ExportUploadGateMessage) => void;
   metrics: ExportMetricsCollector;
   onAbortError: () => string | null;
+  onPosted?: () => void;
 }
 
 export class ExportUploadGate {
@@ -39,6 +53,7 @@ export class ExportUploadGate {
   private readonly postMessage: (msg: ExportUploadGateMessage) => void;
   private readonly metrics: ExportMetricsCollector;
   private readonly onAbortError: () => string | null;
+  private readonly onPosted?: () => void;
 
   private nextSeq = 0;
   private inflight = 0;
@@ -46,13 +61,26 @@ export class ExportUploadGate {
   private iconPropsBatch: string[] = [];
   private inflightWaiters: Array<() => void> = [];
   private drainWaiters: Array<() => void> = [];
-  private pendingAckIsBatch = false;
+  private pendingAckBatchKind: StreamBatchKind | null = null;
+  private pendingAckIsRasterAsset = false;
+
+  private _counters: GateUploadCounters = {
+    treeBatchesPosted: 0,
+    treeBatchesAcked: 0,
+    iconPropsBatchesPosted: 0,
+    iconPropsBatchesAcked: 0,
+    rasterAssetsPosted: 0,
+    rasterAssetsAcked: 0,
+    iconAssetsPosted: 0,
+    iconAssetsAcked: 0,
+  };
 
   constructor(options: ExportUploadGateOptions) {
     this.exportId = options.exportId;
     this.postMessage = options.postMessage;
     this.metrics = options.metrics;
     this.onAbortError = options.onAbortError;
+    this.onPosted = options.onPosted;
   }
 
   get uploadInflight(): number {
@@ -63,11 +91,27 @@ export class ExportUploadGate {
     return this.nextSeq;
   }
 
+  get counters(): Readonly<GateUploadCounters> {
+    return this._counters;
+  }
+
   handleAck(_seq: number): void {
     this.inflight = Math.max(0, this.inflight - 1);
-    if (this.pendingAckIsBatch) this.metrics.onStreamBatchAcked();
-    else this.metrics.onUploadAcked();
-    this.pendingAckIsBatch = false;
+    if (this.pendingAckBatchKind === 'tree') {
+      this._counters.treeBatchesAcked += 1;
+      this.metrics.onStreamBatchAcked();
+    } else if (this.pendingAckBatchKind === 'icon_props') {
+      this._counters.iconPropsBatchesAcked += 1;
+      this.metrics.onStreamBatchAcked();
+    } else if (this.pendingAckIsRasterAsset) {
+      this._counters.rasterAssetsAcked += 1;
+      this.metrics.onUploadAcked();
+    } else {
+      this._counters.iconAssetsAcked += 1;
+      this.metrics.onUploadAcked();
+    }
+    this.pendingAckBatchKind = null;
+    this.pendingAckIsRasterAsset = false;
     this.wakeInflightWaiters();
     if (this.inflight === 0) {
       for (const w of this.drainWaiters) w();
@@ -120,7 +164,7 @@ export class ExportUploadGate {
     if (this.treeBatch.length === 0) return;
     const lines = this.treeBatch;
     this.treeBatch = [];
-    await this.postStreamBatch(lines);
+    await this.postStreamBatch(lines, 'tree');
   }
 
   pushIconPropsLine(line: string): void {
@@ -136,26 +180,35 @@ export class ExportUploadGate {
     if (this.iconPropsBatch.length === 0) return;
     const lines = this.iconPropsBatch;
     this.iconPropsBatch = [];
-    await this.postStreamBatch(lines);
+    await this.postStreamBatch(lines, 'icon_props');
   }
 
-  private async postStreamBatch(lines: string[]): Promise<void> {
+  private async postStreamBatch(lines: string[], kind: StreamBatchKind): Promise<void> {
     await this.waitForInflightBelow(EXPORT_UPLOAD_MAX_INFLIGHT);
     const seq = ++this.nextSeq;
     this.inflight += 1;
+    if (kind === 'tree') this._counters.treeBatchesPosted += 1;
+    else this._counters.iconPropsBatchesPosted += 1;
     this.metrics.onStreamBatchPosted();
-    this.pendingAckIsBatch = true;
+    this.pendingAckBatchKind = kind;
+    this.pendingAckIsRasterAsset = false;
     this.postMessage({
       type: 'export_stream_batch',
       exportId: this.exportId,
       seq,
       lines,
     });
+    this.onPosted?.();
   }
 
   async postIconPropsLine(line: string): Promise<void> {
     this.pushIconPropsLine(line);
     await this.flushIconPropsBatchIfNeeded();
+  }
+
+  /** Post a raster fill asset (figmaImageHash) — tracked separately for progress. */
+  async postRasterAsset(line: string): Promise<void> {
+    await this.postAssetLine(line, true);
   }
 
   async postLine(line: string): Promise<void> {
@@ -170,20 +223,26 @@ export class ExportUploadGate {
     }
     await this.flushTreeBatch();
     await this.flushIconPropsBatch();
-    const maxInflight = isAssetStreamLine(line)
-      ? EXPORT_ASSET_MAX_INFLIGHT
-      : EXPORT_UPLOAD_MAX_INFLIGHT;
-    await this.waitForInflightBelow(maxInflight);
+    const isRaster = isAssetStreamLine(line) && line.includes('"figmaImageHash"');
+    await this.postAssetLine(line, isRaster);
+  }
+
+  private async postAssetLine(line: string, isRaster: boolean): Promise<void> {
+    await this.waitForInflightBelow(EXPORT_ASSET_MAX_INFLIGHT);
     const seq = ++this.nextSeq;
     this.inflight += 1;
+    if (isRaster) this._counters.rasterAssetsPosted += 1;
+    else if (isAssetStreamLine(line)) this._counters.iconAssetsPosted += 1;
     this.metrics.onUploadPosted();
-    this.pendingAckIsBatch = false;
+    this.pendingAckBatchKind = null;
+    this.pendingAckIsRasterAsset = isRaster;
     this.postMessage({
       type: 'export_stream_part',
       exportId: this.exportId,
       seq,
       line,
     });
+    this.onPosted?.();
   }
 
   async drain(): Promise<void> {

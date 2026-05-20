@@ -1,6 +1,7 @@
-import type { ExportMetricsCollector, ExportRunMetrics } from '../exportMetrics.js';
+import type { ExportMetricsCollector } from '../exportMetrics.js';
 import { shouldEmitProgressMetrics } from '../exportMetrics.js';
 import type { ExportUploadGate } from '../exportUploadGate.js';
+import type { ExportProgressReporter } from '../exportProgressReporter.js';
 import type {
   ExportTotals,
   IconUploadStats,
@@ -9,13 +10,13 @@ import type {
 } from '../streamProtocol.js';
 import {
   EXPORT_PROGRESS_EVERY_NODES,
-  RASTER_IMAGE_CONCURRENCY,
+  ICON_EXPORT_CONCURRENCY,
   STREAM_PROTOCOL_VERSION,
   TREE_SERIALIZE_YIELD_EVERY,
   iconPropsBatchCount,
   streamPartToLine,
 } from '../streamProtocol.js';
-import { poolMapStream } from './asyncPool.js';
+import { mapPool } from './asyncPool.js';
 import { SNAPSHOT_VERSION } from '../snapshotTypes.js';
 import { ICON_RASTER_EXPORT_SCALE, prefersRasterIconExport } from './iconDetector.js';
 import { IconExportRegistry } from './iconExportRegistry.js';
@@ -23,14 +24,13 @@ import type { IconTreeAnalysis } from './iconDetector.js';
 import { IncrementalIconWalk } from './incrementalIconWalk.js';
 import { bytesToBase64 } from './serializeValue.js';
 import { sha256Hex } from './sha256.js';
-import { BLANK_PNG_BYTES } from '../blankPng.js';
+import { RasterExportPipeline } from './rasterPipeline.js';
 import {
   clearImageHashesForExport,
   collectImageHashesForExport,
   getImageHashesSet,
   serializeMetaAndStyles,
   serializeTreeEvents,
-  type BuildSnapshotOptions,
 } from './exportFile.js';
 
 const SVG_EXPORT_SETTINGS = {
@@ -55,14 +55,6 @@ function assetPartFromBytes(
     bytesBase64: bytesToBase64(bytes),
     ...fields,
   };
-}
-
-function sniffMime(bytes: Uint8Array): AssetMime {
-  if (bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png';
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
-  if (bytes[0] === 0x47 && bytes[1] === 0x49) return 'image/gif';
-  if (bytes.length > 12 && bytes[8] === 0x57 && bytes[9] === 0x45) return 'image/webp';
-  return 'image/png';
 }
 
 function iconPropsPart(
@@ -91,23 +83,13 @@ function visitMixedFillVector(node: BaseNode, walk: IncrementalIconWalk): void {
   }
 }
 
-export interface StreamExportProgressCallback {
-  (
-    phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload',
-    current: number,
-    total: number,
-    detail?: string,
-    metrics?: ExportRunMetrics
-  ): void;
-}
-
 export interface RunFigmaStreamExportOptions {
   exportId: string;
   hfcFileName: string;
   excludeNodeIds?: string[];
   gate: ExportUploadGate;
   metrics: ExportMetricsCollector;
-  onProgress: StreamExportProgressCallback;
+  progress: ExportProgressReporter;
   onSessionTotals?: (totals: ExportTotals) => void;
   onIconPhaseComplete?: (stats: IconUploadStats) => void;
 }
@@ -116,15 +98,43 @@ type ExportableNode = SceneNode & {
   exportAsync: (settings: ExportSettings) => Promise<Uint8Array>;
 };
 
+type IconExportJob = { nodeId: string; kind: 'root' | 'mixed' };
+
+interface IconExportPrepared {
+  nodeId: string;
+  wire?: SerializedNodeWire;
+  analysis?: IconTreeAnalysis;
+  exportNode: ExportableNode;
+}
+
+function createRegistryLock(): {
+  runExclusive<T>(fn: () => Promise<T>): Promise<T>;
+} {
+  let tail: Promise<void> = Promise.resolve();
+  return {
+    runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+      const run = tail.then(fn);
+      tail = run.then(
+        () => undefined,
+        () => undefined
+      );
+      return run;
+    },
+  };
+}
+
 async function exportIconRoot(
   nodeId: string,
   wire: SerializedNodeWire,
   analysis: IconTreeAnalysis,
   exportNode: ExportableNode,
   registry: IconExportRegistry,
-  gate: ExportUploadGate
+  gate: ExportUploadGate,
+  registryLock: ReturnType<typeof createRegistryLock>
 ): Promise<void> {
-  const skip = registry.tryMainComponentSkip(wire, analysis);
+  const skip = await registryLock.runExclusive(() =>
+    Promise.resolve(registry.tryMainComponentSkip(wire, analysis))
+  );
   if (skip) {
     await gate.postIconPropsLine(
       streamPartToLine(iconPropsPart(nodeId, skip.mimeType, skip.canonicalNodeId))
@@ -141,39 +151,43 @@ async function exportIconRoot(
         contentsOnly: true,
         constraint: { type: 'SCALE', value: ICON_RASTER_EXPORT_SCALE },
       });
-      const reg = registry.registerAfterExport(
-        nodeId,
-        bytes,
-        'image/png',
-        ICON_RASTER_EXPORT_SCALE,
-        wire
-      );
-      await gate.postIconPropsLine(
-        streamPartToLine(iconPropsPart(nodeId, 'image/png', reg.canonicalNodeId))
-      );
-      if (reg.emitAsset) {
-        await gate.postLine(
-          streamPartToLine(
-            assetPartFromBytes(bytes, 'image/png', {
-              figmaNodeId: reg.canonicalNodeId,
-              exportScale: ICON_RASTER_EXPORT_SCALE,
-            })
-          )
+      await registryLock.runExclusive(async () => {
+        const reg = registry.registerAfterExport(
+          nodeId,
+          bytes,
+          'image/png',
+          ICON_RASTER_EXPORT_SCALE,
+          wire
         );
-      }
+        await gate.postIconPropsLine(
+          streamPartToLine(iconPropsPart(nodeId, 'image/png', reg.canonicalNodeId))
+        );
+        if (reg.emitAsset) {
+          await gate.postLine(
+            streamPartToLine(
+              assetPartFromBytes(bytes, 'image/png', {
+                figmaNodeId: reg.canonicalNodeId,
+                exportScale: ICON_RASTER_EXPORT_SCALE,
+              })
+            )
+          );
+        }
+      });
     } else {
       const bytes = await exportNode.exportAsync(SVG_EXPORT_SETTINGS);
-      const reg = registry.registerAfterExport(nodeId, bytes, 'image/svg+xml', undefined, wire);
-      await gate.postIconPropsLine(
-        streamPartToLine(iconPropsPart(nodeId, 'image/svg+xml', reg.canonicalNodeId))
-      );
-      if (reg.emitAsset) {
-        await gate.postLine(
-          streamPartToLine(
-            assetPartFromBytes(bytes, 'image/svg+xml', { figmaNodeId: reg.canonicalNodeId })
-          )
+      await registryLock.runExclusive(async () => {
+        const reg = registry.registerAfterExport(nodeId, bytes, 'image/svg+xml', undefined, wire);
+        await gate.postIconPropsLine(
+          streamPartToLine(iconPropsPart(nodeId, 'image/svg+xml', reg.canonicalNodeId))
         );
-      }
+        if (reg.emitAsset) {
+          await gate.postLine(
+            streamPartToLine(
+              assetPartFromBytes(bytes, 'image/svg+xml', { figmaNodeId: reg.canonicalNodeId })
+            )
+          );
+        }
+      });
     }
   } catch {
     /* skip */
@@ -184,29 +198,49 @@ async function exportMixedFillVector(
   nodeId: string,
   exportNode: ExportableNode,
   registry: IconExportRegistry,
-  gate: ExportUploadGate
+  gate: ExportUploadGate,
+  registryLock: ReturnType<typeof createRegistryLock>
 ): Promise<void> {
   try {
     const bytes = await exportNode.exportAsync(SVG_EXPORT_SETTINGS);
-    const reg = registry.registerAfterExport(nodeId, bytes, 'image/svg+xml', undefined, undefined);
-    await gate.postIconPropsLine(
-      streamPartToLine(iconPropsPart(nodeId, 'image/svg+xml', reg.canonicalNodeId))
-    );
-    if (reg.emitAsset) {
-      await gate.postLine(
-        streamPartToLine(
-          assetPartFromBytes(bytes, 'image/svg+xml', { figmaNodeId: reg.canonicalNodeId })
-        )
+    await registryLock.runExclusive(async () => {
+      const reg = registry.registerAfterExport(nodeId, bytes, 'image/svg+xml', undefined, undefined);
+      await gate.postIconPropsLine(
+        streamPartToLine(iconPropsPart(nodeId, 'image/svg+xml', reg.canonicalNodeId))
       );
-    }
+      if (reg.emitAsset) {
+        await gate.postLine(
+          streamPartToLine(
+            assetPartFromBytes(bytes, 'image/svg+xml', { figmaNodeId: reg.canonicalNodeId })
+          )
+        );
+      }
+    });
   } catch {
     /* skip */
   }
 }
 
+async function prepareIconJob(
+  job: IconExportJob,
+  iconWalk: IncrementalIconWalk
+): Promise<IconExportPrepared | null> {
+  const node = await figma.getNodeByIdAsync(job.nodeId);
+  if (!node || !('exportAsync' in node)) return null;
+
+  if (job.kind === 'mixed') {
+    return { nodeId: job.nodeId, exportNode: node as ExportableNode };
+  }
+
+  const wire = iconWalk.getIconWire(job.nodeId);
+  const analysis = iconWalk.iconAnalysisById.get(job.nodeId);
+  if (!wire || !analysis) return null;
+  return { nodeId: job.nodeId, wire, analysis, exportNode: node as ExportableNode };
+}
+
 /** Run full NDJSON export through the upload gate (sync tree serialize, pipelined upload). */
 export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions): Promise<void> {
-  const { exportId, gate, metrics, onProgress } = options;
+  const { exportId, gate, metrics, progress } = options;
   clearImageHashesForExport();
   const name = options.hfcFileName.trim() || figma.root.name;
   const excludeIds = new Set(options.excludeNodeIds ?? []);
@@ -225,9 +259,8 @@ export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions)
     })
   );
 
-  onProgress('meta', 0, 1, 'Loading styles and variables…', metrics.snapshot('meta'));
   const meta = await serializeMetaAndStyles();
-  onProgress('meta', 1, 1, undefined, metrics.snapshot('meta'));
+  progress.onMetaDone();
 
   await gate.postLine(
     streamPartToLine({
@@ -277,7 +310,7 @@ export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions)
     }
 
     if (shouldEmitProgressMetrics(serializeCurrent, EXPORT_PROGRESS_EVERY_NODES)) {
-      onProgress('serialize', serializeCurrent, 0, undefined, metrics.snapshot('serialize'));
+      progress.onSerializeProgress(serializeCurrent);
     }
   }
 
@@ -298,6 +331,7 @@ export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions)
     rasterImages: rasterTotal,
   };
   options.onSessionTotals?.(totals);
+  progress.onSessionTotals(totals);
 
   await gate.postLine(
     streamPartToLine({
@@ -306,48 +340,67 @@ export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions)
     })
   );
 
-  onProgress('serialize', serializeCurrent, serializeCurrent, undefined, metrics.snapshot('serialize'));
+  progress.onSerializeComplete(serializeCurrent);
+
+  const rasterHashes = [...getImageHashesSet()];
+  const rasterPipeline =
+    rasterTotal > 0
+      ? new RasterExportPipeline(rasterHashes, gate, metrics, (p) => {
+          progress.onImagesProgress(p.fetched, p.uploaded);
+        })
+      : null;
+  if (rasterTotal === 0) {
+    progress.onImagesProgress(0, 0);
+  }
 
   metrics.setPhase('icons');
   const iconRegistry = new IconExportRegistry();
-  let iconCurrent = 0;
+  const registryLock = createRegistryLock();
+
+  const iconJobs: IconExportJob[] = [
+    ...iconRootIds.map((nodeId) => ({ nodeId, kind: 'root' as const })),
+    ...mixedExportIds.map((nodeId) => ({ nodeId, kind: 'mixed' as const })),
+  ];
 
   if (iconWorkTotal === 0) {
-    onProgress('icons', 0, 0, undefined, metrics.snapshot('icons'));
-  }
+    progress.onIconsProgress(0);
+  } else {
+    const iconProgressLock = createRegistryLock();
+    let iconDone = 0;
+    await mapPool(iconJobs, ICON_EXPORT_CONCURRENCY, async (job) => {
+      const prepared = await prepareIconJob(job, iconWalk);
+      if (!prepared) return;
 
-  for (const nodeId of iconRootIds) {
-    iconCurrent += 1;
-    if (
-      iconCurrent % EXPORT_PROGRESS_EVERY_NODES === 0 ||
-      iconCurrent === iconWorkTotal
-    ) {
-      onProgress('icons', iconCurrent, iconWorkTotal, undefined, metrics.snapshot('icons'));
-    }
+      if (job.kind === 'root' && prepared.wire && prepared.analysis) {
+        await exportIconRoot(
+          job.nodeId,
+          prepared.wire,
+          prepared.analysis,
+          prepared.exportNode,
+          iconRegistry,
+          gate,
+          registryLock
+        );
+      } else if (job.kind === 'mixed') {
+        await exportMixedFillVector(
+          job.nodeId,
+          prepared.exportNode,
+          iconRegistry,
+          gate,
+          registryLock
+        );
+      }
 
-    const wire = iconWalk.getIconWire(nodeId);
-    const analysis = iconWalk.iconAnalysisById.get(nodeId);
-    if (!wire || !analysis) continue;
-
-    const node = await figma.getNodeByIdAsync(nodeId);
-    if (!node || !('exportAsync' in node)) continue;
-
-    await exportIconRoot(nodeId, wire, analysis, node as ExportableNode, iconRegistry, gate);
-  }
-
-  for (const nodeId of mixedExportIds) {
-    iconCurrent += 1;
-    if (
-      iconCurrent % EXPORT_PROGRESS_EVERY_NODES === 0 ||
-      iconCurrent === iconWorkTotal
-    ) {
-      onProgress('icons', iconCurrent, iconWorkTotal, undefined, metrics.snapshot('icons'));
-    }
-
-    const node = await figma.getNodeByIdAsync(nodeId);
-    if (!node || !('exportAsync' in node)) continue;
-
-    await exportMixedFillVector(nodeId, node as ExportableNode, iconRegistry, gate);
+      await iconProgressLock.runExclusive(async () => {
+        iconDone += 1;
+        if (
+          iconDone % EXPORT_PROGRESS_EVERY_NODES === 0 ||
+          iconDone === iconWorkTotal
+        ) {
+          progress.onIconsProgress(iconDone);
+        }
+      });
+    });
   }
 
   await gate.flushIconPropsBatch();
@@ -360,43 +413,15 @@ export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions)
     iconMcSkips: iconRegistry.mcSkipCount,
   };
   options.onIconPhaseComplete?.(iconUploadStats);
+  progress.onIconPhaseComplete(iconUploadStats);
 
   metrics.setPhase('images');
-  const rasterHashes = [...getImageHashesSet()];
-
-  if (rasterTotal === 0) {
-    onProgress('images', 0, 0, undefined, metrics.snapshot('images'));
-  }
-
-  let imageDone = 0;
-  const seenRasterKeys = new Set<string>();
-
-  for await (const row of poolMapStream(rasterHashes, RASTER_IMAGE_CONCURRENCY, async (hash) => {
-    try {
-      const img = figma.getImageByHash(hash);
-      if (!img) {
-        return { hash, bytes: BLANK_PNG_BYTES, mime: 'image/png' as const };
-      }
-      const bytes = await img.getBytesAsync();
-      return { hash, bytes, mime: sniffMime(bytes) };
-    } catch {
-      return { hash, bytes: BLANK_PNG_BYTES, mime: 'image/png' as const };
-    }
-  })) {
-    imageDone += 1;
-    if (
-      imageDone % EXPORT_PROGRESS_EVERY_NODES === 0 ||
-      imageDone === rasterTotal
-    ) {
-      onProgress('images', imageDone, rasterTotal, undefined, metrics.snapshot('images'));
-    }
-    const contentKey = `${row.mime}:${sha256Hex(row.bytes)}`;
-    if (seenRasterKeys.has(contentKey)) continue;
-    seenRasterKeys.add(contentKey);
-    await gate.postLine(
-      streamPartToLine(assetPartFromBytes(row.bytes, row.mime, { figmaImageHash: row.hash }))
-    );
+  if (rasterPipeline) {
+    await rasterPipeline.drain();
+    const p = rasterPipeline.progress;
+    progress.onImagesProgress(p.fetched, p.uploaded);
   }
 
   await gate.postLine(streamPartToLine({ kind: 'session_end', exportId }));
+  progress.onExportComplete();
 }

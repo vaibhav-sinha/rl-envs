@@ -1,15 +1,11 @@
 import {
   formatCount,
   formatDurationMs,
+  type ExportProgressTiming,
 } from '../lib/export-metrics';
-import {
-  EXPORT_PHASE_LABEL,
-  EXPORT_PHASE_ORDER,
-  type ExportOutcome,
-  type MultiPhaseExportProgress,
-} from '../lib/export-progress-state';
+import type { MultiPhaseExportProgress, TrackProgress } from '../lib/export-progress-state';
 
-function phaseStatusIcon(status: MultiPhaseExportProgress['phases'][keyof MultiPhaseExportProgress['phases']]['status']) {
+function trackStatusIcon(status: TrackProgress['status']) {
   switch (status) {
     case 'done':
       return <span className="text-accent shrink-0">✓</span>;
@@ -22,40 +18,83 @@ function phaseStatusIcon(status: MultiPhaseExportProgress['phases'][keyof MultiP
   }
 }
 
-function ExportTimingPanel({ progress }: { progress: MultiPhaseExportProgress }) {
-  const m = progress.metrics;
-  if (!m) return null;
+function TrackRow({
+  label,
+  track,
+}: {
+  label: string;
+  track: TrackProgress;
+}) {
+  const isRunning = track.status === 'running';
+  const showBar = isRunning && track.total > 0;
 
+  return (
+    <li className="space-y-1">
+      <div className="flex items-center gap-2 text-[11px]">
+        {trackStatusIcon(track.status)}
+        <span className={isRunning ? 'text-foreground font-medium' : 'text-muted'}>{label}</span>
+        {track.status === 'skipped' ? (
+          <span className="text-muted ml-auto text-[10px]">skipped</span>
+        ) : isRunning || track.status === 'done' ? (
+          <span className="text-muted ml-auto text-[10px] tabular-nums">
+            {track.total > 0 ? (
+              <>
+                {formatCount(track.current)} / {formatCount(track.total)}
+                {isRunning ? ` (${track.percent}%)` : ''}
+              </>
+            ) : track.detail ? (
+              track.detail
+            ) : track.current > 0 ? (
+              formatCount(track.current)
+            ) : null}
+          </span>
+        ) : null}
+      </div>
+      {showBar ? (
+        <div className="h-1.5 rounded-full bg-muted/30 overflow-hidden ml-5">
+          <div
+            className="h-full bg-primary transition-all duration-200"
+            style={{ width: `${track.percent}%` }}
+          />
+        </div>
+      ) : null}
+      {isRunning && track.detail && track.total > 0 ? (
+        <p className="text-[10px] text-muted m-0 ml-5">{track.detail}</p>
+      ) : null}
+    </li>
+  );
+}
+
+function ExportTimingPanel({ timing }: { timing: ExportProgressTiming }) {
   return (
     <div className="rounded border border-[#3a3a3a] bg-[#1e1e1e] p-2 space-y-1">
       <p className="text-[10px] font-medium text-muted m-0">Timing</p>
       <p className="text-[10px] text-muted m-0 tabular-nums">
-        Elapsed {formatDurationMs(m.elapsedMs)}
+        Elapsed {formatDurationMs(timing.elapsedMs)}
       </p>
       <p className="text-[10px] text-muted m-0 tabular-nums">
-        Serialize {formatDurationMs(m.serializeMs)}
-        {m.nodesPerSec > 0 ? ` · ${formatCount(m.nodesPerSec)} nodes/s` : ''}
-        {m.nodesSerialized > 0 ? ` · ${formatCount(m.nodesSerialized)} nodes` : ''}
+        Serialize {formatDurationMs(timing.serializeMs)}
+        {timing.nodesPerSec > 0 ? ` · ${formatCount(timing.nodesPerSec)} nodes/s` : ''}
+        {timing.nodesSerialized > 0 ? ` · ${formatCount(timing.nodesSerialized)} nodes` : ''}
       </p>
       <p className="text-[10px] text-muted m-0 tabular-nums">
-        Upload wait (main) {formatDurationMs(m.uploadWaitMs)}
-        {m.uploadInflight > 0 ? ` · ${m.uploadInflight} in flight` : ''}
-        {m.treeBatchesAcked > 0 ? ` · ${formatCount(m.treeBatchesAcked)} batches acked` : ''}
+        Upload wait (main) {formatDurationMs(timing.uploadWaitMs)}
+        {timing.uploadInflight > 0 ? ` · ${timing.uploadInflight} in flight` : ''}
       </p>
-      {m.httpUploadMs !== undefined && m.httpUploadMs > 0 ? (
+      {timing.httpUploadMs !== undefined && timing.httpUploadMs > 0 ? (
         <p className="text-[10px] text-muted m-0 tabular-nums">
-          HTTP upload (UI) {formatDurationMs(m.httpUploadMs)}
-          {m.partsUploaded !== undefined && m.partsUploaded > 0
-            ? ` · ${formatCount(m.partsUploaded)} parts`
-            : ''}
+          HTTP upload (UI) {formatDurationMs(timing.httpUploadMs)}
         </p>
       ) : null}
-      {m.metaMs > 0 || m.iconsMs > 0 || m.imagesMs > 0 ? (
+      {timing.metaMs > 0 || timing.iconsMs > 0 || timing.imagesFetchMs > 0 ? (
         <p className="text-[10px] text-muted m-0 tabular-nums">
-          {m.metaMs > 0 ? `Meta ${formatDurationMs(m.metaMs)}` : ''}
-          {m.iconsMs > 0 ? `${m.metaMs > 0 ? ' · ' : ''}Icons ${formatDurationMs(m.iconsMs)}` : ''}
-          {m.imagesMs > 0
-            ? `${m.metaMs > 0 || m.iconsMs > 0 ? ' · ' : ''}Images ${formatDurationMs(m.imagesMs)}`
+          {timing.metaMs > 0 ? `Meta ${formatDurationMs(timing.metaMs)}` : ''}
+          {timing.iconsMs > 0 ? `${timing.metaMs > 0 ? ' · ' : ''}Icons ${formatDurationMs(timing.iconsMs)}` : ''}
+          {timing.imagesFetchMs > 0
+            ? `${timing.metaMs > 0 || timing.iconsMs > 0 ? ' · ' : ''}Images fetch ${formatDurationMs(timing.imagesFetchMs)}`
+            : ''}
+          {timing.imagesUploadMs > 0
+            ? ` · Images upload ${formatDurationMs(timing.imagesUploadMs)}`
             : ''}
         </p>
       ) : null}
@@ -66,51 +105,24 @@ function ExportTimingPanel({ progress }: { progress: MultiPhaseExportProgress })
 export function ExportProgressPanel({ progress }: { progress: MultiPhaseExportProgress | null }) {
   if (!progress) return null;
 
+  const { tracks } = progress;
+
   return (
     <div className="rounded-md border border-[#444] bg-[#252525] p-2.5 space-y-2">
       <p className="text-[10px] font-medium text-foreground m-0">Export progress</p>
-      <ExportTimingPanel progress={progress} />
+      {progress.activeDetail ? (
+        <p className="text-[11px] text-primary m-0 font-medium">{progress.activeDetail}</p>
+      ) : null}
+      {progress.timing ? <ExportTimingPanel timing={progress.timing} /> : null}
       <ul className="m-0 p-0 list-none space-y-2">
-        {EXPORT_PHASE_ORDER.map((id) => {
-          const phase = progress.phases[id];
-          const label = EXPORT_PHASE_LABEL[id];
-          const isRunning = phase.status === 'running';
-          const showBar = isRunning && phase.total > 0;
-
-          return (
-            <li key={id} className="space-y-1">
-              <div className="flex items-center gap-2 text-[11px]">
-                {phaseStatusIcon(phase.status)}
-                <span className={isRunning ? 'text-foreground font-medium' : 'text-muted'}>{label}</span>
-                {phase.status === 'skipped' ? (
-                  <span className="text-muted ml-auto text-[10px]">skipped</span>
-                ) : isRunning || phase.status === 'done' ? (
-                  <span className="text-muted ml-auto text-[10px] tabular-nums">
-                    {phase.total > 0 ? (
-                      <>
-                        {phase.current} / {phase.total}
-                        {isRunning ? ` (${phase.percent}%)` : ''}
-                      </>
-                    ) : phase.detail ? (
-                      phase.detail
-                    ) : null}
-                  </span>
-                ) : null}
-              </div>
-              {showBar ? (
-                <div className="h-1.5 rounded-full bg-muted/30 overflow-hidden ml-5">
-                  <div
-                    className="h-full bg-primary transition-all duration-200"
-                    style={{ width: `${phase.percent}%` }}
-                  />
-                </div>
-              ) : null}
-              {isRunning && phase.detail && phase.total > 0 ? (
-                <p className="text-[10px] text-muted m-0 ml-5">{phase.detail}</p>
-              ) : null}
-            </li>
-          );
-        })}
+        <TrackRow label="Metadata" track={tracks.meta} />
+        <TrackRow label="Nodes" track={tracks.nodes} />
+        <TrackRow label="Icons" track={tracks.icons} />
+        <TrackRow label="Images" track={tracks.images} />
+        <TrackRow label="Tree upload" track={tracks.uploadTree} />
+        <TrackRow label="Icon data upload" track={tracks.uploadIcons} />
+        <TrackRow label="Image asset upload" track={tracks.uploadImages} />
+        <TrackRow label="Finalize" track={tracks.finalize} />
       </ul>
     </div>
   );
@@ -120,7 +132,7 @@ export function ExportOutcomeBanner({
   outcome,
   onDismiss,
 }: {
-  outcome: ExportOutcome;
+  outcome: import('../lib/export-progress-state').ExportOutcome;
   onDismiss?: () => void;
 }) {
   const isSuccess = outcome.kind === 'success';

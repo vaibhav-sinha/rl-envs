@@ -6,15 +6,10 @@ import { runSearchDesignSystem } from './tools/searchDesignSystem.js';
 import { runUseFigma } from './tools/useFigma.js';
 import { runFigmaStreamExport } from './tools/streamExport.js';
 import { formatExportError } from './exportError.js';
-import type { ExportRunMetrics } from './exportMetrics.js';
 import { ExportMetricsCollector } from './exportMetrics.js';
 import { ExportUploadGate } from './exportUploadGate.js';
-import {
-  estimateUploadPartTotal,
-  exportPercent,
-  type ExportTotals,
-  type IconUploadStats,
-} from './streamProtocol.js';
+import { ExportProgressReporter } from './exportProgressReporter.js';
+import type { ExportProgressSnapshot } from './exportProgressSnapshot.js';
 import { getSelectedNodeIds, getSingleSelectedNode } from './selection.js';
 
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
@@ -45,15 +40,7 @@ type MainToUi =
       error?: { code: string; message: string };
     }
   | { type: 'log'; line: string }
-  | {
-      type: 'export_progress';
-      phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
-      current: number;
-      total: number;
-      percent: number;
-      detail?: string;
-      metrics?: ExportRunMetrics;
-    }
+  | { type: 'export_progress_v2'; snapshot: ExportProgressSnapshot }
   | { type: 'export_stream_part'; exportId: string; seq: number; line: string }
   | { type: 'export_stream_batch'; exportId: string; seq: number; lines: string[] }
   | { type: 'export_stream_done'; ok: boolean; exportId?: string; error?: string }
@@ -113,21 +100,10 @@ function postUiMessage(msg: MainToUi): void {
   }
 }
 
-function postProgress(
-  phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload',
-  current: number,
-  total: number,
-  detail?: string,
-  metrics?: ExportRunMetrics
-): void {
+function postProgressSnapshot(snapshot: ExportProgressSnapshot): void {
   figma.ui.postMessage({
-    type: 'export_progress',
-    phase,
-    current,
-    total,
-    percent: exportPercent(current, total),
-    detail,
-    metrics,
+    type: 'export_progress_v2',
+    snapshot,
   } satisfies MainToUi);
 }
 
@@ -173,34 +149,19 @@ async function runExportFile(
   excludeNodeIds?: string[]
 ): Promise<void> {
   const metrics = new ExportMetricsCollector();
-  let uploadTotal = 1;
-  let uploadSeq = 0;
-  let sessionTotalsRef: ExportTotals = { nodes: 0, iconExports: 0, rasterImages: 0 };
-  const reportUploadProgress = (detail: string, metricsSnapshot?: ExportRunMetrics) => {
-    const shouldReport =
-      uploadSeq === 1 || uploadSeq >= uploadTotal || uploadSeq % 50 === 0;
-    if (shouldReport) {
-      metrics.setPhase('upload');
-      postProgress(
-        'upload',
-        uploadSeq,
-        uploadTotal,
-        detail,
-        metricsSnapshot ?? metrics.snapshot('upload')
-      );
-    }
-  };
+  let progressReporter: ExportProgressReporter;
 
   const gate = new ExportUploadGate({
     exportId,
     metrics,
     postMessage: (msg) => {
-      uploadSeq = msg.seq;
       postUiMessage(msg satisfies MainToUi);
-      reportUploadProgress('stream parts', metrics.snapshot('upload'));
     },
     onAbortError: () => uploadAbortError,
+    onPosted: () => progressReporter?.emit(),
   });
+
+  progressReporter = new ExportProgressReporter(metrics, gate, postProgressSnapshot);
 
   activeExportGate = gate;
 
@@ -211,23 +172,11 @@ async function runExportFile(
       excludeNodeIds,
       gate,
       metrics,
-      onProgress: (phase, current, total, detail, metricsSnapshot) => {
-        postProgress(phase, current, total, detail, metricsSnapshot);
-      },
-      onSessionTotals: (totals) => {
-        sessionTotalsRef = totals;
-        uploadTotal = estimateUploadPartTotal(totals);
-      },
-      onIconPhaseComplete: (stats: IconUploadStats) => {
-        uploadTotal = estimateUploadPartTotal(sessionTotalsRef, stats);
-        const detail = `${stats.uniqueIconAssets} unique assets · ${stats.iconExportCalls} exports · ${stats.iconMcSkips} MC skips`;
-        postProgress('upload', uploadSeq, uploadTotal, detail, metrics.snapshot('upload'));
-      },
+      progress: progressReporter,
     });
 
     await gate.drain();
-    metrics.setPhase('upload');
-    postProgress('upload', uploadTotal, uploadTotal, 'upload complete', metrics.finalize());
+    progressReporter.emit(true);
 
     postUiMessage({
       type: 'export_stream_done',
@@ -237,7 +186,7 @@ async function runExportFile(
     figma.notify('Export streamed — finalizing…');
   } catch (e) {
     const message = formatExportError(e);
-    postProgress('upload', uploadSeq, uploadTotal, message, metrics.finalize());
+    progressReporter.emit(true);
     postUiMessage({
       type: 'export_stream_done',
       ok: false,

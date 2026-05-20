@@ -1,4 +1,19 @@
-/** Mirrors plugin/src/exportMetrics.ts ExportRunMetrics (UI display). */
+/** Mirrors plugin export progress timing (UI display). */
+export interface ExportProgressTiming {
+  elapsedMs: number;
+  metaMs: number;
+  serializeMs: number;
+  iconsMs: number;
+  imagesFetchMs: number;
+  imagesUploadMs: number;
+  uploadWaitMs: number;
+  httpUploadMs?: number;
+  nodesPerSec: number;
+  nodesSerialized: number;
+  uploadInflight: number;
+}
+
+/** @deprecated Legacy metrics shape from v1 progress messages. */
 export interface ExportRunMetrics {
   elapsedMs: number;
   phase: 'meta' | 'serialize' | 'icons' | 'images' | 'upload';
@@ -7,6 +22,8 @@ export interface ExportRunMetrics {
   metaMs: number;
   iconsMs: number;
   imagesMs: number;
+  imagesFetchMs?: number;
+  imagesUploadMs?: number;
   nodesSerialized: number;
   treeBatchesPosted: number;
   treeBatchesAcked: number;
@@ -28,12 +45,10 @@ export class UiUploadMetrics {
     this.lastPartMs = durationMs;
   }
 
-  mergeWith(main: ExportRunMetrics): ExportRunMetrics {
+  mergeIntoTiming(timing: ExportProgressTiming): ExportProgressTiming {
     return {
-      ...main,
+      ...timing,
       httpUploadMs: this.httpUploadMs,
-      partsUploaded: this.partsUploaded,
-      lastPartMs: this.lastPartMs,
     };
   }
 }

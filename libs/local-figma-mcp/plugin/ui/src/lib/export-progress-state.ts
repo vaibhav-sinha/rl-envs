@@ -1,19 +1,42 @@
-import type { ExportRunMetrics } from './export-metrics';
+import type { ExportProgressTiming } from './export-metrics';
 
-export const EXPORT_PHASE_ORDER = [
-  'meta',
-  'serialize',
-  'icons',
-  'images',
-  'upload',
-  'finalize',
-] as const;
+export type ExportActivePhase =
+  | 'meta'
+  | 'serialize'
+  | 'icons'
+  | 'images'
+  | 'upload_tree'
+  | 'upload_icons'
+  | 'upload_images'
+  | 'finalize'
+  | 'idle';
 
-export type ExportProgressPhase = (typeof EXPORT_PHASE_ORDER)[number];
+export interface ExportProgressTracks {
+  meta: { done: boolean };
+  nodes: { serialized: number; total: number };
+  icons: { exported: number; total: number; uniqueAssets: number };
+  images: { fetched: number; uploaded: number; total: number };
+  upload: {
+    treeBatchesPosted: number;
+    treeBatchesAcked: number;
+    iconPropsBatchesPosted: number;
+    iconPropsBatchesAcked: number;
+    rasterAssetsPosted: number;
+    rasterAssetsAcked: number;
+    httpPartsUploaded: number;
+  };
+}
+
+export interface ExportProgressSnapshot {
+  active: ExportActivePhase;
+  activeDetail?: string;
+  tracks: ExportProgressTracks;
+  timing: ExportProgressTiming;
+}
 
 export type PhaseStatus = 'pending' | 'running' | 'done' | 'skipped';
 
-export interface PhaseProgress {
+export interface TrackProgress {
   status: PhaseStatus;
   current: number;
   total: number;
@@ -22,104 +45,215 @@ export interface PhaseProgress {
 }
 
 export interface MultiPhaseExportProgress {
-  phases: Record<ExportProgressPhase, PhaseProgress>;
-  metrics?: ExportRunMetrics;
-}
-
-export interface ExportProgressUpdate {
-  phase: ExportProgressPhase;
-  current: number;
-  total: number;
-  percent: number;
-  detail?: string;
-  metrics?: ExportRunMetrics;
+  active: ExportActivePhase;
+  activeDetail?: string;
+  tracks: {
+    meta: TrackProgress;
+    nodes: TrackProgress;
+    icons: TrackProgress;
+    images: TrackProgress;
+    uploadTree: TrackProgress;
+    uploadIcons: TrackProgress;
+    uploadImages: TrackProgress;
+    finalize: TrackProgress;
+  };
+  timing?: ExportProgressTiming;
 }
 
 export type ExportOutcome =
   | { kind: 'success'; title: string; message: string }
   | { kind: 'error'; title: string; message: string };
 
-export const EXPORT_PHASE_LABEL: Record<ExportProgressPhase, string> = {
-  meta: 'Metadata',
-  serialize: 'Nodes',
-  icons: 'Icons',
-  images: 'Images',
-  upload: 'Stream parts',
-  finalize: 'Finalize',
-};
-
-const INDETERMINATE_PHASES = new Set<ExportProgressPhase>(['serialize', 'icons', 'images']);
-
-function defaultPhase(status: PhaseStatus = 'pending'): PhaseProgress {
+function defaultTrack(status: PhaseStatus = 'pending'): TrackProgress {
   return { status, current: 0, total: 0, percent: 0 };
 }
 
+function trackPercent(current: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.min(100, Math.round((100 * Math.min(current, total)) / total));
+}
+
 export function createInitialExportProgress(): MultiPhaseExportProgress {
-  const phases = {} as Record<ExportProgressPhase, PhaseProgress>;
-  for (const id of EXPORT_PHASE_ORDER) {
-    phases[id] = defaultPhase();
-  }
-  return { phases, metrics: undefined };
+  return {
+    active: 'meta',
+    tracks: {
+      meta: defaultTrack('running'),
+      nodes: defaultTrack(),
+      icons: defaultTrack(),
+      images: defaultTrack(),
+      uploadTree: defaultTrack(),
+      uploadIcons: defaultTrack(),
+      uploadImages: defaultTrack(),
+      finalize: defaultTrack(),
+    },
+    timing: undefined,
+  };
 }
 
-function phaseIndex(phase: ExportProgressPhase): number {
-  return EXPORT_PHASE_ORDER.indexOf(phase);
+function trackStatus(
+  current: number,
+  total: number,
+  active: boolean,
+  skipped = false
+): PhaseStatus {
+  if (skipped) return 'skipped';
+  if (total > 0 && current >= total) return 'done';
+  if (active) return 'running';
+  if (current > 0) return 'running';
+  return 'pending';
 }
 
-export function applyExportProgressUpdate(
+export function applyExportProgressSnapshot(
   prev: MultiPhaseExportProgress | null,
-  update: ExportProgressUpdate
+  snapshot: ExportProgressSnapshot
 ): MultiPhaseExportProgress {
   const base = prev ?? createInitialExportProgress();
-  const phases = { ...base.phases };
-  const idx = phaseIndex(update.phase);
+  const t = snapshot.tracks;
+  const active = snapshot.active;
 
-  const indeterminate =
-    INDETERMINATE_PHASES.has(update.phase) && update.total <= 0 && update.current > 0;
-  const skipped = update.total <= 0 && update.current <= 0 && update.phase !== 'meta';
-  const done =
-    skipped ||
-    (update.total > 0 && update.current >= update.total) ||
-    (update.phase === 'meta' && update.current >= update.total && update.total > 0);
+  const nodesTotal = t.nodes.total;
+  const iconsTotal = t.icons.total;
+  const imagesTotal = t.images.total;
 
-  for (let i = 0; i < idx; i++) {
-    const id = EXPORT_PHASE_ORDER[i]!;
-    const p = phases[id];
-    if (p.status !== 'running') continue;
-    phases[id] = {
-      ...p,
-      status: 'done',
-      percent: 100,
-      current: p.total > 0 ? p.total : 1,
-      total: p.total > 0 ? p.total : 1,
-    };
-  }
+  const metaSkipped = false;
+  const iconsSkipped = iconsTotal === 0 && t.icons.exported === 0;
+  const imagesSkipped = imagesTotal === 0;
 
-  phases[update.phase] = {
-    status: skipped ? 'skipped' : done ? 'done' : 'running',
-    current: update.current,
-    total: update.total,
-    percent: skipped ? 100 : indeterminate ? 0 : update.percent,
-    detail: update.detail,
+  const uploadTreeTotal = t.upload.treeBatchesPosted;
+  const uploadIconsTotal = t.upload.iconPropsBatchesPosted;
+  const uploadImagesTotal = t.upload.rasterAssetsPosted;
+
+  return {
+    active,
+    activeDetail: snapshot.activeDetail,
+    timing: snapshot.timing,
+    tracks: {
+      meta: {
+        status: t.meta.done ? 'done' : trackStatus(0, 1, active === 'meta', metaSkipped),
+        current: t.meta.done ? 1 : 0,
+        total: 1,
+        percent: t.meta.done ? 100 : 0,
+      },
+      nodes: {
+        status: trackStatus(
+          t.nodes.serialized,
+          nodesTotal,
+          active === 'serialize',
+          nodesTotal === 0
+        ),
+        current: t.nodes.serialized,
+        total: nodesTotal,
+        percent: trackPercent(t.nodes.serialized, nodesTotal),
+        detail:
+          nodesTotal === 0 && t.nodes.serialized > 0
+            ? `${t.nodes.serialized.toLocaleString()} nodes`
+            : undefined,
+      },
+      icons: {
+        status: trackStatus(
+          t.icons.exported,
+          iconsTotal,
+          active === 'icons',
+          iconsSkipped
+        ),
+        current: t.icons.exported,
+        total: iconsTotal,
+        percent: trackPercent(t.icons.exported, iconsTotal),
+        detail:
+          t.icons.uniqueAssets > 0
+            ? `${t.icons.uniqueAssets.toLocaleString()} unique assets`
+            : undefined,
+      },
+      images: {
+        status: trackStatus(
+          t.images.uploaded,
+          imagesTotal,
+          active === 'images' || active === 'upload_images',
+          imagesSkipped
+        ),
+        current: t.images.uploaded,
+        total: imagesTotal,
+        percent: trackPercent(t.images.uploaded, imagesTotal),
+        detail:
+          imagesTotal > 0
+            ? `${t.images.fetched.toLocaleString()} fetched`
+            : undefined,
+      },
+      uploadTree: {
+        status: trackStatus(
+          t.upload.treeBatchesAcked,
+          uploadTreeTotal,
+          active === 'upload_tree'
+        ),
+        current: t.upload.treeBatchesAcked,
+        total: uploadTreeTotal,
+        percent: trackPercent(t.upload.treeBatchesAcked, uploadTreeTotal),
+      },
+      uploadIcons: {
+        status: trackStatus(
+          t.upload.iconPropsBatchesAcked,
+          uploadIconsTotal,
+          active === 'upload_icons'
+        ),
+        current: t.upload.iconPropsBatchesAcked,
+        total: uploadIconsTotal,
+        percent: trackPercent(t.upload.iconPropsBatchesAcked, uploadIconsTotal),
+      },
+      uploadImages: {
+        status: trackStatus(
+          t.upload.rasterAssetsAcked,
+          uploadImagesTotal,
+          active === 'upload_images'
+        ),
+        current: t.upload.rasterAssetsAcked,
+        total: uploadImagesTotal,
+        percent: trackPercent(t.upload.rasterAssetsAcked, uploadImagesTotal),
+        detail:
+          t.upload.httpPartsUploaded > 0
+            ? `${t.upload.httpPartsUploaded.toLocaleString()} HTTP parts`
+            : undefined,
+      },
+      finalize: {
+        ...base.tracks.finalize,
+        status:
+          active === 'finalize'
+            ? 'running'
+            : base.tracks.finalize.status === 'done'
+              ? 'done'
+              : 'pending',
+      },
+    },
   };
-
-  for (let i = idx + 1; i < EXPORT_PHASE_ORDER.length; i++) {
-    const id = EXPORT_PHASE_ORDER[i]!;
-    if (phases[id].status === 'running') {
-      phases[id] = defaultPhase('pending');
-    }
-  }
-
-  const metrics = update.metrics ?? base.metrics;
-  return { phases, metrics };
 }
 
-export function markAllPhasesDone(progress: MultiPhaseExportProgress): MultiPhaseExportProgress {
-  const phases = { ...progress.phases };
-  for (const id of EXPORT_PHASE_ORDER) {
-    const p = phases[id];
+export function applyFinalizeProgress(
+  prev: MultiPhaseExportProgress,
+  current: number,
+  total: number,
+  detail?: string
+): MultiPhaseExportProgress {
+  return {
+    ...prev,
+    active: 'finalize',
+    tracks: {
+      ...prev.tracks,
+      finalize: {
+        status: current >= total && total > 0 ? 'done' : 'running',
+        current,
+        total,
+        percent: trackPercent(current, total),
+        detail,
+      },
+    },
+  };
+}
+
+export function markAllTracksDone(progress: MultiPhaseExportProgress): MultiPhaseExportProgress {
+  const tracks = { ...progress.tracks };
+  for (const key of Object.keys(tracks) as (keyof typeof tracks)[]) {
+    const p = tracks[key];
     if (p.status === 'skipped') continue;
-    phases[id] = {
+    tracks[key] = {
       ...p,
       status: 'done',
       percent: 100,
@@ -127,5 +261,5 @@ export function markAllPhasesDone(progress: MultiPhaseExportProgress): MultiPhas
       total: p.total > 0 ? p.total : 1,
     };
   }
-  return { phases, metrics: progress.metrics };
+  return { ...progress, active: 'idle', tracks };
 }

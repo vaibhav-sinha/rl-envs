@@ -9,6 +9,8 @@ export interface ExportRunMetrics {
   metaMs: number;
   iconsMs: number;
   imagesMs: number;
+  imagesFetchMs: number;
+  imagesUploadMs: number;
   nodesSerialized: number;
   treeBatchesPosted: number;
   treeBatchesAcked: number;
@@ -26,6 +28,8 @@ export class ExportMetricsCollector {
   private metaMs = 0;
   private iconsMs = 0;
   private imagesMs = 0;
+  private imagesFetchMs = 0;
+  private imagesUploadMs = 0;
   private nodesSerialized = 0;
   private treeBatchesPosted = 0;
   private treeBatchesAcked = 0;
@@ -34,6 +38,8 @@ export class ExportMetricsCollector {
   private phase: ExportProgressPhase | 'upload' = 'meta';
   private phaseStartMs = Date.now();
   private serializeSliceStart: number | null = null;
+  private imagesFetchStart: number | null = null;
+  private imagesUploadStart: number | null = null;
 
   setPhase(next: ExportProgressPhase | 'upload'): void {
     const now = Date.now();
@@ -60,6 +66,30 @@ export class ExportMetricsCollector {
       default:
         break;
     }
+  }
+
+  beginImagesFetch(): void {
+    if (this.imagesFetchStart === null) {
+      this.imagesFetchStart = Date.now();
+    }
+  }
+
+  endImagesFetch(): void {
+    if (this.imagesFetchStart === null) return;
+    this.imagesFetchMs += Date.now() - this.imagesFetchStart;
+    this.imagesFetchStart = null;
+  }
+
+  beginImagesUpload(): void {
+    if (this.imagesUploadStart === null) {
+      this.imagesUploadStart = Date.now();
+    }
+  }
+
+  endImagesUpload(): void {
+    if (this.imagesUploadStart === null) return;
+    this.imagesUploadMs += Date.now() - this.imagesUploadStart;
+    this.imagesUploadStart = null;
   }
 
   beginSerializeSlice(): void {
@@ -94,16 +124,6 @@ export class ExportMetricsCollector {
     this.uploadInflight = Math.max(0, this.uploadInflight - 1);
   }
 
-  /** @deprecated use onStreamBatchPosted */
-  onTreeBatchPosted(): void {
-    this.onStreamBatchPosted();
-  }
-
-  /** @deprecated use onStreamBatchAcked */
-  onTreeBatchAcked(): void {
-    this.onStreamBatchAcked();
-  }
-
   onUploadPosted(): void {
     this.uploadInflight += 1;
   }
@@ -113,21 +133,34 @@ export class ExportMetricsCollector {
   }
 
   snapshot(phase: ExportProgressPhase | 'upload'): ExportRunMetrics {
+    return { ...this.snapshotForProgress(), phase };
+  }
+
+  snapshotForProgress(): Omit<ExportRunMetrics, 'phase'> {
     const now = Date.now();
     let serializeMs = this.serializeMs;
     if (this.serializeSliceStart !== null) {
       serializeMs += now - this.serializeSliceStart;
     }
+    let imagesFetchMs = this.imagesFetchMs;
+    if (this.imagesFetchStart !== null) {
+      imagesFetchMs += now - this.imagesFetchStart;
+    }
+    let imagesUploadMs = this.imagesUploadMs;
+    if (this.imagesUploadStart !== null) {
+      imagesUploadMs += now - this.imagesUploadStart;
+    }
     const nodesPerSec =
       serializeMs > 0 ? Math.round((this.nodesSerialized * 1000) / serializeMs) : 0;
     return {
       elapsedMs: now - this.startMs,
-      phase,
       serializeMs,
       uploadWaitMs: this.uploadWaitMs,
       metaMs: this.metaMs,
       iconsMs: this.iconsMs,
-      imagesMs: this.imagesMs,
+      imagesMs: imagesFetchMs + imagesUploadMs,
+      imagesFetchMs,
+      imagesUploadMs,
       nodesSerialized: this.nodesSerialized,
       treeBatchesPosted: this.treeBatchesPosted,
       treeBatchesAcked: this.treeBatchesAcked,
@@ -138,6 +171,8 @@ export class ExportMetricsCollector {
 
   finalize(): ExportRunMetrics {
     this.endSerializeSlice();
+    this.endImagesFetch();
+    this.endImagesUpload();
     this.closePhaseTimer(Date.now());
     return this.snapshot(this.phase);
   }

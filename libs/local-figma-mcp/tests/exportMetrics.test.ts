@@ -21,8 +21,8 @@ describe('ExportMetricsCollector', () => {
 
   it('tracks upload wait and batch counters', () => {
     const m = new ExportMetricsCollector();
-    m.onTreeBatchPosted();
-    m.onTreeBatchAcked();
+    m.onStreamBatchPosted();
+    m.onStreamBatchAcked();
     m.addUploadWaitMs(42);
     const snap = m.snapshot('upload');
     expect(snap.treeBatchesPosted).toBe(1);
