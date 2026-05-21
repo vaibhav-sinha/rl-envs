@@ -9,6 +9,7 @@ export const WIZARD_STEPS: { id: WizardStep; label: string; hint: string }[] = [
   { id: 'checks', label: 'Checks', hint: 'Deterministic tree rules' },
   { id: 'design_system', label: 'Design system', hint: 'Token and style adherence' },
   { id: 'visual', label: 'Visual', hint: 'LLM screenshot judges' },
+  { id: 'metadata', label: 'Metadata', hint: 'LLM diff judges (no screenshots)' },
   { id: 'weights', label: 'Weights', hint: 'Score category balance' },
   { id: 'review', label: 'Review', hint: 'Finalize to Harbor' },
 ];
@@ -37,9 +38,12 @@ const FIELD_LABELS: Record<string, string> = {
   focus: 'Which changes to judge',
   evaluation_instructions: 'Judge instructions',
   reference_asset: 'Reference image file',
+  criteria: 'Consistency criteria',
+  evaluation_prompt: 'Evaluation prompt',
   preserve_ids: 'Preserve these node IDs',
   allowed_change_inside_ids: 'Only allow changes inside',
   require_change: 'Require change',
+  no_detached_nodes: 'No detached nodes',
   additions_only: 'Additions only',
   allow_novelty: 'Allow new tokens/styles',
 };
@@ -101,6 +105,17 @@ export function humanCheckType(type: string, catalog?: CheckCatalog): { label: s
 
 export function humanVisualType(type: string, catalog?: CheckCatalog): { label: string; description: string } {
   const meta = catalog?.visual.types[type];
+  return {
+    label: meta?.label ?? type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    description: meta?.description ?? '',
+  };
+}
+
+export function humanMetadataType(
+  type: string,
+  catalog?: CheckCatalog
+): { label: string; description: string } {
+  const meta = catalog?.metadata_checks.types[type];
   return {
     label: meta?.label ?? type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
     description: meta?.description ?? '',

@@ -19,7 +19,7 @@ describe('remapEvalSpecIds', () => {
     expect(remapNodeId('4817:799', MAP)).toBe('I653');
   });
 
-  it('remaps gates, checks, and visual specs', () => {
+  it('remaps gates, checks, visual, and metadata specs', () => {
     const spec: EvalSpec = {
       schema_version: 1,
       gates: {
@@ -43,15 +43,11 @@ describe('remapEvalSpecIds', () => {
         },
       ],
       visual: [
-        {
-          id: 'dc1',
-          type: 'design_consistency',
-          node_id: '4817:799',
-          surrounding_context_node_id: '1:2',
-        },
+        { id: 'gd1', type: 'good_design' },
+        { id: 'df1', type: 'design_fit', node_id: '1:2', evaluation_prompt: 'Check fit.' },
         { id: 'tc1', type: 'task_completeness', node_id: '4817:799' },
-        { id: 'bva1', type: 'before_vs_after', surrounding_context_node_id: '1:2' },
       ],
+      metadata_checks: [{ id: 'd1', type: 'diff' }],
     };
 
     const remapped = remapEvalSpecIds(spec, MAP);
@@ -59,16 +55,15 @@ describe('remapEvalSpecIds', () => {
     expect(remapped.gates?.allowed_change_inside_ids).toEqual(['I5']);
     expect(remapped.checks?.[0]?.node_id).toBe('I5');
     expect(remapped.checks?.[1]?.node_id).toBe('I653');
-    expect(remapped.visual?.[0]?.node_id).toBe('I653');
-    expect(remapped.visual?.[0]?.surrounding_context_node_id).toBe('I5');
-    expect(remapped.visual?.[1]?.node_id).toBe('I653');
-    expect(remapped.visual?.[2]?.surrounding_context_node_id).toBe('I5');
+    expect(remapped.visual?.[1]?.node_id).toBe('I5');
+    expect(remapped.visual?.[2]?.node_id).toBe('I653');
+    expect(remapped.metadata_checks?.[0]?.type).toBe('diff');
   });
 
   it('returns spec unchanged when map is empty', () => {
     const spec: EvalSpec = {
       schema_version: 1,
-      visual: [{ id: 'v1', type: 'diff' }],
+      metadata_checks: [{ id: 'd1', type: 'diff' }],
     };
     expect(remapEvalSpecIds(spec, {})).toBe(spec);
   });

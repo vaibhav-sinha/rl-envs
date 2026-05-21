@@ -28,7 +28,7 @@ const defaultFixture = join(
 
 const DEFAULT_EVAL_SPEC = {
   schema_version: 1,
-  gates: { require_change: true },
+  gates: { require_change: true, no_detached_nodes: true },
   checks: [],
 };
 
@@ -136,6 +136,10 @@ start_period_sec = 15.0
 [[artifacts]]
 source = "/data/workspace/design.hfc.json"
 destination = "design.hfc.json"
+
+[[artifacts]]
+source = "/data/workspace/issues.hfc.json"
+destination = "issues.hfc.json"
 `,
   'utf8',
 );

@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -148,5 +148,81 @@ describe('mcp-http smoke', () => {
     const previewHtml = await previewRes.text();
     expect(previewHtml).toContain('hfc-node-I3');
     expect(previewHtml).toContain(`hfc-node-${codeFrameId}`);
+  });
+
+  it('use_figma records detached nodes in issues.hfc.json', async () => {
+    const created = await client.callTool({
+      name: 'create_new_file',
+      arguments: { name: 'IssuesSmoke' },
+    });
+    const filePath = (parseToolJson(getToolText(created)!).data as { filePath: string }).filePath;
+    const issuesPath = join(dirname(filePath), 'issues.hfc.json');
+    const commandsBefore = existsSync(issuesPath)
+      ? (JSON.parse(readFileSync(issuesPath, 'utf8')) as { commands?: unknown[] }).commands?.length ?? 0
+      : 0;
+
+    const orphan = await client.callTool({
+      name: 'use_figma',
+      arguments: {
+        code: `
+          const f = figma.createFrame();
+          f.name = 'Orphan';
+          f.resize(100, 50);
+        `,
+      },
+    });
+    const orphanBody = parseToolJson(getToolText(orphan)!);
+    expect(orphanBody.ok).toBe(true);
+    expect((orphanBody.data as { detachedCount: number }).detachedCount).toBe(1);
+    expect(existsSync(issuesPath)).toBe(true);
+    const issues = JSON.parse(readFileSync(issuesPath, 'utf8')) as {
+      detached: unknown[];
+      commands: Array<{ success: boolean }>;
+    };
+    expect(issues.detached.length).toBeGreaterThanOrEqual(1);
+    expect(issues.detached.at(-1)).toMatchObject({ type: 'FRAME', name: 'Orphan' });
+    expect(issues.commands).toHaveLength(commandsBefore + 1);
+    expect(issues.commands[issues.commands.length - 1].success).toBe(true);
+  });
+
+  it('use_figma records command success and failure in issues.hfc.json', async () => {
+    const created = await client.callTool({
+      name: 'create_new_file',
+      arguments: { name: 'CommandIssuesSmoke' },
+    });
+    const filePath = (parseToolJson(getToolText(created)!).data as { filePath: string }).filePath;
+    const issuesPath = join(dirname(filePath), 'issues.hfc.json');
+    const commandsBefore = existsSync(issuesPath)
+      ? (JSON.parse(readFileSync(issuesPath, 'utf8')) as { commands?: unknown[] }).commands?.length ?? 0
+      : 0;
+
+    const bad = await client.callTool({
+      name: 'use_figma',
+      arguments: { code: 'this is not valid javascript {{{' },
+    });
+    expect(bad.isError).toBe(true);
+
+    const ok = await client.callTool({
+      name: 'use_figma',
+      arguments: {
+        code: `
+          const f = figma.createFrame();
+          f.name = 'Ok';
+          f.resize(80, 40);
+          figma.currentPage.appendChild(f);
+        `,
+      },
+    });
+    const okBody = parseToolJson(getToolText(ok)!);
+    expect(okBody.ok).toBe(true);
+
+    expect(existsSync(issuesPath)).toBe(true);
+    const issues = JSON.parse(readFileSync(issuesPath, 'utf8')) as {
+      commands: Array<{ success: boolean; errorCode?: string }>;
+    };
+    expect(issues.commands).toHaveLength(commandsBefore + 2);
+    expect(issues.commands[commandsBefore].success).toBe(false);
+    expect(issues.commands[commandsBefore].errorCode).toBeDefined();
+    expect(issues.commands[commandsBefore + 1].success).toBe(true);
   });
 });

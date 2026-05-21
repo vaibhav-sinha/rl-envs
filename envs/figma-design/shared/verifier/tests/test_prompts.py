@@ -1,4 +1,16 @@
-from figma_eval.visual.prompts import build_task_completeness_prompt
+from figma_eval.visual.prompts import (
+    GOOD_DESIGN_CRITERIA,
+    build_good_design_prompt,
+    build_task_completeness_prompt,
+)
+
+
+def test_good_design_prompt_includes_all_criteria():
+    prompt = build_good_design_prompt(task_instruction="Add a footer.")
+    assert "Add a footer." in prompt
+    for key in GOOD_DESIGN_CRITERIA:
+        assert key in prompt
+    assert '"scores"' in prompt
 
 
 def test_task_completeness_prompt_without_evaluation_instructions():

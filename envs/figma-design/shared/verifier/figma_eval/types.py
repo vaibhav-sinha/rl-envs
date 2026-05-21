@@ -18,22 +18,50 @@ CheckType = Literal[
 CheckScope = Literal["node_id", "new_frames"]
 
 VisualCheckType = Literal[
+    "good_design",
     "design_consistency",
+    "design_fit",
     "task_completeness",
-    "before_vs_after",
-    "diff",
-    "compare_with_reference",
+    "design_preference",
 ]
-VisualFocus = Literal["largest_added", "added", "all"]
-SubCheckCategory = Literal["gates", "checks", "design_system", "visual", "heuristics"]
+MetadataCheckType = Literal["diff"]
+SubCheckCategory = Literal[
+    "gates",
+    "checks",
+    "design_system",
+    "visual",
+    "heuristics",
+    "commands",
+    "metadata",
+]
 
-DEFAULT_WEIGHTS = {
-    "gates": 1.0,
+DEFAULT_CATEGORY_IMPORTANCE = {
+    "commands": 0.15,
     "checks": 0.35,
     "design_system": 0.2,
     "visual": 0.35,
     "heuristics": 0.1,
+    "metadata": 0.1,
 }
+
+SCORING_CATEGORIES: tuple[SubCheckCategory, ...] = (
+    "commands",
+    "checks",
+    "design_system",
+    "visual",
+    "heuristics",
+    "metadata",
+)
+
+
+def subcheck_weight_from_spec(spec: dict[str, Any]) -> float:
+    """Per-subcheck weight from eval-spec; defaults to 1.0."""
+    raw = spec.get("weight", 1.0)
+    try:
+        w = float(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    return w if w > 0 else 1.0
 
 METADATA_PROPERTY_KEYS = frozenset(
     {"name", "pluginData", "description", "locked", "exportSettings", "reactions"}

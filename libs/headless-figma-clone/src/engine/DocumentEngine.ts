@@ -34,6 +34,7 @@ import type {
 import type { StyledSegment } from '../model/types.js';
 import { componentIdExistsInEnvelope } from '../persistence/componentGraphNormalize.js';
 import type { PersistenceService } from '../persistence/JsonPersistence.js';
+import { appendCommandIssue, appendDetachedNodes, type CommandIssue } from '../persistence/issuesFile.js';
 import { atomicWriteFileBinary } from '../persistence/atomicWriteFile.js';
 import { relativeAssetFile, sidecarDirForHfcJson } from '../persistence/assetPaths.js';
 import type { Logger } from '../util/logger.js';
@@ -2533,6 +2534,20 @@ export class DocumentEngine {
     await this.deps.persistence.save({ path: this.activeFilePath, envelope: working });
     this.emitPreview();
     return { success: true, touchedNodeIds: [...touched], warnings };
+  }
+
+  /** Append detached node snapshots to issues.hfc.json beside the active design file. */
+  async appendDetachedIssues(nodes: unknown[]): Promise<void> {
+    if (!this.activeFilePath || nodes.length === 0) return;
+    await appendDetachedNodes(this.activeFilePath, nodes);
+  }
+
+  /** Append a use_figma command outcome to issues.hfc.json beside the active design file. */
+  async appendCommandIssue(
+    entry: Omit<CommandIssue, 'at'> & { at?: string }
+  ): Promise<void> {
+    if (!this.activeFilePath) return;
+    await appendCommandIssue(this.activeFilePath, entry);
   }
 }
 

@@ -13,11 +13,13 @@ from .catalog import build_catalog
 from .checks import run_all_checks
 from .design_system import run_design_system_checks
 from .edit_graph import build_edit_graph
+from .commands import run_command_checks
 from .gates import run_gates
 from .heuristics import run_heuristics
 from .schema import load_and_validate_eval_spec
 from .envelope_normalize import normalize_component_envelope
 from .types import EvalReport, Envelope, SubCheckResult
+from .metadata import run_all_metadata_checks
 from .visual import run_all_visual_checks
 from .visual.instruction import load_task_instruction
 
@@ -68,9 +70,16 @@ def run_eval(
     log(f"judge model={model} skip_llm={skip_llm} parallel={parallel}")
 
     log("running gates")
-    gate_results = run_gates(before, after, graph, spec.get("gates"))
+    issues_path = Path(after_path).parent / "issues.hfc.json"
+    gate_results = run_gates(
+        before, after, graph, spec.get("gates"), issues_path=issues_path
+    )
     log(f"gates done ({len(gate_results)} results)")
     log_subcheck_results(gate_results)
+    log("running command checks")
+    command_results = run_command_checks(issues_path=issues_path)
+    log(f"command checks done ({len(command_results)} results)")
+    log_subcheck_results(command_results)
     log("running structural checks")
     check_results = run_all_checks(spec.get("checks"), before, after, graph, catalog)
     log(f"checks done ({len(check_results)} results)")
@@ -87,6 +96,17 @@ def run_eval(
     log_subcheck_results(heuristic_results)
 
     task_instruction = load_task_instruction(instruction_path)
+
+    log(f"running metadata checks ({len(spec.get('metadata_checks') or [])} specs)")
+    metadata_results = run_all_metadata_checks(
+        specs=spec.get("metadata_checks"),
+        graph=graph,
+        task_instruction=task_instruction,
+        skip_llm=skip_llm,
+        model=model,
+    )
+    log(f"metadata checks done ({len(metadata_results)} results)")
+    log_subcheck_results(metadata_results)
 
     log(f"running visual checks ({len(spec.get('visual') or [])} specs)")
     visual_results = run_all_visual_checks(
@@ -109,7 +129,13 @@ def run_eval(
     log_subcheck_results(visual_results)
 
     subchecks = (
-        gate_results + check_results + design_results + heuristic_results + visual_results
+        gate_results
+        + command_results
+        + check_results
+        + design_results
+        + heuristic_results
+        + metadata_results
+        + visual_results
     )
     completion_gate = compute_completion_gate(gate_results, check_results, spec)
     report = aggregate_scores(spec, subchecks, completion_gate)

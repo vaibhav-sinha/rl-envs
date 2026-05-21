@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
-
-DEFAULT_CONSISTENCY_CRITERIA = [
+GOOD_DESIGN_CRITERIA = [
     "typography",
     "spacing",
     "color",
@@ -11,46 +9,128 @@ DEFAULT_CONSISTENCY_CRITERIA = [
     "visual_hierarchy",
 ]
 
-DEFAULT_FIT_CRITERIA = [
-    "layout_fit",
-    "scale_proportion",
-    "style_cohesion_with_surroundings",
-]
+DEFAULT_DESIGN_FIT_PROMPT = (
+    "Evaluate how well the agent's changes fit within the original surrounding design. "
+    "Consider layout integration, scale, style cohesion, and whether new elements feel "
+    "native to the parent frame."
+)
+
+
+def criterion_ids(count: int) -> list[str]:
+    return [f"criterion_{i}" for i in range(count)]
 
 
 def _criteria_lines(criteria: list[str]) -> str:
     return "\n".join(f"- {name}" for name in criteria)
 
 
+def _numbered_criteria_lines(criteria: list[str]) -> str:
+    lines: list[str] = []
+    for i, text in enumerate(criteria):
+        lines.append(f"- criterion_{i}: {text}")
+    return "\n".join(lines)
+
+
+def build_good_design_prompt(*, task_instruction: str) -> str:
+    return (
+        "You are evaluating the visual design quality of a Figma design produced by an agent.\n\n"
+        "## Agent task\n"
+        f"{task_instruction}\n\n"
+        "## Screenshot\n"
+        "You are given one screenshot of the region that contains the agent's largest design "
+        "changes. There is no reference image — judge only whether the result follows sound "
+        "design practice.\n\n"
+        "## How to evaluate each dimension (score 1=poor, 5=excellent)\n\n"
+        "### typography\n"
+        "- Clear type hierarchy: headings, body, labels, and captions are visually distinct.\n"
+        "- Font sizes are appropriate for role (not too small to read, not oversized without reason).\n"
+        "- Font weights emphasize importance correctly (e.g. titles bolder than body).\n"
+        "- Text color has sufficient contrast against its background.\n"
+        "- No obvious orphaned or conflicting text styles in the same role.\n\n"
+        "### spacing\n"
+        "- Padding and gaps feel consistent within and between related groups.\n"
+        "- Elements align to a coherent grid or rhythm; nothing looks randomly placed.\n"
+        "- No cramped clusters or excessive empty voids unless intentional.\n"
+        "- Related items are grouped; unrelated items have clear separation.\n\n"
+        "### color\n"
+        "- Palette is purposeful: primary, secondary, neutral, and accent roles are clear.\n"
+        "- Contrast supports readability and affordance (buttons, links, states).\n"
+        "- Semantic colors (error, success, warning) are used appropriately when present.\n"
+        "- Avoid muddy, low-contrast grays that reduce clarity.\n\n"
+        "### content_not_overflowing\n"
+        "- No clipped or truncated text, icons, or images unless clearly intentional.\n"
+        "- Buttons and chips show full labels; avatars and thumbnails are not cut off.\n"
+        "- Scroll areas or ellipsis are only used where overflow is expected.\n\n"
+        "### alignment\n"
+        "- Edges and baselines line up across rows, columns, and form fields.\n"
+        "- Icons and text in rows are vertically centered or optically aligned.\n"
+        "- No elements that look one or two pixels off compared to neighbors.\n\n"
+        "### visual_hierarchy\n"
+        "- A clear focal point guides the eye to the primary action or message.\n"
+        "- Secondary information is visually subordinate to primary content.\n"
+        "- Grouping and whitespace reinforce what belongs together.\n\n"
+        "Respond with JSON only:\n"
+        "{\n"
+        '  "scores": {\n'
+        '    "typography": 1-5,\n'
+        '    "spacing": 1-5,\n'
+        '    "color": 1-5,\n'
+        '    "content_not_overflowing": 1-5,\n'
+        '    "alignment": 1-5,\n'
+        '    "visual_hierarchy": 1-5\n'
+        "  }\n"
+        "}\n"
+        "Do not include markdown fences."
+    )
+
+
 def build_design_consistency_prompt(
     *,
     task_instruction: str,
-    consistency_criteria: list[str],
-    fit_criteria: list[str] | None,
+    criteria: list[str],
 ) -> str:
-    fit_block = ""
-    if fit_criteria:
-        fit_block = (
-            "\n\n## Design fit (with surrounding context)\n"
-            "The screenshot includes surrounding UI context. Score how well the "
-            "new design fits that context on:\n"
-            f"{_criteria_lines(fit_criteria)}\n"
-            'Include these under JSON key "fit_scores".'
-        )
+    ids = criterion_ids(len(criteria))
+    score_lines = ",\n".join(f'    "{cid}": 1-5' for cid in ids)
 
     return (
-        "You are evaluating a Figma design produced by an agent.\n\n"
+        "You are comparing an agent-produced Figma design to a reference design.\n\n"
         "## Agent task\n"
         f"{task_instruction}\n\n"
-        "## Design consistency\n"
-        "Score the new design on each criterion (1=poor, 5=excellent):\n"
-        f"{_criteria_lines(consistency_criteria)}\n"
-        f"{fit_block}\n\n"
+        "## Images\n"
+        "- REFERENCE: the target design provided by the subject-matter expert\n"
+        "- AGENT: screenshot of the agent's largest design change region\n\n"
+        "## Criteria to score (1=poor, 5=excellent)\n"
+        "Score each criterion independently based on how well the AGENT image matches "
+        "the REFERENCE with respect to that criterion only:\n"
+        f"{_numbered_criteria_lines(criteria)}\n\n"
         "Respond with JSON only:\n"
         "{\n"
-        '  "consistency_scores": {"typography": 1-5, ...},\n'
-        + ('  "fit_scores": {"layout_fit": 1-5, ...},\n' if fit_criteria else "")
-        + "}\n"
+        '  "criteria_scores": {\n'
+        f"{score_lines}\n"
+        "  }\n"
+        "}\n"
+        "Do not include markdown fences."
+    )
+
+
+def build_design_fit_prompt(
+    *,
+    task_instruction: str,
+    evaluation_prompt: str,
+) -> str:
+    return (
+        "You are evaluating how well an agent's Figma design changes fit their context.\n\n"
+        "## Agent task\n"
+        f"{task_instruction}\n\n"
+        "## Evaluation focus\n"
+        f"{evaluation_prompt}\n\n"
+        "## Images\n"
+        "You are given BEFORE and AFTER screenshots of the same node region.\n"
+        "BEFORE shows the baseline; AFTER shows the agent's result.\n\n"
+        "Score how well the agent accomplished the evaluation focus on a scale of 0-10 "
+        "(0=not done or harmful, 10=fully accomplished with high quality).\n\n"
+        "Respond with JSON only:\n"
+        '{"score": 0-10}\n'
         "Do not include markdown fences."
     )
 
@@ -85,28 +165,14 @@ def build_task_completeness_prompt(
     )
 
 
-def build_before_vs_after_prompt(*, task_instruction: str) -> str:
-    return (
-        "You are evaluating how well an agent completed a Figma design task.\n\n"
-        "## Agent task\n"
-        f"{task_instruction}\n\n"
-        "You are given BEFORE and AFTER screenshots of the same surrounding context region.\n"
-        "Score how well the agent accomplished the task on a scale of 0-10 "
-        "(0=not done or harmful, 10=fully accomplished with high quality).\n\n"
-        "Respond with JSON only:\n"
-        '{"score": 0-10}\n'
-        "Do not include markdown fences."
-    )
-
-
-def build_compare_with_reference_prompt(*, task_instruction: str) -> str:
+def build_design_preference_prompt(*, task_instruction: str) -> str:
     return (
         "You are comparing an agent-produced Figma design to a reference design.\n\n"
         "## Agent task\n"
         f"{task_instruction}\n\n"
         "You are given two images:\n"
-        "- REFERENCE: the target design provided by the SME\n"
-        "- AGENT: the design produced by the agent\n\n"
+        "- REFERENCE: the completed target design provided by the SME\n"
+        "- AGENT: screenshot of the agent's largest design change region\n\n"
         "Score your preference on a scale of 0-10:\n"
         "- 0 = reference design is strongly preferred\n"
         "- 5 = both designs are equally preferred\n"
@@ -116,25 +182,3 @@ def build_compare_with_reference_prompt(*, task_instruction: str) -> str:
         '{"preference_score": 0-10}\n'
         "Do not include markdown fences."
     )
-
-
-def build_diff_prompt(*, task_instruction: str, diff_summary: str) -> str:
-    return (
-        "You are evaluating whether an agent completed a Figma design task.\n\n"
-        "## Agent task\n"
-        f"{task_instruction}\n\n"
-        "## Design diff (no screenshots)\n"
-        f"{diff_summary}\n\n"
-        "Judge whether the diff shows the task was completed. "
-        "Return a single score from 0-10 (0=not done, 10=fully done).\n\n"
-        "Respond with JSON only:\n"
-        '{"score": 0-10}\n'
-        "Do not include markdown fences."
-    )
-
-
-def criteria_from_spec(spec: dict[str, Any], key: str, default: list[str]) -> list[str]:
-    raw = spec.get(key)
-    if not raw:
-        return list(default)
-    return [str(item) for item in raw]

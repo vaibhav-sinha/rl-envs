@@ -18,7 +18,7 @@ from ..tree import (
     is_instance_node,
     node_exists,
 )
-from ..types import Envelope, SubCheckResult
+from ..types import Envelope, SubCheckResult, subcheck_weight_from_spec
 from .scope import image_nodes_in_scope, resolve_check_scope, text_nodes_containing
 
 
@@ -33,7 +33,7 @@ def _check_result(
         category="checks",
         score=score,
         applicable=applicable,
-        weight=1.0,
+        weight=subcheck_weight_from_spec(spec),
         details=details,
     )
 

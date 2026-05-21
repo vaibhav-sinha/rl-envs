@@ -3,29 +3,23 @@ import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import { captureScreenshot } from '../../lib/plugin-bridge';
 import {
-  humanEnumValue,
   humanFieldDescription,
   humanFieldLabel,
   humanVisualType,
 } from '../catalog-helpers';
+import { AUTO_VISUAL_TYPES, DEFAULT_DESIGN_FIT_PROMPT } from '../default-visual-checks';
 import type { CheckCatalog } from '../types';
 import { FieldHelp } from './FieldHelp';
 
 const VISUAL_FIELD_ORDER: Record<string, string[]> = {
-  design_consistency: [
-    'node_id',
-    'surrounding_context_node_id',
-    'consistency_criteria',
-    'fit_criteria',
-    'focus',
-  ],
+  good_design: [],
+  design_consistency: ['reference_asset', 'criteria'],
+  design_fit: ['node_id', 'evaluation_prompt'],
   task_completeness: ['evaluation_instructions', 'node_id'],
-  before_vs_after: ['surrounding_context_node_id'],
-  diff: [],
-  compare_with_reference: ['reference_asset'],
+  design_preference: ['reference_asset'],
 };
 
-const NODE_ID_KEYS = new Set(['node_id', 'surrounding_context_node_id']);
+const NODE_ID_KEYS = new Set(['node_id']);
 
 function orderedKeys(type: string, visual: Record<string, unknown>): string[] {
   const order = VISUAL_FIELD_ORDER[type] ?? [];
@@ -68,6 +62,7 @@ export function VisualCard({
   onLog: (msg: string, err?: boolean) => void;
 }) {
   const type = String(visual.type);
+  const isAuto = (AUTO_VISUAL_TYPES as readonly string[]).includes(type);
   const { label, description } = humanVisualType(type, catalog ?? undefined);
   const keys = orderedKeys(type, visual);
 
@@ -77,16 +72,30 @@ export function VisualCard({
         <div className="min-w-0">
           <p className="text-[11px] font-semibold m-0 text-foreground">
             {index + 1}. {label}
+            {isAuto ? (
+              <span className="ml-1.5 text-[9px] font-normal text-muted uppercase tracking-wide">
+                (default)
+              </span>
+            ) : null}
           </p>
           <p className="text-[10px] text-muted m-0 mt-0.5 leading-snug">{description}</p>
           <p className="text-[9px] text-muted/80 m-0 mt-1 font-mono">{String(visual.id)}</p>
         </div>
-        <Button size="sm" variant="ghost" type="button" onClick={onRemove} className="shrink-0 text-destructive">
-          Remove
-        </Button>
+        {!isAuto ? (
+          <Button size="sm" variant="ghost" type="button" onClick={onRemove} className="shrink-0 text-destructive">
+            Remove
+          </Button>
+        ) : null}
       </header>
 
       <div className="p-2.5 space-y-3">
+        {type === 'good_design' ? (
+          <p className="text-[10px] text-muted m-0">
+            Uses a built-in rubric (typography, spacing, color, overflow, alignment, hierarchy) on the
+            largest change region. No configuration needed.
+          </p>
+        ) : null}
+
         {type === 'task_completeness' ? (
           <div className="rounded border border-[#3a3a3a] bg-[#1e1e1e] px-2 py-1.5 space-y-1">
             <p className="text-[10px] font-medium m-0 text-foreground">Agent instruction (from step 2)</p>
@@ -103,53 +112,43 @@ export function VisualCard({
           const fieldLabel = humanFieldLabel(key, catalog ?? undefined, 'visual', type);
           const fieldDesc = humanFieldDescription(key, catalog ?? undefined, 'visual', type);
 
-          if (key === 'evaluation_instructions') {
+          if (key === 'evaluation_instructions' || key === 'evaluation_prompt') {
+            const isFit = key === 'evaluation_prompt';
             return (
               <div key={key} className="space-y-1">
                 <FieldHelp
-                  label="Additional judge instructions"
+                  label={isFit ? 'Evaluation prompt' : 'Additional judge instructions'}
                   description={
                     fieldDesc ??
-                    'Optional. Appended to the agent instruction when the LLM judges task completeness. Use this to clarify edge cases the agent instruction does not cover.'
+                    (isFit
+                      ? 'Instructions for the before/after fit judge.'
+                      : 'Optional. Appended to the agent instruction when judging task completeness.')
                   }
                 />
                 <Textarea
                   rows={4}
-                  placeholder="e.g. Treat icon-only buttons as valid. Ignore placeholder lorem ipsum."
-                  value={String(value ?? '')}
+                  placeholder={
+                    isFit
+                      ? DEFAULT_DESIGN_FIT_PROMPT
+                      : 'e.g. Treat icon-only buttons as valid. Ignore placeholder lorem ipsum.'
+                  }
+                  value={String(value ?? (isFit ? DEFAULT_DESIGN_FIT_PROMPT : ''))}
                   onChange={(e) => onChange({ [key]: e.target.value })}
                 />
               </div>
             );
           }
 
-          if (key === 'focus') {
-            const options = ['largest_added', 'added', 'all'];
+          if (key === 'criteria') {
             return (
               <div key={key} className="space-y-1">
-                <FieldHelp label={fieldLabel} description={fieldDesc} />
-                <select
-                  className="w-full h-8 rounded border border-[#555] bg-[#1e1e1e] text-[11px] px-2"
-                  value={String(value ?? 'largest_added')}
-                  onChange={(e) => onChange({ [key]: e.target.value })}
-                >
-                  {options.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {humanEnumValue('focus', opt)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            );
-          }
-
-          if (key === 'consistency_criteria' || key === 'fit_criteria') {
-            return (
-              <div key={key} className="space-y-1">
-                <FieldHelp label={fieldLabel} description={fieldDesc ?? 'One criterion per line.'} />
+                <FieldHelp
+                  label={fieldLabel}
+                  description={fieldDesc ?? 'One criterion per line. Each is scored 1–5 and averaged.'}
+                />
                 <Textarea
-                  rows={3}
-                  placeholder="One line per criterion"
+                  rows={4}
+                  placeholder={'The new screen should use the same background pattern as the reference\nThe new screen should have a keyboard at the bottom'}
                   value={linesFromArray(value)}
                   onChange={(e) => {
                     const lines = e.target.value
@@ -205,12 +204,6 @@ export function VisualCard({
             </div>
           );
         })}
-
-        {type === 'diff' ? (
-          <p className="text-[10px] text-muted m-0">
-            No extra settings — the verifier sends a textual diff summary to the LLM.
-          </p>
-        ) : null}
       </div>
     </article>
   );

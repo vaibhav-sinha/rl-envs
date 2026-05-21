@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Iterator
 
-from .types import Envelope, TreeNode
+from .types import EditGraph, Envelope, TreeNode
 
 if TYPE_CHECKING:
     from .edit_graph import EditGraph
@@ -165,10 +165,24 @@ def is_top_level_frame(envelope: Envelope, node_id: str) -> bool:
     return parent is not None and parent.get("type") == "PAGE"
 
 
+def resolve_largest_change_region_node(
+    envelope: Envelope,
+    graph: EditGraph,
+) -> str | None:
+    """Pick the screenshot target for the largest design change region."""
+    changed_ids = graph.added_ids | graph.deleted_ids | graph.modified_ids
+    return resolve_compare_with_reference_screenshot_node(
+        envelope,
+        changed_ids,
+        added_ids=graph.added_ids,
+        modified_ids=graph.modified_ids,
+    )
+
+
 def resolve_compare_with_reference_screenshot_node(
     envelope: Envelope, changed_ids: set[str], *, added_ids: set[str], modified_ids: set[str]
 ) -> str | None:
-    """Pick screenshot target for compare_with_reference visual check."""
+    """Pick screenshot target for agent result vs reference visual checks."""
     added_top_level = [nid for nid in added_ids if is_top_level_frame(envelope, nid)]
 
     modified_frames = {

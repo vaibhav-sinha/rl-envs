@@ -25,10 +25,8 @@ function remapCheck(check: Record<string, unknown>, figmaToHfc: Record<string, s
 
 function remapVisual(visual: Record<string, unknown>, figmaToHfc: Record<string, string>): Record<string, unknown> {
   const out = { ...visual };
-  for (const key of ['node_id', 'surrounding_context_node_id'] as const) {
-    if (typeof out[key] === 'string') {
-      out[key] = remapNodeId(out[key], figmaToHfc);
-    }
+  if (typeof out.node_id === 'string') {
+    out.node_id = remapNodeId(out.node_id, figmaToHfc);
   }
   return out;
 }
@@ -60,6 +58,10 @@ export function remapEvalSpecIds(spec: EvalSpec, figmaToHfc: Record<string, stri
 
   if (spec.visual) {
     next.visual = spec.visual.map((v) => remapVisual(v, figmaToHfc));
+  }
+
+  if (spec.metadata_checks) {
+    next.metadata_checks = spec.metadata_checks.map((m) => ({ ...m }));
   }
 
   if (spec.design_system) {

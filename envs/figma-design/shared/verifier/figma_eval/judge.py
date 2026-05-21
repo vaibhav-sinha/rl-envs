@@ -44,9 +44,16 @@ def parse_criteria_scores(
     *,
     consistency_keys: list[str],
     fit_keys: list[str] | None = None,
+    scores_key: str = "consistency_scores",
 ) -> dict[str, Any]:
     data = json.loads(_strip_json_fence(text))
-    consistency_raw = data.get("consistency_scores") or data.get("dimensions") or {}
+    consistency_raw = (
+        data.get(scores_key)
+        or data.get("consistency_scores")
+        or data.get("scores")
+        or data.get("dimensions")
+        or {}
+    )
     fit_raw = data.get("fit_scores") or {}
 
     consistency: ScoreMap = {}

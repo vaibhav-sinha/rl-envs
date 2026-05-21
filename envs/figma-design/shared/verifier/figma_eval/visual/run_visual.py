@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..edit_graph import changed_node_ids, format_diff_summary, resolve_focus_node_id
+from ..edit_graph import changed_node_ids
 from ..hfc_render import render_node_or_error
 from ..judge import (
     parse_criteria_scores,
@@ -12,22 +12,21 @@ from ..judge import (
     parse_task_completeness,
     run_llm_judge,
 )
+from ..log import log
 from ..tree import (
     node_exists,
-    resolve_compare_with_reference_screenshot_node,
+    resolve_largest_change_region_node,
     resolve_task_completeness_screenshot_node,
 )
-from ..log import log
-from ..types import EditGraph, Envelope, SubCheckResult
+from ..types import EditGraph, Envelope, SubCheckResult, subcheck_weight_from_spec
 from .prompts import (
-    DEFAULT_CONSISTENCY_CRITERIA,
-    DEFAULT_FIT_CRITERIA,
-    build_before_vs_after_prompt,
-    build_compare_with_reference_prompt,
+    GOOD_DESIGN_CRITERIA,
     build_design_consistency_prompt,
-    build_diff_prompt,
+    build_design_fit_prompt,
+    build_design_preference_prompt,
+    build_good_design_prompt,
     build_task_completeness_prompt,
-    criteria_from_spec,
+    criterion_ids,
 )
 
 SKIP_LLM_SCORE = 0.75
@@ -70,49 +69,39 @@ def _visual_result(
         category="visual",
         score=score,
         applicable=True,
-        weight=1.0,
+        weight=subcheck_weight_from_spec(spec),
         details=details,
     )
 
 
-def _resolve_screenshot_node_id(
-    spec: dict[str, Any],
-    *,
-    before: Envelope,
+def _resolve_largest_change_screenshot_id(
     after: Envelope,
-) -> str:
-    context_id = spec.get("surrounding_context_node_id")
-    if context_id:
-        return context_id
-
-    node_id = spec["node_id"]
-    focus = spec.get("focus") or "largest_added"
-    if focus == "all":
-        return node_id
-    return resolve_focus_node_id(before, after, node_id, focus)
+    graph: EditGraph,
+) -> str | None:
+    return resolve_largest_change_region_node(after, graph)
 
 
-def _run_design_consistency(
+def _run_good_design(
     *,
     spec: dict[str, Any],
-    before: Envelope,
     after: Envelope,
     after_path: str,
+    graph: EditGraph,
     work: Path,
     task_instruction: str,
     skip_llm: bool,
     model: str,
     hfc_cli: str | None,
 ) -> SubCheckResult:
-    screenshot_id = _resolve_screenshot_node_id(spec, before=before, after=after)
-    if not node_exists(after, screenshot_id):
+    screenshot_id = _resolve_largest_change_screenshot_id(after, graph)
+    if not screenshot_id or not node_exists(after, screenshot_id):
         return _visual_result(
             spec,
             0.0,
-            {"reason": "screenshot_node_missing_in_after", "node_id": screenshot_id},
+            {"reason": "screenshot_node_unresolved", "node_id": screenshot_id},
         )
 
-    shot_path = work / f"{spec['id']}-design.png"
+    shot_path = work / f"{spec['id']}-good-design.png"
     render_failed = _render_screenshot(
         spec,
         file=after_path,
@@ -123,13 +112,82 @@ def _run_design_consistency(
     if render_failed is not None:
         return render_failed
 
-    consistency_criteria = criteria_from_spec(
-        spec, "consistency_criteria", DEFAULT_CONSISTENCY_CRITERIA
+    if skip_llm:
+        return _visual_result(
+            spec,
+            SKIP_LLM_SCORE,
+            {
+                "check": "good_design",
+                "screenshot_node_id": screenshot_id,
+                "llm": "skipped",
+            },
+        )
+
+    prompt = build_good_design_prompt(task_instruction=task_instruction)
+    llm = run_llm_judge(
+        prompt=prompt,
+        images=[{"role": "design", "path": str(shot_path)}],
+        model=model,
+        parse_fn=lambda text: parse_criteria_scores(
+            text,
+            consistency_keys=GOOD_DESIGN_CRITERIA,
+            scores_key="scores",
+        ),
+        retry_hint='Return ONLY valid JSON with key "scores". No markdown.',
     )
-    has_context = bool(spec.get("surrounding_context_node_id"))
-    fit_criteria = (
-        criteria_from_spec(spec, "fit_criteria", DEFAULT_FIT_CRITERIA) if has_context else None
+    return _visual_result(
+        spec,
+        llm["mean_score"],
+        {
+            "check": "good_design",
+            "screenshot_node_id": screenshot_id,
+            "scores": llm.get("consistency_scores"),
+        },
     )
+
+
+def _run_design_consistency(
+    *,
+    spec: dict[str, Any],
+    after: Envelope,
+    after_path: str,
+    graph: EditGraph,
+    work: Path,
+    task_instruction: str,
+    assets_dir: str | None,
+    skip_llm: bool,
+    model: str,
+    hfc_cli: str | None,
+) -> SubCheckResult:
+    ref_path = _resolve_reference_asset_path(spec, assets_dir)
+    if not ref_path.is_file():
+        return _visual_result(
+            spec,
+            0.0,
+            {"reason": "reference_file_missing", "path": str(ref_path)},
+        )
+
+    criteria = [str(c) for c in spec["criteria"]]
+    ids = criterion_ids(len(criteria))
+
+    screenshot_id = _resolve_largest_change_screenshot_id(after, graph)
+    if not screenshot_id or not node_exists(after, screenshot_id):
+        return _visual_result(
+            spec,
+            0.0,
+            {"reason": "screenshot_node_unresolved", "node_id": screenshot_id},
+        )
+
+    agent_shot = work / f"{spec['id']}-agent.png"
+    render_failed = _render_screenshot(
+        spec,
+        file=after_path,
+        node_id=screenshot_id,
+        out=agent_shot,
+        hfc_cli=hfc_cli,
+    )
+    if render_failed is not None:
+        return render_failed
 
     if skip_llm:
         return _visual_result(
@@ -138,29 +196,28 @@ def _run_design_consistency(
             {
                 "check": "design_consistency",
                 "screenshot_node_id": screenshot_id,
+                "reference_path": str(ref_path),
                 "llm": "skipped",
             },
         )
 
     prompt = build_design_consistency_prompt(
         task_instruction=task_instruction,
-        consistency_criteria=consistency_criteria,
-        fit_criteria=fit_criteria,
+        criteria=criteria,
     )
     llm = run_llm_judge(
         prompt=prompt,
-        images=[{"role": "design", "path": str(shot_path)}],
+        images=[
+            {"role": "reference", "path": str(ref_path)},
+            {"role": "agent", "path": str(agent_shot)},
+        ],
         model=model,
         parse_fn=lambda text: parse_criteria_scores(
             text,
-            consistency_keys=consistency_criteria,
-            fit_keys=fit_criteria,
+            consistency_keys=ids,
+            scores_key="criteria_scores",
         ),
-        retry_hint=(
-            "Return ONLY valid JSON with consistency_scores"
-            + (" and fit_scores" if fit_criteria else "")
-            + ". No markdown."
-        ),
+        retry_hint='Return ONLY valid JSON with key "criteria_scores". No markdown.',
     )
     return _visual_result(
         spec,
@@ -168,9 +225,79 @@ def _run_design_consistency(
         {
             "check": "design_consistency",
             "screenshot_node_id": screenshot_id,
-            "consistency_scores": llm.get("consistency_scores"),
-            "fit_scores": llm.get("fit_scores"),
+            "reference_path": str(ref_path),
+            "criteria_scores": llm.get("consistency_scores"),
         },
+    )
+
+
+def _run_design_fit(
+    *,
+    spec: dict[str, Any],
+    before: Envelope,
+    after: Envelope,
+    before_path: str,
+    after_path: str,
+    work: Path,
+    task_instruction: str,
+    skip_llm: bool,
+    model: str,
+    hfc_cli: str | None,
+) -> SubCheckResult:
+    node_id = spec["node_id"]
+    if not node_exists(after, node_id):
+        return _visual_result(
+            spec,
+            0.0,
+            {"reason": "node_missing_in_after", "node_id": node_id},
+        )
+
+    before_shot = work / f"{spec['id']}-before.png"
+    after_shot = work / f"{spec['id']}-after.png"
+    render_failed = _render_screenshot(
+        spec,
+        file=before_path,
+        node_id=node_id,
+        out=before_shot,
+        hfc_cli=hfc_cli,
+    )
+    if render_failed is not None:
+        return render_failed
+    render_failed = _render_screenshot(
+        spec,
+        file=after_path,
+        node_id=node_id,
+        out=after_shot,
+        hfc_cli=hfc_cli,
+    )
+    if render_failed is not None:
+        return render_failed
+
+    if skip_llm:
+        return _visual_result(
+            spec,
+            SKIP_LLM_SCORE,
+            {"check": "design_fit", "node_id": node_id, "llm": "skipped"},
+        )
+
+    prompt = build_design_fit_prompt(
+        task_instruction=task_instruction,
+        evaluation_prompt=str(spec["evaluation_prompt"]),
+    )
+    llm = run_llm_judge(
+        prompt=prompt,
+        images=[
+            {"role": "before", "path": str(before_shot)},
+            {"role": "after", "path": str(after_shot)},
+        ],
+        model=model,
+        parse_fn=lambda text: parse_numeric_score(text, scale=10),
+        retry_hint='Return ONLY valid JSON: {"score": 0-10}. No markdown.',
+    )
+    return _visual_result(
+        spec,
+        llm["mean_score"],
+        {"check": "design_fit", "node_id": node_id, "raw_score": llm.get("score")},
     )
 
 
@@ -247,74 +374,7 @@ def _run_task_completeness(
     )
 
 
-def _run_before_vs_after(
-    *,
-    spec: dict[str, Any],
-    before: Envelope,
-    after: Envelope,
-    before_path: str,
-    after_path: str,
-    work: Path,
-    task_instruction: str,
-    skip_llm: bool,
-    model: str,
-    hfc_cli: str | None,
-) -> SubCheckResult:
-    context_id = spec["surrounding_context_node_id"]
-    if not node_exists(after, context_id):
-        return _visual_result(
-            spec,
-            0.0,
-            {"reason": "context_node_missing_in_after", "node_id": context_id},
-        )
-
-    before_shot = work / f"{spec['id']}-before.png"
-    after_shot = work / f"{spec['id']}-after.png"
-    render_failed = _render_screenshot(
-        spec,
-        file=before_path,
-        node_id=context_id,
-        out=before_shot,
-        hfc_cli=hfc_cli,
-    )
-    if render_failed is not None:
-        return render_failed
-    render_failed = _render_screenshot(
-        spec,
-        file=after_path,
-        node_id=context_id,
-        out=after_shot,
-        hfc_cli=hfc_cli,
-    )
-    if render_failed is not None:
-        return render_failed
-
-    if skip_llm:
-        return _visual_result(
-            spec,
-            SKIP_LLM_SCORE,
-            {"check": "before_vs_after", "context_node_id": context_id, "llm": "skipped"},
-        )
-
-    prompt = build_before_vs_after_prompt(task_instruction=task_instruction)
-    llm = run_llm_judge(
-        prompt=prompt,
-        images=[
-            {"role": "before", "path": str(before_shot)},
-            {"role": "after", "path": str(after_shot)},
-        ],
-        model=model,
-        parse_fn=lambda text: parse_numeric_score(text, scale=10),
-        retry_hint='Return ONLY valid JSON: {"score": 0-10}. No markdown.',
-    )
-    return _visual_result(
-        spec,
-        llm["mean_score"],
-        {"check": "before_vs_after", "context_node_id": context_id, "raw_score": llm.get("score")},
-    )
-
-
-def _run_compare_with_reference(
+def _run_design_preference(
     *,
     spec: dict[str, Any],
     after: Envelope,
@@ -335,13 +395,7 @@ def _run_compare_with_reference(
             {"reason": "reference_file_missing", "path": str(ref_path)},
         )
 
-    changes = changed_node_ids(graph)
-    screenshot_id = resolve_compare_with_reference_screenshot_node(
-        after,
-        changes,
-        added_ids=graph.added_ids,
-        modified_ids=graph.modified_ids,
-    )
+    screenshot_id = _resolve_largest_change_screenshot_id(after, graph)
     if not screenshot_id or not node_exists(after, screenshot_id):
         return _visual_result(
             spec,
@@ -365,14 +419,14 @@ def _run_compare_with_reference(
             spec,
             SKIP_LLM_SCORE,
             {
-                "check": "compare_with_reference",
+                "check": "design_preference",
                 "screenshot_node_id": screenshot_id,
                 "reference_path": str(ref_path),
                 "llm": "skipped",
             },
         )
 
-    prompt = build_compare_with_reference_prompt(task_instruction=task_instruction)
+    prompt = build_design_preference_prompt(task_instruction=task_instruction)
     llm = run_llm_judge(
         prompt=prompt,
         images=[
@@ -387,38 +441,11 @@ def _run_compare_with_reference(
         spec,
         llm["mean_score"],
         {
-            "check": "compare_with_reference",
+            "check": "design_preference",
             "screenshot_node_id": screenshot_id,
             "reference_path": str(ref_path),
             "preference_score": llm.get("preference_score"),
         },
-    )
-
-
-def _run_diff_check(
-    *,
-    spec: dict[str, Any],
-    graph: EditGraph,
-    task_instruction: str,
-    skip_llm: bool,
-    model: str,
-) -> SubCheckResult:
-    if skip_llm:
-        return _visual_result(spec, SKIP_LLM_SCORE, {"check": "diff", "llm": "skipped"})
-
-    diff_summary = format_diff_summary(graph)
-    prompt = build_diff_prompt(task_instruction=task_instruction, diff_summary=diff_summary)
-    llm = run_llm_judge(
-        prompt=prompt,
-        images=None,
-        model=model,
-        parse_fn=lambda text: parse_numeric_score(text, scale=10),
-        retry_hint='Return ONLY valid JSON: {"score": 0-10}. No markdown.',
-    )
-    return _visual_result(
-        spec,
-        llm["mean_score"],
-        {"check": "diff", "raw_score": llm.get("score")},
     )
 
 
@@ -444,13 +471,46 @@ def run_visual_check(
     check_type = spec.get("type")
     check_id = spec.get("id", "?")
     log(f"visual check start id={check_id} type={check_type}")
+
+    if check_type == "good_design":
+        return _log_visual_done(
+            spec,
+            _run_good_design(
+                spec=spec,
+                after=after,
+                after_path=after_path,
+                graph=graph,
+                work=work,
+                task_instruction=task_instruction,
+                skip_llm=skip_llm,
+                model=model,
+                hfc_cli=hfc_cli,
+            ),
+        )
     if check_type == "design_consistency":
         return _log_visual_done(
             spec,
             _run_design_consistency(
                 spec=spec,
+                after=after,
+                after_path=after_path,
+                graph=graph,
+                work=work,
+                task_instruction=task_instruction,
+                assets_dir=assets_dir,
+                skip_llm=skip_llm,
+                model=model,
+                hfc_cli=hfc_cli,
+            ),
+        )
+    if check_type == "design_fit":
+        return _log_visual_done(
+            spec,
+            _run_design_fit(
+                spec=spec,
                 before=before,
                 after=after,
+                before_path=before_path,
                 after_path=after_path,
                 work=work,
                 task_instruction=task_instruction,
@@ -476,37 +536,10 @@ def run_visual_check(
                 hfc_cli=hfc_cli,
             ),
         )
-    if check_type == "before_vs_after":
+    if check_type == "design_preference":
         return _log_visual_done(
             spec,
-            _run_before_vs_after(
-                spec=spec,
-                before=before,
-                after=after,
-                before_path=before_path,
-                after_path=after_path,
-                work=work,
-                task_instruction=task_instruction,
-                skip_llm=skip_llm,
-                model=model,
-                hfc_cli=hfc_cli,
-            ),
-        )
-    if check_type == "diff":
-        return _log_visual_done(
-            spec,
-            _run_diff_check(
-                spec=spec,
-                graph=graph,
-                task_instruction=task_instruction,
-                skip_llm=skip_llm,
-                model=model,
-            ),
-        )
-    if check_type == "compare_with_reference":
-        return _log_visual_done(
-            spec,
-            _run_compare_with_reference(
+            _run_design_preference(
                 spec=spec,
                 after=after,
                 after_path=after_path,

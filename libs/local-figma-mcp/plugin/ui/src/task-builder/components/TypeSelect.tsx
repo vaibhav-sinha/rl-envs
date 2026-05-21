@@ -1,4 +1,5 @@
-import { humanCheckType, humanVisualType } from '../catalog-helpers';
+import { humanCheckType, humanMetadataType, humanVisualType } from '../catalog-helpers';
+import { AUTO_VISUAL_TYPES } from '../default-visual-checks';
 import type { CheckCatalog } from '../types';
 import { FieldHelp } from './FieldHelp';
 
@@ -18,8 +19,18 @@ export function buildCheckOptions(catalog: CheckCatalog | null): TypeOption[] {
 
 export function buildVisualOptions(catalog: CheckCatalog | null): TypeOption[] {
   const types = catalog?.visual.types ?? {};
+  return Object.keys(types)
+    .filter((value) => !(AUTO_VISUAL_TYPES as readonly string[]).includes(value))
+    .map((value) => {
+      const { label, description } = humanVisualType(value, catalog ?? undefined);
+      return { value, label, description };
+    });
+}
+
+export function buildMetadataOptions(catalog: CheckCatalog | null): TypeOption[] {
+  const types = catalog?.metadata_checks?.types ?? {};
   return Object.keys(types).map((value) => {
-    const { label, description } = humanVisualType(value, catalog ?? undefined);
+    const { label, description } = humanMetadataType(value, catalog ?? undefined);
     return { value, label, description };
   });
 }

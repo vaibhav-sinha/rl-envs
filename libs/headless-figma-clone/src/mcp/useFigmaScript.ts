@@ -82,8 +82,20 @@ interface ScriptContext {
   ops: EngineOperation[];
   deletedIds: Set<string>;
   selectionByPageId: Map<string, string[]>;
+  /** Runtime nodes from figma.create* (for detached-node capture at end of script). */
+  createdNodes: Set<RuntimeSceneNode>;
   signal?: AbortSignal;
   onMutate?: () => void;
+}
+
+/** Proxied runtime nodes fail `instanceof RuntimeSceneNode`; use duck typing. */
+function isRuntimeSceneNode(v: unknown): v is RuntimeSceneNode {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as RuntimeSceneNode).getAttachedIdOrNull === 'function' &&
+    typeof (v as RuntimeSceneNode).toNewNodeSpec === 'function'
+  );
 }
 
 function getNodeIndex(ctx: ScriptContext): NodeIndex {
@@ -175,7 +187,7 @@ function queueUpdate(ctx: ScriptContext, nodeId: string, patch: Record<string, u
 }
 
 function readChildId(child: RuntimeSceneNode | { id: string }): string {
-  if (child instanceof RuntimeSceneNode) {
+  if (isRuntimeSceneNode(child)) {
     const sid = child.getAttachedIdOrNull();
     if (!child.attached || sid === null) {
       throw new Error('appendChild: child must be attached to the document (or use a handle with .id)');
@@ -192,7 +204,7 @@ function appendChildToScriptParent(
   child: RuntimeSceneNode | { id: string },
   index?: number
 ): void {
-  if (child instanceof RuntimeSceneNode && !child.attached) {
+  if (isRuntimeSceneNode(child) && !child.attached) {
     child.appendUnderParent(parentId, index, ctx);
     return;
   }
@@ -649,8 +661,43 @@ const SIDE_STROKE_PROPS: Record<string, 'top' | 'right' | 'bottom' | 'left'> = {
   strokeLeftWeight: 'left',
 };
 
+function registerCreatedNode(ctx: ScriptContext, node: RuntimeSceneNode): void {
+  ctx.createdNodes.add(node);
+}
+
+function toDetachedSubtreeSpec(node: RuntimeSceneNode): Record<string, unknown> {
+  const spec = node.toNewNodeSpec() as Record<string, unknown>;
+  const pending = node.getPendingDetachedChildren();
+  if (pending.length > 0) {
+    spec.children = pending.map((c) => toDetachedSubtreeSpec(c));
+  }
+  return spec;
+}
+
+function isPendingDescendantOf(ancestor: RuntimeSceneNode, node: RuntimeSceneNode): boolean {
+  const stack = [...ancestor.getPendingDetachedChildren()];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    if (cur === node) return true;
+    if (!cur.attached) stack.push(...cur.getPendingDetachedChildren());
+  }
+  return false;
+}
+
+function collectUnattachedRoots(ctx: ScriptContext): RuntimeSceneNode[] {
+  const unattached = [...ctx.createdNodes].filter((n) => !n.attached);
+  return unattached.filter(
+    (n) => !unattached.some((other) => other !== n && isPendingDescendantOf(other, n))
+  );
+}
+
+/** Snapshots of nodes created in the script but never appended to the document. */
+export function collectDetachedSnapshots(ctx: ScriptContext): unknown[] {
+  return collectUnattachedRoots(ctx).map((n) => toDetachedSubtreeSpec(n));
+}
+
 function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext): N {
-  return new Proxy(node, {
+  const proxied = new Proxy(node, {
     get(target, prop, receiver) {
       const p = prop as string;
       const nid = target.getAttachedIdOrNull();
@@ -677,6 +724,19 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
         return getImmediateSceneChildren(live, ctx.working, getNodeIndex(ctx))
           .filter((c) => !ctx.deletedIds.has(c.id))
           .map((c) => createHandleProxy(ctx, c.id));
+      }
+      if (
+        (p === 'appendChild' || p === 'insertChild') &&
+        typeof Reflect.get(target, p, receiver) === 'function'
+      ) {
+        if (p === 'appendChild') {
+          return (c: RuntimeSceneNode | { id: string }, idx?: number): void => {
+            target.queueAppendChild(c, idx);
+          };
+        }
+        return (idx: number, c: RuntimeSceneNode | { id: string }): void => {
+          target.queueAppendChild(c, idx);
+        };
       }
       if ((p === 'clone' || p === 'duplicate') && typeof Reflect.get(target, p, receiver) === 'function') {
         const fn = Reflect.get(target, p, receiver) as () => unknown;
@@ -777,6 +837,8 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
       return Reflect.set(target, prop, normalized, receiver);
     },
   }) as N;
+  registerCreatedNode(ctx, proxied);
+  return proxied;
 }
 
 abstract class RuntimeSceneNode {
@@ -814,13 +876,18 @@ abstract class RuntimeSceneNode {
   private pendingChildren: Array<{ child: RuntimeSceneNode | { id: string }; index?: number }> = [];
   private pendingBoundVariables: Array<{ field: string; variable: { id: string } | null }> = [];
 
+  /** Public entry for proxy wrappers so `this` stays the runtime target. */
+  queueAppendChild(child: RuntimeSceneNode | { id: string }, index?: number): void {
+    this.appendChildInternal(child, index);
+  }
+
   protected appendChildInternal(child: RuntimeSceneNode | { id: string }, index?: number): void {
     if (!this.attached || this._id === null) {
-      if (child instanceof RuntimeSceneNode && !child.attached) {
+      if (isRuntimeSceneNode(child) && !child.attached) {
         this.pendingChildren.push({ child, index });
         return;
       }
-      if (!(child instanceof RuntimeSceneNode) && typeof child.id === 'string') {
+      if (!isRuntimeSceneNode(child) && typeof child.id === 'string') {
         this.pendingChildren.push({ child, index });
         return;
       }
@@ -836,6 +903,15 @@ abstract class RuntimeSceneNode {
     for (const { child, index } of pending) {
       appendChildToScriptParent(this.ctx, this._id, child, index);
     }
+  }
+
+  /** Unattached children queued via appendChild before this node was in the document. */
+  getPendingDetachedChildren(): RuntimeSceneNode[] {
+    const out: RuntimeSceneNode[] = [];
+    for (const { child } of this.pendingChildren) {
+      if (isRuntimeSceneNode(child)) out.push(child);
+    }
+    return out;
   }
 
   resize(w: number, h: number): void {
@@ -2168,6 +2244,8 @@ export interface RunUseFigmaScriptOk {
   result: unknown;
   /** Warnings from return-value snapshot (depth/node budget, etc.). */
   snapshotWarnings: string[];
+  /** Node specs for runtime nodes never appended to the document (for issues.hfc.json). */
+  detachedNodes: unknown[];
 }
 
 export interface RunUseFigmaScriptErr {
@@ -2228,6 +2306,7 @@ export async function runUseFigmaScript(
     ops: [],
     deletedIds: new Set(),
     selectionByPageId: new Map(),
+    createdNodes: new Set(),
     signal,
   };
   const firstPage = file.document.children.find((c): c is PageNode => c.type === 'PAGE');
@@ -2727,5 +2806,13 @@ export async function runUseFigmaScript(
     snapshotWarnings = snap.warnings;
   }
 
-  return { kind: 'ok', operations: ctx.ops, currentPageId, result, snapshotWarnings };
+  const detachedNodes = collectDetachedSnapshots(ctx);
+  return {
+    kind: 'ok',
+    operations: ctx.ops,
+    currentPageId,
+    result,
+    snapshotWarnings,
+    detachedNodes,
+  };
 }

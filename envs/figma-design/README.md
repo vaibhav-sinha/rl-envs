@@ -105,7 +105,40 @@ If the fixture has a sibling `*.hfc.assets/` directory (embedded bitmaps), `new-
 
 Mention agent assets in `instruction.md` as `/app/assets/<file>`. Agents typically use `upload_assets` with `filePath` relative to cwd `/app`.
 
-Grading is defined in `tests/eval-spec.json` (schema: `shared/verifier/eval-spec.schema.json`). The verifier runs the Python `figma_eval` package in-process; screenshots use the HFC core CLI:
+Grading is defined in `tests/eval-spec.json` (schema: `shared/verifier/eval-spec.schema.json`). The verifier runs the Python `figma_eval` package in-process; screenshots use the HFC core CLI.
+
+### Scoring model
+
+RewardKit exposes a single criterion `figma_design_score` ∈ [0, 1] (`score_0_10 / 10`). The engine computes:
+
+```text
+final_0_10 = clamp(0, 10, completion_gate × raw × 10)
+```
+
+**`completion_gate`** (hard caps; gates are not averaged into `raw`):
+
+| Failure | Multiplier |
+|---------|------------|
+| Any applicable gate with score &lt; 1 | × 0.2 |
+| Any applicable **required** structural check with score &lt; 1 | × 0.3 |
+
+Gates (`require_change`, `preserve_ids`, `allowed_change_inside_ids`, `additions_only`, `no_detached_nodes`) only affect `completion_gate`. Optional structural checks use `"required": false` and do not trigger the 0.3 cap.
+
+**`raw`** (quality score, 0–1): weighted mean of **category means** for categories that have at least one applicable subcheck:
+
+`commands`, `checks`, `design_system`, `visual`, `heuristics`, `metadata`.
+
+Per-task **`category_importance`** sets relative priority (e.g. upweight `visual` on layout tasks). Values are **normalized internally** over categories that actually ran, so authors can use arbitrary positive numbers. Legacy `weights` in old specs is still read but `gates` entries are ignored for `raw`.
+
+Within each category, subchecks are combined with a **weighted mean**; each check/visual/metadata entry may set `"weight"` (default **1.0**).
+
+**Heuristics** (always-on when content changed): contrast uses the **minimum** contrast ratio across text nodes; readable font size uses the **minimum** per-text pass score (any text &lt; 10px fails that subcheck).
+
+Full per-subcheck breakdown: `/logs/verifier/eval-report-details.json`.
+
+**Visual checks** (LLM + screenshots): `good_design`, `design_consistency`, `design_fit`, `task_completeness`, `design_preference`.
+
+**Metadata checks** (LLM, no screenshots): e.g. `diff` under `metadata_checks`.
 
 ```bash
 node /opt/hfc/dist/cli.js render --file <path.hfc.json> --node <id> --out <png>
@@ -136,7 +169,7 @@ This replaces each task's `tests/` with `shared/verifier/`, then restores `eval-
 
 ## Verifier (RewardKit)
 
-Single criterion `figma_design_score` (weight 1.0) in `shared/verifier/check.py` calls `figma_eval.run()`. Full breakdown is written to `/logs/verifier/eval-report-details.json`.
+Single criterion `figma_design_score` in `shared/verifier/check.py` calls `figma_eval.run_eval()`. See **Scoring model** above; details land in `/logs/verifier/eval-report-details.json`.
 
 `tests/test.sh` runs:
 
@@ -149,15 +182,24 @@ Output: `/logs/verifier/reward.json`.
 ### Post-trial design artifact
 
 After grading, `tests/test.sh` copies the agent’s final design to `/logs/artifacts/design.hfc.json`.
+HFC also writes `/data/workspace/issues.hfc.json` (appended across `use_figma` calls) when
+relevant; when present it is copied to `/logs/artifacts/issues.hfc.json`. The file may contain:
+
+- `detached` — nodes created in a script but never appended to the document
+- `commands` — one entry per `use_figma` call with `success: true|false` (compile/runtime/transaction errors set `success` to false)
+
 Harbor bind-mounts `/logs/artifacts` to the host trial directory, so you get:
 
 ```text
 jobs/<job>/<trial>/artifacts/design.hfc.json
+jobs/<job>/<trial>/artifacts/issues.hfc.json   # when issues were recorded
 ```
 
-Tasks also declare `[[artifacts]]` in `task.toml` so Harbor downloads the same path when
-collection runs outside the mounted layout. Inspect this file to debug structural checks
-(for example `must_contain_text` with `scope: "new_frames"`) without re-running the trial.
+Tasks also declare `[[artifacts]]` in `task.toml` so Harbor downloads the same paths when
+collection runs outside the mounted layout. Inspect `design.hfc.json` to debug structural checks
+(for example `must_contain_text` with `scope: "new_frames"`). Inspect `issues.hfc.json` to see
+detached node snapshots (`no_detached_nodes` gate) or `use_figma` command outcomes
+(`commands.command_correctness` subcheck: success/total, capped at 0.8 when any command failed).
 
 ## Agent skills
 

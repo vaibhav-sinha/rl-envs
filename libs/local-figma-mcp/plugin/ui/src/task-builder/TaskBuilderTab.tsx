@@ -31,7 +31,13 @@ import { sanitizeEvalSpecForSave } from './sanitize-eval-spec';
 import { CheckCard } from './components/CheckCard';
 import { FieldHelp } from './components/FieldHelp';
 import { SectionIntro } from './components/SectionIntro';
-import { buildCheckOptions, buildVisualOptions, TypeSelect } from './components/TypeSelect';
+import {
+  AUTO_VISUAL_TYPES,
+  DEFAULT_DESIGN_FIT_PROMPT,
+  ensureDefaultVisualChecks,
+} from './default-visual-checks';
+import { buildCheckOptions, buildMetadataOptions, buildVisualOptions, TypeSelect } from './components/TypeSelect';
+import { MetadataCard } from './components/MetadataCard';
 import { VisualCard } from './components/VisualCard';
 import { EvalSpecSummary } from './EvalSpecSummary';
 import { useCheckCatalog } from './useCheckCatalog';
@@ -65,10 +71,21 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
   });
   const [evalSpec, setEvalSpec] = useState<EvalSpec>({
     schema_version: 1,
-    gates: { require_change: true },
+    gates: { require_change: true, no_detached_nodes: true },
     checks: [],
-    visual: [],
-    weights: { gates: 1, checks: 0.35, design_system: 0.2, visual: 0.35, heuristics: 0.1 },
+    visual: [
+      { id: 'good_design_1', type: 'good_design' },
+      { id: 'task_completeness_1', type: 'task_completeness' },
+    ],
+    metadata_checks: [],
+    weights: {
+      gates: 1,
+      checks: 0.35,
+      design_system: 0.2,
+      visual: 0.35,
+      metadata: 0.1,
+      heuristics: 0.1,
+    },
   });
 
   const [exportProgress, setExportProgress] = useState<MultiPhaseExportProgress | null>(null);
@@ -80,11 +97,13 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [copyFromTaskId, setCopyFromTaskId] = useState<string | null>(null);
   const [newCheckType, setNewCheckType] = useState('must_contain_text');
-  const [newVisualType, setNewVisualType] = useState('task_completeness');
+  const [newVisualType, setNewVisualType] = useState('design_consistency');
+  const [newMetadataType, setNewMetadataType] = useState('diff');
 
   const catalog = useCheckCatalog(task?.checkCatalog);
   const checkOptions = useMemo(() => buildCheckOptions(catalog), [catalog]);
   const visualOptions = useMemo(() => buildVisualOptions(catalog), [catalog]);
+  const metadataOptions = useMemo(() => buildMetadataOptions(catalog), [catalog]);
 
   useEffect(() => {
     if (checkOptions.length && !checkOptions.some((o) => o.value === newCheckType)) {
@@ -97,6 +116,12 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
       setNewVisualType(visualOptions[0]!.value);
     }
   }, [visualOptions, newVisualType]);
+
+  useEffect(() => {
+    if (metadataOptions.length && !metadataOptions.some((o) => o.value === newMetadataType)) {
+      setNewMetadataType(metadataOptions[0]!.value);
+    }
+  }, [metadataOptions, newMetadataType]);
 
   const refreshList = useCallback(async () => {
     try {
@@ -113,7 +138,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     setTaskId(id);
     setInstruction(t.instruction);
     setMeta(t.builderState.metadata);
-    if (t.evalSpec) setEvalSpec(t.evalSpec);
+    if (t.evalSpec) setEvalSpec(ensureDefaultVisualChecks(t.evalSpec));
     setStep(t.builderState.current_step);
     setView('wizard');
   }, []);
@@ -175,8 +200,8 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
         patch.instruction = instruction;
         patch.metadata = meta;
       }
-      if (['gates', 'checks', 'design_system', 'visual', 'weights'].includes(step)) {
-        patch.evalSpec = sanitizeEvalSpecForSave(evalSpec);
+      if (['gates', 'checks', 'design_system', 'visual', 'metadata', 'weights'].includes(step)) {
+        patch.evalSpec = sanitizeEvalSpecForSave(ensureDefaultVisualChecks(evalSpec));
       }
       const updated = await taskBuilderApi.patchTask(taskId, patch);
       setTask(updated);
@@ -337,11 +362,26 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
   const addVisual = (type: string) => {
     const id = `${type}_${(evalSpec.visual?.length ?? 0) + 1}`;
     const base: Record<string, unknown> = { id, type };
-    if (type === 'design_consistency') Object.assign(base, { node_id: '', focus: 'largest_added' });
-    // evaluation_instructions is optional; omit until the user enters text (empty string fails schema minLength)
-    if (type === 'before_vs_after') Object.assign(base, { surrounding_context_node_id: '' });
-    if (type === 'compare_with_reference') Object.assign(base, { reference_asset: '' });
-    setEvalSpec({ ...evalSpec, visual: [...(evalSpec.visual ?? []), base] });
+    if (type === 'design_consistency') {
+      Object.assign(base, {
+        reference_asset: '',
+        criteria: ['Describe what the agent result should match in the reference'],
+      });
+    }
+    if (type === 'design_fit') {
+      Object.assign(base, { node_id: '', evaluation_prompt: DEFAULT_DESIGN_FIT_PROMPT });
+    }
+    if (type === 'design_preference') Object.assign(base, { reference_asset: '' });
+    setEvalSpec(ensureDefaultVisualChecks({ ...evalSpec, visual: [...(evalSpec.visual ?? []), base] }));
+  };
+
+  const addMetadata = (type: string) => {
+    const id = `${type}_${(evalSpec.metadata_checks?.length ?? 0) + 1}`;
+    const base: Record<string, unknown> = { id, type };
+    setEvalSpec({
+      ...evalSpec,
+      metadata_checks: [...(evalSpec.metadata_checks ?? []), base],
+    });
   };
 
   const updateCheck = (index: number, patch: Record<string, unknown>) => {
@@ -364,8 +404,18 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
 
   const removeVisual = (index: number) => {
     const visual = [...(evalSpec.visual ?? [])];
+    const entry = visual[index];
+    if (entry && (AUTO_VISUAL_TYPES as readonly string[]).includes(String(entry.type))) {
+      return;
+    }
     visual.splice(index, 1);
     setEvalSpec({ ...evalSpec, visual });
+  };
+
+  const removeMetadata = (index: number) => {
+    const metadata_checks = [...(evalSpec.metadata_checks ?? [])];
+    metadata_checks.splice(index, 1);
+    setEvalSpec({ ...evalSpec, metadata_checks });
   };
 
   const appendPickedId = (field: 'preserve_ids' | 'allowed_change_inside_ids', id: string) => {
@@ -715,6 +765,21 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
             </div>
             <div className="flex items-start gap-2">
               <Switch
+                checked={!!evalSpec.gates?.no_detached_nodes}
+                onCheckedChange={(v) =>
+                  setEvalSpec({
+                    ...evalSpec,
+                    gates: { ...evalSpec.gates, no_detached_nodes: v || undefined },
+                  })
+                }
+              />
+              <FieldHelp
+                label={catalog.gates.fields.no_detached_nodes.label}
+                description={catalog.gates.fields.no_detached_nodes.description}
+              />
+            </div>
+            <div className="flex items-start gap-2">
+              <Switch
                 checked={!!evalSpec.gates?.additions_only}
                 onCheckedChange={(v) =>
                   setEvalSpec({ ...evalSpec, gates: { ...evalSpec.gates, additions_only: v || undefined } })
@@ -875,8 +940,8 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
           <>
             <SectionIntro title={catalog.visual.title} description={catalog.visual.description} />
             <p className="text-[10px] text-muted m-0">
-              LLM judges run on screenshots. You can combine multiple visual checks (e.g. design consistency +
-              task completeness).
+              Good design and task completeness are included by default. Add optional checks for reference
+              comparison, fit, or preference.
             </p>
             <div className="rounded-md border border-dashed border-[#555] p-2.5 space-y-2 bg-[#252525]/50">
               <p className="text-[10px] font-medium m-0 text-foreground">Add a visual check</p>
@@ -904,6 +969,44 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
                       .catch((err) => onLog(String(err), true))
                   }
                   onLog={onLog}
+                />
+              ))
+            )}
+          </>
+        ) : null}
+
+        {step === 'metadata' && catalog?.metadata_checks ? (
+          <>
+            <SectionIntro
+              title={catalog.metadata_checks.title}
+              description={catalog.metadata_checks.description}
+            />
+            <div className="rounded-md border border-dashed border-[#555] p-2.5 space-y-2 bg-[#252525]/50">
+              <p className="text-[10px] font-medium m-0 text-foreground">Add a metadata check</p>
+              <TypeSelect
+                options={metadataOptions}
+                value={newMetadataType}
+                onChange={setNewMetadataType}
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                className="w-full"
+                onClick={() => addMetadata(newMetadataType)}
+              >
+                + Add metadata check
+              </Button>
+            </div>
+            {(evalSpec.metadata_checks ?? []).length === 0 ? (
+              <p className="text-[10px] text-muted m-0 text-center py-4">No metadata checks yet.</p>
+            ) : (
+              (evalSpec.metadata_checks ?? []).map((m, i) => (
+                <MetadataCard
+                  key={String(m.id)}
+                  entry={m}
+                  index={i}
+                  catalog={catalog}
+                  onRemove={() => removeMetadata(i)}
                 />
               ))
             )}

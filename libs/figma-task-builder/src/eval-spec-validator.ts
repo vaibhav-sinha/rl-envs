@@ -40,8 +40,12 @@ export function validateEvalSpec(schemaPath: string, spec: unknown): void {
 export function defaultEvalSpec(): EvalSpec {
   return {
     schema_version: 1,
-    gates: { require_change: true },
+    gates: { require_change: true, no_detached_nodes: true },
     checks: [],
+    visual: [
+      { id: 'good_design_1', type: 'good_design' },
+      { id: 'task_completeness_1', type: 'task_completeness' },
+    ],
     weights: { ...CHECK_CATALOG.weights.defaults },
   };
 }
@@ -60,5 +64,12 @@ export function assertUniqueCheckIds(spec: EvalSpec): void {
     if (!id) throw new Error('EVAL_SPEC_INVALID: visual check missing id');
     if (vids.has(id)) throw new Error(`EVAL_SPEC_INVALID: duplicate visual id ${id}`);
     vids.add(id);
+  }
+  const mids = new Set<string>();
+  for (const m of spec.metadata_checks ?? []) {
+    const id = (m as { id?: string }).id;
+    if (!id) throw new Error('EVAL_SPEC_INVALID: metadata check missing id');
+    if (mids.has(id)) throw new Error(`EVAL_SPEC_INVALID: duplicate metadata id ${id}`);
+    mids.add(id);
   }
 }

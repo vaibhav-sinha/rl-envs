@@ -8,10 +8,12 @@ from .types import SubCheckCategory, SubCheckResult
 
 _CATEGORIES: tuple[SubCheckCategory, ...] = (
     "gates",
+    "commands",
     "checks",
     "design_system",
     "visual",
     "heuristics",
+    "metadata",
 )
 
 

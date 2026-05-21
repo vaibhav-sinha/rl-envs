@@ -11,3 +11,7 @@ if [ -f /data/workspace/design.hfc.json ]; then
   cp -f /data/workspace/design.hfc.json /logs/artifacts/design.hfc.json
   echo "[verifier] saved design.hfc.json to /logs/artifacts/"
 fi
+if [ -f /data/workspace/issues.hfc.json ]; then
+  cp -f /data/workspace/issues.hfc.json /logs/artifacts/issues.hfc.json
+  echo "[verifier] saved issues.hfc.json to /logs/artifacts/"
+fi

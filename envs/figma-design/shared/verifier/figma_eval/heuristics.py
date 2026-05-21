@@ -154,15 +154,15 @@ def run_heuristics(_before: Envelope, after: Envelope, graph: EditGraph) -> list
             _contrast_ratio(_text_foreground_color(t), _resolve_background_color(after, t["id"]))
             for t in texts
         ]
-        mean_ratio = sum(ratios) / len(ratios)
+        min_ratio = min(ratios)
         contrast = _heur_result(
             "heuristics.contrast",
-            min(1.0, mean_ratio / WCAG_AA_NORMAL),
+            min(1.0, min_ratio / WCAG_AA_NORMAL),
             True,
             {
                 "texts_checked": len(texts),
-                "mean_contrast_ratio": mean_ratio,
-                "min_ratio": min(ratios),
+                "min_contrast_ratio": min_ratio,
+                "mean_contrast_ratio": sum(ratios) / len(ratios),
             },
         )
 
@@ -180,28 +180,27 @@ def run_heuristics(_before: Envelope, after: Envelope, graph: EditGraph) -> list
             {"distinct_fonts": count, "max_recommended": MAX_DISTINCT_FONTS},
         )
 
-        violations = 0
+        per_text_scores: list[float] = []
         sizes: list[float] = []
         for t in texts:
             size = _effective_font_size(t, after)
             if size is None:
                 continue
             sizes.append(size)
-            if size < MIN_READABLE_FONT_SIZE:
-                violations += 1
-        if not sizes:
+            per_text_scores.append(1.0 if size >= MIN_READABLE_FONT_SIZE else 0.0)
+        if not per_text_scores:
             readable = _heur_result(
                 "heuristics.readable_font_size", 1.0, False, {"reason": "no_resolved_font_sizes"}
             )
         else:
             readable = _heur_result(
                 "heuristics.readable_font_size",
-                1.0 - violations / len(sizes),
+                min(per_text_scores),
                 True,
                 {
-                    "violations": violations,
                     "sizes_checked": len(sizes),
                     "min_size": min(sizes),
+                    "violations": sum(1 for s in per_text_scores if s < 1.0),
                 },
             )
 

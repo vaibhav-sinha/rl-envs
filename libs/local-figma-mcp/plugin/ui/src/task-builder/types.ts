@@ -30,6 +30,11 @@ export interface CheckCatalog {
     description: string;
     types: Record<string, CatalogCheckType>;
   };
+  metadata_checks: {
+    title: string;
+    description: string;
+    types: Record<string, CatalogCheckType>;
+  };
   weights: {
     title: string;
     description: string;

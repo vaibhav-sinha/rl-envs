@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import type { EvalSpec } from '../api/taskBuilder';
-import { humanCheckType, humanEnumValue, humanVisualType, truncateId } from './catalog-helpers';
+import {
+  humanCheckType,
+  humanEnumValue,
+  humanMetadataType,
+  humanVisualType,
+  truncateId,
+} from './catalog-helpers';
 import type { CheckCatalog } from './types';
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -62,23 +68,21 @@ function formatVisualDetails(
     else lines.push('No extra judge instructions');
     if (v.node_id) lines.push(`Focus node: ${truncateId(String(v.node_id), 20)}`);
   }
+  if (type === 'good_design') {
+    lines.push('Built-in design quality rubric (largest change region)');
+  }
   if (type === 'design_consistency') {
-    if (v.node_id) lines.push(`Focus: ${truncateId(String(v.node_id), 20)}`);
-    if (v.surrounding_context_node_id)
-      lines.push(`Context: ${truncateId(String(v.surrounding_context_node_id), 20)}`);
-    if (v.focus) lines.push(`Emphasis: ${humanEnumValue('focus', String(v.focus))}`);
-    const cc = v.consistency_criteria as string[] | undefined;
-    const fc = v.fit_criteria as string[] | undefined;
-    if (cc?.length) lines.push(`${cc.length} consistency criterion(s)`);
-    if (fc?.length) lines.push(`${fc.length} fit criterion(s)`);
+    if (v.reference_asset) lines.push(`Reference: ${String(v.reference_asset)}`);
+    const criteria = v.criteria as string[] | undefined;
+    if (criteria?.length) lines.push(`${criteria.length} criterion(s)`);
   }
-  if (type === 'before_vs_after' && v.surrounding_context_node_id) {
-    lines.push(`Context: ${truncateId(String(v.surrounding_context_node_id), 20)}`);
+  if (type === 'design_fit') {
+    if (v.node_id) lines.push(`Node: ${truncateId(String(v.node_id), 20)}`);
+    if (v.evaluation_prompt) lines.push('Custom evaluation prompt');
   }
-  if (type === 'compare_with_reference' && v.reference_asset) {
+  if (type === 'design_preference' && v.reference_asset) {
     lines.push(`Reference: ${String(v.reference_asset)}`);
   }
-  if (type === 'diff') lines.push('Textual diff only (no screenshot)');
   return lines;
 }
 
@@ -99,6 +103,7 @@ export function EvalSpecSummary({
   const gates = spec.gates ?? {};
   const checks = spec.checks ?? [];
   const visual = spec.visual ?? [];
+  const metadataChecks = spec.metadata_checks ?? [];
   const weights = spec.weights ?? {};
   const gateEntries = Object.entries(gates).filter(([, v]) => {
     if (Array.isArray(v)) return v.length > 0;
@@ -109,6 +114,7 @@ export function EvalSpecSummary({
   if (gateEntries.length) summaryParts.push(`${gateEntries.length} gate(s)`);
   if (checks.length) summaryParts.push(`${checks.length} check(s)`);
   if (visual.length) summaryParts.push(`${visual.length} visual(s)`);
+  if (metadataChecks.length) summaryParts.push(`${metadataChecks.length} metadata`);
 
   return (
     <div className="rounded-md border border-[#3a3a3a] bg-[#1e1e1e] overflow-hidden">
@@ -150,6 +156,11 @@ export function EvalSpecSummary({
                 gates.allowed_change_inside_ids.length > 0 ? (
                   <li>
                     Changes only inside {(gates.allowed_change_inside_ids as string[]).length} subtree(s)
+                  </li>
+                ) : null}
+                {gates.no_detached_nodes ? (
+                  <li>
+                    {catalog?.gates.fields.no_detached_nodes?.label ?? 'No detached nodes'}
                   </li>
                 ) : null}
                 {gates.additions_only ? (
@@ -214,6 +225,34 @@ export function EvalSpecSummary({
                           {d}
                         </p>
                       ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <p className="text-[10px] font-semibold text-foreground m-0 mb-1">
+              {catalog?.metadata_checks?.title ?? 'Metadata'} ({metadataChecks.length})
+            </p>
+            {metadataChecks.length === 0 ? (
+              <p className="text-[10px] text-muted m-0">No metadata LLM checks.</p>
+            ) : (
+              <div className="space-y-2">
+                {metadataChecks.map((m, i) => {
+                  const { label } = humanMetadataType(String(m.type), catalog ?? undefined);
+                  return (
+                    <div
+                      key={String(m.id)}
+                      className="rounded border border-[#333] bg-[#252525] px-2 py-1.5"
+                    >
+                      <p className="text-[10px] font-medium m-0 text-foreground">
+                        {i + 1}. {label}
+                      </p>
+                      {String(m.type) === 'diff' ? (
+                        <p className="text-[10px] text-muted m-0 mt-0.5">Textual diff only</p>
+                      ) : null}
                     </div>
                   );
                 })}

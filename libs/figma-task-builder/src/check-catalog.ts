@@ -22,6 +22,11 @@ export const CHECK_CATALOG = {
         label: 'Additions only',
         description: 'No modifications or deletions — only new nodes may be added.',
       },
+      no_detached_nodes: {
+        label: 'No detached nodes',
+        description:
+          'Fail if issues.hfc.json lists nodes created in use_figma but never appended to the document (caps final score like other gates).',
+      },
     },
   },
   checks: {
@@ -112,57 +117,77 @@ export const CHECK_CATALOG = {
   visual: {
     title: 'Visual (LLM) checks',
     description:
-      'Screenshot-based checks using an LLM judge. Skipped when EVAL_SKIP_LLM=1 in the verifier container.',
+      'Screenshot-based checks using an LLM judge. Good design and task completeness are added automatically. Skipped when EVAL_SKIP_LLM=1.',
     types: {
+      good_design: {
+        label: 'Good design',
+        description:
+          'General design quality (typography, spacing, color, overflow, hierarchy) on the largest change region. No reference image.',
+      },
       design_consistency: {
         label: 'Design consistency',
-        description: 'Judge whether added/changed UI fits surrounding context.',
+        description:
+          'Compare agent result to a reference screenshot using custom criteria you define.',
         fields: {
-          node_id: 'Focus node for screenshot.',
-          surrounding_context_node_id: 'Wider context crop.',
-          consistency_criteria: 'Custom consistency bullets.',
-          fit_criteria: 'Custom fit bullets.',
-          focus: 'Which added nodes to emphasize.',
+          reference_asset: 'Reference PNG in task assets (upload via screenshot).',
+          criteria: 'One check per line (e.g. same background pattern, keyboard at bottom).',
+        },
+      },
+      design_fit: {
+        label: 'Design fit',
+        description: 'Before/after screenshots of a node with a custom evaluation prompt.',
+        fields: {
+          node_id: 'Node to capture before and after (pick from Figma).',
+          evaluation_prompt: 'What the judge should look for when comparing before vs after.',
         },
       },
       task_completeness: {
         label: 'Task completeness',
-        description: 'Whether the design satisfies the task instruction.',
+        description: 'Whether the design satisfies the task instruction (added automatically).',
         fields: {
-          node_id: 'Optional focus node.',
-          evaluation_instructions: 'Extra judge instructions.',
+          node_id: 'Optional focus node for screenshot.',
+          evaluation_instructions: 'Extra judge instructions beyond the agent instruction.',
         },
       },
-      before_vs_after: {
-        label: 'Before vs after',
-        description: 'Compare baseline and result around a context node.',
+      design_preference: {
+        label: 'Design preference',
+        description:
+          'Preference score vs a completed reference design (0=reference preferred, 10=agent preferred).',
         fields: {
-          surrounding_context_node_id: 'Context region for both screenshots.',
+          reference_asset: 'Completed target design PNG in task assets.',
         },
       },
+    },
+  },
+  metadata_checks: {
+    title: 'Metadata (LLM) checks',
+    description:
+      'LLM judges that use design tree metadata only (no screenshots). Skipped when EVAL_SKIP_LLM=1.',
+    types: {
       diff: {
         label: 'Diff summary',
-        description: 'Textual diff summary sent to the LLM (no images).',
-      },
-      compare_with_reference: {
-        label: 'Compare with reference',
-        description: 'Compare result screenshot to a reference image in task assets.',
-        fields: {
-          reference_asset: 'Filename under environment/assets/.',
-        },
+        description: 'Textual before/after diff sent to the LLM to judge task completion.',
       },
     },
   },
   weights: {
     title: 'Category weights',
-    description: 'Relative weights for gates, checks, design_system, visual, and heuristics when aggregating.',
+    description:
+      'Relative weights for gates, commands, checks, design_system, visual, metadata, and heuristics when aggregating.',
     defaults: {
       gates: 1.0,
+      commands: 0.15,
       checks: 0.35,
       design_system: 0.2,
       visual: 0.35,
+      metadata: 0.1,
       heuristics: 0.1,
     },
+  },
+  commands: {
+    title: 'Command correctness',
+    description:
+      'Always-on: reads issues.hfc.json commands[] (one entry per use_figma). Score is success/total, capped at 0.8 when any command failed.',
   },
   heuristics: {
     title: 'Heuristics',

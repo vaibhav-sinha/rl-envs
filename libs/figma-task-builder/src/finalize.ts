@@ -73,6 +73,14 @@ interval_sec = 2.0
 timeout_sec = 5.0
 retries = 15
 start_period_sec = 15.0
+
+[[artifacts]]
+source = "/data/workspace/design.hfc.json"
+destination = "design.hfc.json"
+
+[[artifacts]]
+source = "/data/workspace/issues.hfc.json"
+destination = "issues.hfc.json"
 `;
 }
 

@@ -384,57 +384,81 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       inputSchema: useFigmaInput,
     },
     async (args) => {
+      let commandSuccess = false;
+      let commandErrorCode: string | undefined;
+      let commandMessage: string | undefined;
       try {
         return await runMcpToolWithCancellation(async (signal) => {
-        void args.skillNames;
-        const run = await runUseFigmaScript(args.code.trim(), engine, { signal });
-        if (run.kind === 'error') {
-          return {
-            content: [{ type: 'text' as const, text: toolErrorJson(run.errorCode, run.message) }],
-            isError: true,
-          };
-        }
-        if (run.currentPageId) {
-          engine.setCurrentPageId(run.currentPageId);
-        }
-        let touchedNodeIds: string[] = [];
-        let txWarnings: string[] = [];
-        if (run.operations.length > 0) {
-          const r = await engine.applyTransaction(run.operations);
-          if (!r.success) {
+          void args.skillNames;
+          const run = await runUseFigmaScript(args.code.trim(), engine, { signal });
+          if (run.kind === 'error') {
+            commandErrorCode = run.errorCode;
+            commandMessage = run.message;
             return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: toolErrorJson(r.errorCode, r.message, r.details),
-                },
-              ],
+              content: [{ type: 'text' as const, text: toolErrorJson(run.errorCode, run.message) }],
               isError: true,
             };
           }
-          touchedNodeIds = r.touchedNodeIds;
-          txWarnings = r.warnings ?? [];
-        }
-        const data: Record<string, unknown> = {
-          touchedNodeIds,
-          warnings: [...txWarnings, ...(run.snapshotWarnings ?? [])],
-          result: run.result,
-        };
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: toolJson(data),
-            },
-          ],
-        };
+          if (run.currentPageId) {
+            engine.setCurrentPageId(run.currentPageId);
+          }
+          let touchedNodeIds: string[] = [];
+          let txWarnings: string[] = [];
+          if (run.operations.length > 0) {
+            const r = await engine.applyTransaction(run.operations);
+            if (!r.success) {
+              commandErrorCode = r.errorCode;
+              commandMessage = r.message;
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: toolErrorJson(r.errorCode, r.message, r.details),
+                  },
+                ],
+                isError: true,
+              };
+            }
+            touchedNodeIds = r.touchedNodeIds;
+            txWarnings = r.warnings ?? [];
+          }
+          const detachedWarnings: string[] = [];
+          if (run.detachedNodes.length > 0) {
+            await engine.appendDetachedIssues(run.detachedNodes);
+            detachedWarnings.push(
+              `${String(run.detachedNodes.length)} detached node(s) recorded in issues.hfc.json`
+            );
+          }
+          commandSuccess = true;
+          const data: Record<string, unknown> = {
+            touchedNodeIds,
+            warnings: [...txWarnings, ...detachedWarnings, ...(run.snapshotWarnings ?? [])],
+            result: run.result,
+            detachedCount: run.detachedNodes.length,
+          };
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: toolJson(data),
+              },
+            ],
+          };
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        commandErrorCode = 'VALIDATION_ERROR';
+        commandMessage = msg;
         return {
           content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', msg) }],
           isError: true,
         };
+      } finally {
+        await engine.appendCommandIssue({
+          success: commandSuccess,
+          errorCode: commandErrorCode,
+          message: commandMessage,
+        });
       }
     }
   );

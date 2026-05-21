@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from .edit_graph import EditGraph
@@ -29,11 +31,26 @@ def _has_change_outside_allowed_region(
     return bool(all_changes - inside)
 
 
+def _detached_node_count(issues_path: Path | None) -> int:
+    if issues_path is None or not issues_path.is_file():
+        return 0
+    try:
+        data = json.loads(issues_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    detached = data.get("detached")
+    return len(detached) if isinstance(detached, list) else 0
+
+
 def run_gates(
     before: Envelope,
     after: Envelope,
     graph: EditGraph,
     gates: dict[str, Any] | None,
+    *,
+    issues_path: Path | None = None,
 ) -> list[SubCheckResult]:
     if not gates:
         return []
@@ -63,5 +80,15 @@ def run_gates(
     if gates.get("additions_only"):
         ok = not graph.modified_ids and not graph.deleted_ids
         results.append(_gate_result("gates.additions_only", 1.0 if ok else 0.0))
+
+    if gates.get("no_detached_nodes"):
+        count = _detached_node_count(issues_path)
+        results.append(
+            _gate_result(
+                "gates.no_detached_nodes",
+                1.0 if count == 0 else 0.0,
+                {"detached_count": count, "issues_path": str(issues_path) if issues_path else None},
+            )
+        )
 
     return results

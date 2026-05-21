@@ -22,6 +22,7 @@ export type WizardStep =
   | 'checks'
   | 'design_system'
   | 'visual'
+  | 'metadata'
   | 'weights'
   | 'review';
 
@@ -39,6 +40,7 @@ export interface EvalSpec {
   gates?: Record<string, unknown>;
   checks?: Record<string, unknown>[];
   visual?: Record<string, unknown>[];
+  metadata_checks?: Record<string, unknown>[];
   design_system?: { allow_novelty?: boolean };
   weights?: Record<string, number>;
 }
