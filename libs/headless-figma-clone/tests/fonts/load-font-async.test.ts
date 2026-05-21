@@ -54,7 +54,7 @@ describe('loadFontAsync', () => {
     expect(hasMissingFont(env)).toBe(false);
   });
 
-  it('rejects unknown font', async () => {
-    await expect(loadFontAsync({ family: 'NoSuchFont', style: 'Regular' })).rejects.toThrow();
+  it('loadFontAsync succeeds for fonts not in the local manifest', async () => {
+    await expect(loadFontAsync({ family: 'Barlow', style: 'Regular' })).resolves.toBeUndefined();
   });
 });

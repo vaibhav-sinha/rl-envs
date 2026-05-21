@@ -310,6 +310,8 @@ export interface NodeBase {
 }
 
 export type LayoutSizing = 'FIXED' | 'HUG' | 'FILL';
+/** Figma `primaryAxisSizingMode` / `counterAxisSizingMode` on auto-layout frames. */
+export type AxisSizingMode = 'FIXED' | 'AUTO';
 export type LayoutPositioning = 'AUTO' | 'ABSOLUTE';
 export type LayoutConstraintHorizontal = 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'SCALE';
 export type LayoutConstraintVertical = 'MIN' | 'CENTER' | 'MAX' | 'STRETCH' | 'SCALE';
@@ -458,8 +460,8 @@ export interface FrameNode extends NodeBase, LayoutSelfFields {
   /** Visible column guides overlay (compile-only decoration). */
   layoutGrids?: LayoutGridColumns[];
   /** Phase 7 — frame axis sizing when auto-layout is active. */
-  primaryAxisSizingMode?: LayoutSizing;
-  counterAxisSizingMode?: LayoutSizing;
+  primaryAxisSizingMode?: AxisSizingMode;
+  counterAxisSizingMode?: AxisSizingMode;
   /** Phase 8 — maps auto-layout numeric fields to FLOAT (or STRING unsupported here) variable ids. */
   boundVariables?: FrameVariableBindings;
 }

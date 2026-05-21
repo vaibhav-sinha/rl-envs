@@ -245,16 +245,20 @@ export function mapImportedFrameLayoutProps(
       if (cac === 'AUTO' || cac === 'SPACE_BETWEEN') out.counterAxisAlignContent = cac;
     }
     const pasm = optStr(prop(props, 'primaryAxisSizingMode'));
-    if (pasm === 'FIXED' || pasm === 'HUG' || pasm === 'FILL') out.primaryAxisSizingMode = pasm;
+    if (pasm === 'FIXED') out.primaryAxisSizingMode = 'FIXED';
+    else if (pasm === 'AUTO' || pasm === 'HUG' || pasm === 'FILL') out.primaryAxisSizingMode = 'AUTO';
     const casm = optStr(prop(props, 'counterAxisSizingMode'));
-    if (casm === 'FIXED' || casm === 'HUG' || casm === 'FILL') out.counterAxisSizingMode = casm;
+    if (casm === 'FIXED') out.counterAxisSizingMode = 'FIXED';
+    else if (casm === 'AUTO' || casm === 'HUG' || casm === 'FILL') out.counterAxisSizingMode = 'AUTO';
     if (prop(props, 'itemReverseZIndex') === true) out.itemReverseZIndex = true;
     if (prop(props, 'strokesIncludedInLayout') === true) out.strokesIncludedInLayout = true;
   } else if (layoutMode === 'VERTICAL') {
     const pasm = optStr(prop(props, 'primaryAxisSizingMode'));
-    if (pasm === 'FIXED' || pasm === 'HUG' || pasm === 'FILL') out.primaryAxisSizingMode = pasm;
+    if (pasm === 'FIXED') out.primaryAxisSizingMode = 'FIXED';
+    else if (pasm === 'AUTO' || pasm === 'HUG' || pasm === 'FILL') out.primaryAxisSizingMode = 'AUTO';
     const casm = optStr(prop(props, 'counterAxisSizingMode'));
-    if (casm === 'FIXED' || casm === 'HUG' || casm === 'FILL') out.counterAxisSizingMode = casm;
+    if (casm === 'FIXED') out.counterAxisSizingMode = 'FIXED';
+    else if (casm === 'AUTO' || casm === 'HUG' || casm === 'FILL') out.counterAxisSizingMode = 'AUTO';
     if (prop(props, 'itemReverseZIndex') === true) out.itemReverseZIndex = true;
     if (prop(props, 'strokesIncludedInLayout') === true) out.strokesIncludedInLayout = true;
   }

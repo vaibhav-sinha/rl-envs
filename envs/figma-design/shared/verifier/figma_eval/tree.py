@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any, Iterator
 
 from .types import EditGraph, Envelope, TreeNode
 
+_INDEX_BY_ENVELOPE_ID: dict[int, dict[str, str]] = {}
+
 if TYPE_CHECKING:
     from .edit_graph import EditGraph
 
@@ -22,7 +24,77 @@ def _children(node: TreeNode) -> list[TreeNode]:
     return []
 
 
-def find_node(envelope: Envelope, node_id: str) -> TreeNode | None:
+def clear_node_ref_index_cache() -> None:
+    """Clear cached Figma/HFC id maps (for tests)."""
+    _INDEX_BY_ENVELOPE_ID.clear()
+
+
+def _register_node_ref(index: dict[str, str], node: TreeNode) -> None:
+    nid = node.get("id")
+    if not isinstance(nid, str) or not nid:
+        return
+    index[nid] = nid
+    sfid = node.get("sourceFigmaId")
+    if isinstance(sfid, str) and sfid:
+        index[sfid] = nid
+
+
+def _build_node_ref_index(envelope: Envelope) -> dict[str, str]:
+    index: dict[str, str] = {}
+
+    def walk(node: TreeNode) -> None:
+        _register_node_ref(index, node)
+        for ch in _children(node):
+            walk(ch)
+
+    doc = envelope.get("document")
+    if doc:
+        walk(doc)
+    for comp in envelope.get("components") or []:
+        cid = comp.get("id")
+        if isinstance(cid, str) and cid:
+            index[cid] = cid
+        root = comp.get("root")
+        if isinstance(root, dict):
+            walk(root)
+    return index
+
+
+def get_node_ref_index(envelope: Envelope) -> dict[str, str]:
+    key = id(envelope)
+    cached = _INDEX_BY_ENVELOPE_ID.get(key)
+    if cached is not None:
+        return cached
+    built = _build_node_ref_index(envelope)
+    _INDEX_BY_ENVELOPE_ID[key] = built
+    return built
+
+
+def resolve_config_node_id(envelope: Envelope, ref_id: str) -> str | None:
+    """Resolve an eval-spec node ref (Figma ``sourceFigmaId`` or HFC ``id``) to HFC id."""
+    if not ref_id:
+        return None
+    hfc_id = get_node_ref_index(envelope).get(ref_id)
+    if not hfc_id:
+        return None
+    if _find_node_by_hfc_id(envelope, hfc_id) is not None:
+        return hfc_id
+    for comp in envelope.get("components") or []:
+        if comp.get("id") == hfc_id:
+            return hfc_id
+    return None
+
+
+def resolve_config_node_ids(envelope: Envelope, ref_ids: list[str]) -> list[str]:
+    resolved: list[str] = []
+    for ref_id in ref_ids:
+        hfc_id = resolve_config_node_id(envelope, ref_id)
+        if hfc_id:
+            resolved.append(hfc_id)
+    return resolved
+
+
+def _find_node_by_hfc_id(envelope: Envelope, node_id: str) -> TreeNode | None:
     doc = envelope.get("document")
     if not doc:
         return None
@@ -55,6 +127,14 @@ def find_node(envelope: Envelope, node_id: str) -> TreeNode | None:
     return None
 
 
+def find_node(envelope: Envelope, node_ref: str) -> TreeNode | None:
+    """Find a node by HFC id or Figma ``sourceFigmaId`` (eval-spec SME ids)."""
+    hfc_id = resolve_config_node_id(envelope, node_ref)
+    if not hfc_id:
+        return None
+    return _find_node_by_hfc_id(envelope, hfc_id)
+
+
 def iter_nodes(root: TreeNode) -> Iterator[TreeNode]:
     if root.get("type") != "DOCUMENT":
         yield root
@@ -72,8 +152,8 @@ def find_all_nodes(envelope: Envelope) -> list[TreeNode]:
     return nodes
 
 
-def descendant_ids(envelope: Envelope, root_id: str) -> set[str]:
-    root = find_node(envelope, root_id)
+def descendant_ids(envelope: Envelope, root_ref: str) -> set[str]:
+    root = find_node(envelope, root_ref)
     if not root:
         return set()
     return {n["id"] for n in iter_nodes(root) if n.get("id")}
@@ -253,11 +333,13 @@ def resolve_task_completeness_screenshot_node(
     if not all_changes:
         return None
 
+    resolved_allowed_roots: list[str] | None = None
     if allowed_root_ids:
+        resolved_allowed_roots = resolve_config_node_ids(envelope, allowed_root_ids)
         inside = changes_inside_allowed_region(graph, before, envelope, allowed_root_ids)
         if inside:
             target = inside
-            under_roots: list[str] | None = allowed_root_ids
+            under_roots = resolved_allowed_roots or None
         else:
             target = all_changes - inside
             under_roots = None
@@ -277,8 +359,8 @@ def resolve_task_completeness_screenshot_node(
             if node and node.get("type") in ENCLOSING_FRAME_TYPES:
                 candidates.add(nid)
 
-    if allowed_root_ids:
-        candidates -= set(allowed_root_ids)
+    if resolved_allowed_roots:
+        candidates -= set(resolved_allowed_roots)
 
     if not candidates:
         return next(iter(target))

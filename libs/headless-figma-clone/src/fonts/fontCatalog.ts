@@ -30,9 +30,10 @@ export function listAvailableFonts(): FontName[] {
   return listLocalFontFaces();
 }
 
+/** Always succeeds — agents may use any font; render substitutes at compile time. */
 export async function loadFontAsync(fontName: FontName): Promise<void> {
-  if (!isFontAvailable(fontName)) {
-    throw new Error(`Font not available: ${fontName.family} ${fontName.style}`);
+  if (!fontName || typeof fontName.family !== 'string' || typeof fontName.style !== 'string') {
+    throw new Error('loadFontAsync: fontName with family and style required');
   }
   loadedFonts.add(fontKey(fontName));
 }

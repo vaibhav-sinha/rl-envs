@@ -336,8 +336,7 @@ function variantDisplayNameFromProperties(
 }
 
 function extractInstanceMainComponentHints(
-  p: Record<string, unknown>,
-  componentProperties: Record<string, ComponentPropertyValue> | undefined
+  p: Record<string, unknown>
 ): Pick<DeferredInstanceMainComponent, 'figmaMainComponentId' | 'componentKey'> {
   const explicitFigmaId = optStr(prop(p, 'mainComponentId'));
   const mainRef = prop(p, 'mainComponent') as
@@ -679,7 +678,7 @@ function importSceneNode(
     }
     case 'INSTANCE': {
       const componentProperties = mapComponentProperties(prop(p, 'componentProperties'));
-      const mainHints = extractInstanceMainComponentHints(p, componentProperties);
+      const mainHints = extractInstanceMainComponentHints(p);
       const mainComponentId = resolveMainComponentIdFromHints(ctx, {
         ...mainHints,
         componentProperties,

@@ -17,6 +17,7 @@ from ..tree import (
     get_node_property,
     is_instance_node,
     node_exists,
+    resolve_config_node_id,
 )
 from ..types import Envelope, SubCheckResult, subcheck_weight_from_spec
 from .scope import image_nodes_in_scope, resolve_check_scope, text_nodes_containing
@@ -64,11 +65,14 @@ def _count_component_instances_under(
     envelope: Envelope, scope_id: str, component_id: str
 ) -> int:
     scope = descendant_ids(envelope, scope_id)
+    resolved_component = resolve_config_node_id(envelope, component_id)
+    if not resolved_component:
+        return 0
     count = 0
     for node in find_all_nodes(envelope):
         if node.get("id") not in scope:
             continue
-        if is_instance_node(node) and get_main_component_id(node) == component_id:
+        if is_instance_node(node) and get_main_component_id(node) == resolved_component:
             count += 1
     return count
 
@@ -80,7 +84,7 @@ def _run_component_instances_under(
     component_id = spec["component_id"]
     min_instances = spec.get("min_instances", 1)
 
-    if not component_exists(catalog, component_id):
+    if not component_exists(catalog, after, component_id):
         return _check_result(
             spec, 0.0, False, {"error": "component_not_in_catalog", "component_id": component_id}
         )

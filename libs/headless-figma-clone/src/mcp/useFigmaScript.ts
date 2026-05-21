@@ -15,11 +15,22 @@ import { applyEnvelopeOperation } from '../engine/envelopeOps.js';
 import { boundsOfNodes, queueFlattenNodes, queueGroupNodes, queueUngroup } from '../engine/graphOps.js';
 import { computeFillGeometry, computeStrokeGeometry, outlineStrokeToVector } from '../render/geometry.js';
 import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
-import { hasMissingFont, listAvailableFonts, loadFontAsync } from '../fonts/fontCatalog.js';
+import {
+  hasMissingFont,
+  listAvailableFonts,
+  listFontsUsed,
+  loadFontAsync,
+} from '../fonts/fontCatalog.js';
 import { createNodeSpecFromSvg } from '../images/svgImport.js';
 import { fetchBytes, loadNetworkPolicyFromEnv } from '../images/networkPolicy.js';
 import { getImmediateSceneChildren } from '../traversal/findNodes.js';
 import { createTraversalMethods } from './scriptTraversal.js';
+import { createDocumentTraversalMethods } from './scriptDocumentTraversal.js';
+import {
+  createTextHandleMethodTable,
+  TEXT_HANDLE_METHOD_KEYS,
+} from './scriptTextMethods.js';
+import { exposeAxisSizingMode, validateAxisSizingMode } from '../engine/axisSizingMode.js';
 import {
   HFC_HANDLE_FLAG,
   HFC_HANDLE_MARKER,
@@ -37,6 +48,7 @@ import type {
   FileEnvelope,
   FontName,
   FrameNode,
+  AxisSizingMode,
   LayoutSizing,
   PageNode,
   Paint,
@@ -324,6 +336,9 @@ function enumerateHandleKeys(live: import('../model/types.js').AnyTreeNode): str
     keys.add('createInstance');
   }
   for (const m of HANDLE_METHOD_KEYS) keys.add(m);
+  if (live.type === 'TEXT') {
+    for (const m of TEXT_HANDLE_METHOD_KEYS) keys.add(m);
+  }
   return [...keys];
 }
 
@@ -370,14 +385,30 @@ function mergeComponentPropertyValues(
   return next;
 }
 
+const AXIS_SIZING_PROPS = new Set(['primaryAxisSizingMode', 'counterAxisSizingMode']);
+
 function createHandleProxy(ctx: ScriptContext, id: string): unknown {
   const traversal = () => scriptTraversalMethods(ctx, id);
+  const textDeps = {
+    deletedIds: ctx.deletedIds,
+    lookup: (nid: string) => {
+      const n = scriptLookup(ctx, nid);
+      return n?.type === 'TEXT' ? (n as TextNode) : null;
+    },
+    update: (nid: string, patch: Record<string, unknown>) => queueUpdate(ctx, nid, patch),
+  };
+  const textMethods = () => createTextHandleMethodTable(textDeps, id);
 
   return new Proxy({ id, [HFC_HANDLE_MARKER]: true as const, [HFC_HANDLE_FLAG]: true as const }, {
     get(_t, prop) {
       throwIfAborted(ctx.signal);
       if (prop === 'id') return id;
       if (prop === HFC_HANDLE_MARKER || prop === HFC_HANDLE_FLAG) return true;
+      if (TEXT_HANDLE_METHOD_KEYS.has(prop as string)) {
+        const live = scriptLookup(ctx, id);
+        if (!live || live.type !== 'TEXT' || ctx.deletedIds.has(id)) return undefined;
+        return (textMethods() as Record<string, unknown>)[prop as string];
+      }
       if (TRAVERSAL_METHODS.has(prop as string)) {
         return (traversal() as Record<string, unknown>)[prop as string];
       }
@@ -613,6 +644,9 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       const live = scriptLookup(ctx, id);
       if (!live || ctx.deletedIds.has(id)) return undefined;
+      if (AXIS_SIZING_PROPS.has(prop as string)) {
+        return exposeAxisSizingMode((live as unknown as Record<string, unknown>)[prop as string]);
+      }
       const v = (live as unknown as Record<string, unknown>)[prop as string];
       return typeof v === 'function' ? v : v;
     },
@@ -623,6 +657,14 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       const live = scriptLookup(ctx, id);
       if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
       const p = prop as string;
+      if (AXIS_SIZING_PROPS.has(p)) {
+        if (live.type !== 'FRAME') {
+          throw new ValidationErr('UNSUPPORTED_PROPERTY', `Unsupported patch key: ${p}`);
+        }
+        const normalized = validateAxisSizingMode(value, p);
+        queueUpdate(ctx, id, { [p]: normalized });
+        return true;
+      }
       if (!isPatchKeyForType(live.type, p)) {
         throw new ValidationErr('UNSUPPORTED_PROPERTY', `Unsupported patch key: ${p}`);
       }
@@ -636,6 +678,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (TRAVERSAL_METHODS.has(p) || HANDLE_METHOD_KEYS.has(p)) return true;
       const live = scriptLookup(ctx, id);
       if (!live || ctx.deletedIds.has(id)) return false;
+      if (live.type === 'TEXT' && TEXT_HANDLE_METHOD_KEYS.has(p)) return true;
       if (p === 'children') return nodeExposesChildren(live);
       if (p === 'parent') return findParentNode(ctx.working.document, id) !== null;
       if (p === 'mainComponent') return live.type === 'INSTANCE' || live.type === 'COMPONENT_INSTANCE';
@@ -782,6 +825,9 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
       ) {
         return Reflect.get(target, p, receiver);
       }
+      if (target.type === 'FRAME' && AXIS_SIZING_PROPS.has(p)) {
+        return exposeAxisSizingMode(Reflect.get(target, p, receiver));
+      }
       return Reflect.get(target, prop, receiver);
     },
     has(target, prop) {
@@ -851,6 +897,14 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
             `${p}: node must be an auto-layout frame or a child of an auto-layout frame`
           );
         }
+      }
+      if (target.type === 'FRAME' && AXIS_SIZING_PROPS.has(p)) {
+        const normalized = validateAxisSizingMode(value, p);
+        Reflect.set(target, prop, normalized, receiver);
+        if (target.attached && target.getAttachedIdOrNull() !== null) {
+          queueUpdate(ctx, target.getAttachedIdOrNull()!, { [p]: normalized });
+        }
+        return true;
       }
       const skipAutoPatch = target.type === 'TEXT' && p === 'styledSegments';
       let normalized = value;
@@ -1155,8 +1209,8 @@ class RuntimeFrame extends RuntimeSceneNode {
   paddingBottom?: number;
   primaryAxisAlignItems?: FrameNode['primaryAxisAlignItems'];
   counterAxisAlignItems?: FrameNode['counterAxisAlignItems'];
-  primaryAxisSizingMode?: LayoutSizing;
-  counterAxisSizingMode?: LayoutSizing;
+  primaryAxisSizingMode?: AxisSizingMode;
+  counterAxisSizingMode?: AxisSizingMode;
   layoutGrids?: FrameNode['layoutGrids'];
   itemReverseZIndex?: boolean;
   strokesIncludedInLayout?: boolean;
@@ -2370,6 +2424,15 @@ export async function runUseFigmaScript(
   const variablesApi = createVariablesApi(ctx);
   const stylesApi = createStylesApi(ctx);
 
+  const documentTraversal = () =>
+    createDocumentTraversalMethods(() => ({
+      working: ctx.working,
+      deletedIds: ctx.deletedIds,
+      createHandle: (nid: string) => createHandleProxy(ctx, nid),
+      signal: ctx.signal,
+      nodeIndex: getNodeIndex(ctx),
+    }));
+
   const figma = {
     root: {
       get id(): string {
@@ -2388,6 +2451,21 @@ export async function runUseFigmaScript(
         return ctx.working.document.children
           .filter((c): c is PageNode => c.type === 'PAGE')
           .map((p) => new RuntimePage(ctx, p.id));
+      },
+      findAll(callback?: unknown): unknown[] {
+        return documentTraversal().findAll(callback);
+      },
+      findOne(callback: unknown): unknown | null {
+        return documentTraversal().findOne(callback);
+      },
+      findChildren(callback?: unknown): unknown[] {
+        return documentTraversal().findChildren(callback);
+      },
+      findChild(callback: unknown): unknown | null {
+        return documentTraversal().findChild(callback);
+      },
+      findAllWithCriteria(criteria: unknown): unknown[] {
+        return documentTraversal().findAllWithCriteria(criteria);
       },
     },
     get currentPage(): RuntimePage {
@@ -2635,7 +2713,19 @@ export async function runUseFigmaScript(
       return createHandleProxy(ctx, componentId);
     },
     loadAllPagesAsync: async (): Promise<void> => {},
-    listAvailableFontsAsync: async (): Promise<FontName[]> => listAvailableFonts(),
+    listAvailableFontsAsync: async (): Promise<Array<{ fontName: FontName }>> => {
+      const seen = new Set<string>();
+      const out: Array<{ fontName: FontName }> = [];
+      const add = (fontName: FontName) => {
+        const key = `${fontName.family}\0${fontName.style}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({ fontName });
+      };
+      for (const f of listAvailableFonts()) add(f);
+      for (const f of listFontsUsed(ctx.working)) add(f);
+      return out;
+    },
     loadFontAsync: async (fontName: FontName): Promise<void> => loadFontAsync(fontName),
     hasMissingFont: (): boolean => hasMissingFont(ctx.working),
     base64Encode: (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64'),
@@ -2722,18 +2812,18 @@ export async function runUseFigmaScript(
       if (direction === 'VERTICAL') {
         f.layoutMode = 'VERTICAL';
         /** Explicit vertical AL: primary (height) hugs; cross-axis width keeps default until resize (symmetric to HORIZONTAL). */
-        f.primaryAxisSizingMode = 'HUG';
+        f.primaryAxisSizingMode = 'AUTO';
         f.counterAxisSizingMode = 'FIXED';
       } else if (direction === 'HORIZONTAL') {
         f.layoutMode = 'HORIZONTAL';
         /** Explicit horizontal AL: cross-axis keeps default frame height until resize (Figma pill pattern). */
-        f.primaryAxisSizingMode = 'HUG';
+        f.primaryAxisSizingMode = 'AUTO';
         f.counterAxisSizingMode = 'FIXED';
       } else {
         /** `createAutoLayout()` no-arg: both axes hug (toolbars, stacks); not the explicit-HORIZONTAL pill case. */
         f.layoutMode = 'HORIZONTAL';
-        f.primaryAxisSizingMode = 'HUG';
-        f.counterAxisSizingMode = 'HUG';
+        f.primaryAxisSizingMode = 'AUTO';
+        f.counterAxisSizingMode = 'AUTO';
       }
       return wrapRuntimeNode(f.bindContext(ctx), ctx);
     },

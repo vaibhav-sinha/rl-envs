@@ -13,7 +13,7 @@ from .tokens import (
     canonical_paint,
     extract_node_tokens,
 )
-from .tree import find_all_nodes
+from .tree import find_all_nodes, resolve_config_node_id
 from .types import CanonicalValue, DesignCatalog, Envelope, TreeNode
 
 
@@ -158,5 +158,10 @@ def build_catalog(envelope: Envelope) -> DesignCatalog:
     )
 
 
-def component_exists(catalog: DesignCatalog, component_id: str) -> bool:
-    return component_id in catalog.component_ids
+def component_exists(
+    catalog: DesignCatalog, envelope: Envelope, component_ref: str
+) -> bool:
+    resolved = resolve_config_node_id(envelope, component_ref)
+    if not resolved:
+        return False
+    return resolved in catalog.component_ids

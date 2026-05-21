@@ -1,4 +1,6 @@
+import { normalizeAxisSizingModeStored } from '../engine/axisSizingMode.js';
 import type {
+  AxisSizingMode,
   FileEnvelope,
   FrameNode,
   LayoutSizing,
@@ -7,6 +9,10 @@ import type {
   TextNode,
   TransformGroupNode,
 } from '../model/types.js';
+
+function axisSizingToLayoutSizing(mode: AxisSizingMode): LayoutSizing {
+  return mode === 'AUTO' ? 'HUG' : 'FIXED';
+}
 import { effectiveTextMaxFontSizePx } from './typographyCss.js';
 import { resolveVariableToStringValue } from '../variables/resolution.js';
 import { measureTextWidthPx, metricsLineHeightPx, averageCharWidthPx } from '../fonts/textMetrics.js';
@@ -171,7 +177,7 @@ function isFlexFrame(f: FrameNode): boolean {
 }
 
 /** Primary axis unspecified or not FIXED → Figma derives size from laid-out contents. */
-function primaryAxisNeedsIntrinsic(mode: LayoutSizing | undefined): boolean {
+function primaryAxisNeedsIntrinsic(mode: AxisSizingMode | undefined): boolean {
   return mode !== 'FIXED';
 }
 
@@ -179,8 +185,8 @@ function primaryAxisNeedsIntrinsic(mode: LayoutSizing | undefined): boolean {
  * Counter-axis unspecified behaves like initial fixed numeric size from `createFrame` (do not widen from children).
  * HUG explicitly recomputes from children; FIXED keeps width/height.
  */
-function counterAxisNeedsIntrinsic(mode: LayoutSizing | undefined): boolean {
-  return mode === 'HUG' || mode === 'FILL';
+function counterAxisNeedsIntrinsic(mode: AxisSizingMode | undefined): boolean {
+  return mode === 'AUTO';
 }
 
 /**
@@ -348,16 +354,16 @@ export function syncFrameLayoutSizingForAutoLayoutParents(f: FrameNode): void {
     if (ch.type !== 'FRAME') continue;
     const c = ch as FrameNode;
     if (!isFlexFrame(c)) continue;
-    const mainSizing = c.primaryAxisSizingMode;
-    const crossSizing = c.counterAxisSizingMode;
+    const mainSizing = normalizeAxisSizingModeStored(c.primaryAxisSizingMode);
+    const crossSizing = normalizeAxisSizingModeStored(c.counterAxisSizingMode);
     if (mainSizing === undefined && crossSizing === undefined) continue;
 
     if (c.layoutMode === 'HORIZONTAL') {
-      if (mainSizing !== undefined) c.layoutSizingHorizontal = mainSizing;
-      if (crossSizing !== undefined) c.layoutSizingVertical = crossSizing;
+      if (mainSizing !== undefined) c.layoutSizingHorizontal = axisSizingToLayoutSizing(mainSizing);
+      if (crossSizing !== undefined) c.layoutSizingVertical = axisSizingToLayoutSizing(crossSizing);
     } else {
-      if (mainSizing !== undefined) c.layoutSizingVertical = mainSizing;
-      if (crossSizing !== undefined) c.layoutSizingHorizontal = crossSizing;
+      if (mainSizing !== undefined) c.layoutSizingVertical = axisSizingToLayoutSizing(mainSizing);
+      if (crossSizing !== undefined) c.layoutSizingHorizontal = axisSizingToLayoutSizing(crossSizing);
     }
   }
 }
@@ -424,8 +430,10 @@ export function applyAutoLayoutIntrinsicSizingDeep(
   const f = n as FrameNode;
   if (!isFlexFrame(f)) return;
 
-  const primaryIntrinsic = primaryAxisNeedsIntrinsic(f.primaryAxisSizingMode);
-  const counterIntrinsic = counterAxisNeedsIntrinsic(f.counterAxisSizingMode);
+  const primaryMode = normalizeAxisSizingModeStored(f.primaryAxisSizingMode);
+  const counterMode = normalizeAxisSizingModeStored(f.counterAxisSizingMode);
+  const primaryIntrinsic = primaryAxisNeedsIntrinsic(primaryMode);
+  const counterIntrinsic = counterAxisNeedsIntrinsic(counterMode);
 
   let newW = f.width;
   let newH = f.height;
@@ -435,22 +443,22 @@ export function applyAutoLayoutIntrinsicSizingDeep(
       let cross = 0;
       for (const c of f.children) cross = Math.max(cross, maxCrossWidthVertStack(c, env));
       const target = cross + padX(f);
-      newW = f.counterAxisSizingMode === 'HUG' || f.counterAxisSizingMode === 'FILL' ? target : Math.max(f.width, target);
+      newW = counterMode === 'AUTO' ? target : Math.max(f.width, target);
     }
     if (primaryIntrinsic) {
       const target = sumPrimaryHeightsVert(f, env) + padY(f);
-      newH = f.primaryAxisSizingMode === 'HUG' || f.primaryAxisSizingMode === 'FILL' ? target : Math.max(f.height, target);
+      newH = primaryMode === 'AUTO' ? target : Math.max(f.height, target);
     }
   } else {
     if (primaryIntrinsic) {
       const target = sumPrimaryWidthsHoriz(f, env) + padX(f);
-      newW = f.primaryAxisSizingMode === 'HUG' || f.primaryAxisSizingMode === 'FILL' ? target : Math.max(f.width, target);
+      newW = primaryMode === 'AUTO' ? target : Math.max(f.width, target);
     }
     if (counterIntrinsic) {
       let cross = 0;
       for (const c of f.children) cross = Math.max(cross, maxCrossHeightHorizRow(c, env));
       const target = cross + padY(f);
-      newH = f.counterAxisSizingMode === 'HUG' || f.counterAxisSizingMode === 'FILL' ? target : Math.max(f.height, target);
+      newH = counterMode === 'AUTO' ? target : Math.max(f.height, target);
     }
   }
 

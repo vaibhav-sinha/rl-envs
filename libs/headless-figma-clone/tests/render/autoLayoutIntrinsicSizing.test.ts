@@ -62,7 +62,7 @@ describe('autoLayoutIntrinsicSizing — exported hug text + parent cross cap', (
       layoutMode: 'VERTICAL',
       layoutSizingHorizontal: 'FIXED',
       layoutSizingVertical: 'HUG',
-      primaryAxisSizingMode: 'HUG',
+      primaryAxisSizingMode: 'AUTO',
       counterAxisSizingMode: 'FIXED',
       children: [],
     };

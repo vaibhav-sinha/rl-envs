@@ -59,6 +59,7 @@ import {
   assertGridChildFieldsInCreateSpec,
   validateFontName,
   validateLayoutSizing,
+  validateAxisSizingMode,
 } from './phase7Fields.js';
 import { validateEffects } from './validateEffects.js';
 import { assertFigmaObjectAssignable } from './pluginObjectAssign.js';
@@ -2050,7 +2051,7 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
             'primaryAxisSizingMode requires layoutMode HORIZONTAL or VERTICAL'
           );
         }
-        f.primaryAxisSizingMode = validateLayoutSizing(patch.primaryAxisSizingMode, 'primaryAxisSizingMode');
+        f.primaryAxisSizingMode = validateAxisSizingMode(patch.primaryAxisSizingMode, 'primaryAxisSizingMode');
       }
       if ('counterAxisSizingMode' in patch) {
         if (!isHorizontalVerticalAutoLayout(f.layoutMode)) {
@@ -2059,7 +2060,7 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
             'counterAxisSizingMode requires layoutMode HORIZONTAL or VERTICAL'
           );
         }
-        f.counterAxisSizingMode = validateLayoutSizing(patch.counterAxisSizingMode, 'counterAxisSizingMode');
+        f.counterAxisSizingMode = validateAxisSizingMode(patch.counterAxisSizingMode, 'counterAxisSizingMode');
       }
     }
     if (node.type === 'TEXT' && 'fontName' in patch) {

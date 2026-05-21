@@ -6,6 +6,7 @@ import type {
   LayoutSelfFields,
   LayoutSizing,
 } from '../model/types.js';
+import { validateAxisSizingMode } from './axisSizingMode.js';
 import { ValidationErr } from '../util/errors.js';
 import {
   assertGridChildLayoutField,
@@ -21,6 +22,8 @@ const LAYOUT_POSITIONING = new Set<LayoutPositioning>(['AUTO', 'ABSOLUTE']);
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
+
+export { validateAxisSizingMode } from './axisSizingMode.js';
 
 export function validateLayoutSizing(v: unknown, label: string): LayoutSizing | undefined {
   if (v === undefined) return undefined;

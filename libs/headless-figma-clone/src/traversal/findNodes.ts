@@ -135,7 +135,6 @@ function resolveInstanceMainComponentId(
   if (main.type === 'COMPONENT') return main.id;
   if (main.type === 'COMPONENT_SET') {
     const set = main as import('../model/types.js').ComponentSetNode;
-    const key = set.variantPropertyKey ?? 'variant';
     const raw = set.variantOptions?.[0];
     const options = set.variantOptions ?? set.componentIds;
     const idx = options.indexOf(String(raw));
