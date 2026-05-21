@@ -128,6 +128,11 @@ export function useConnection(onLog: (line: string, isErr?: boolean) => void) {
       }
 
       if (msg.type === 'log') {
+        if (msg.line.startsWith('✗')) {
+          console.error(msg.line);
+        } else {
+          console.log(msg.line);
+        }
         log(msg.line, msg.line.startsWith('✗'));
         return;
       }

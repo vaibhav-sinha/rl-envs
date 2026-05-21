@@ -52,7 +52,9 @@ export interface EvalSpec {
   visual?: Record<string, unknown>[];
   metadata_checks?: Record<string, unknown>[];
   design_system?: { allow_novelty?: boolean };
+  /** @deprecated Legacy field; normalized to category_importance on read/write. */
   weights?: Record<string, number>;
+  category_importance?: Record<string, number>;
 }
 
 export interface TaskAssetInfo {

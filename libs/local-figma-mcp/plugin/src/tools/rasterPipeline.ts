@@ -1,3 +1,4 @@
+import { logExportError } from '../exportError.js';
 import type { ExportUploadGate } from '../exportUploadGate.js';
 import type { ExportMetricsCollector } from '../exportMetrics.js';
 import { RASTER_IMAGE_CONCURRENCY, streamPartToLine } from '../streamProtocol.js';
@@ -38,6 +39,26 @@ export interface RasterPipelineProgress {
 }
 
 export type RasterProgressCallback = (progress: RasterPipelineProgress) => void;
+
+/** Stay under Figma's ~10s image/bridge timeout so we can fall back to a blank PNG. */
+const GET_BYTES_TIMEOUT_MS = 9_000;
+
+async function fetchRasterBytes(img: Image, hash: string): Promise<Uint8Array> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      img.getBytesAsync(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`getBytesAsync timed out after ${GET_BYTES_TIMEOUT_MS}ms`)),
+          GET_BYTES_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 /** Pipelined raster fetch + upload (can run concurrently with icon export). */
 export class RasterExportPipeline {
@@ -86,9 +107,10 @@ export class RasterExportPipeline {
           if (!img) {
             return { hash, bytes: BLANK_PNG_BYTES, mime: 'image/png' as const };
           }
-          const bytes = await img.getBytesAsync();
+          const bytes = await fetchRasterBytes(img, hash);
           return { hash, bytes, mime: sniffMime(bytes) };
-        } catch {
+        } catch (error) {
+          logExportError(`raster/getBytesAsync hash=${hash}`, error, 'warn');
           return { hash, bytes: BLANK_PNG_BYTES, mime: 'image/png' as const };
         }
       })) {
@@ -104,6 +126,9 @@ export class RasterExportPipeline {
           await this.gate.postRasterAsset(
             streamPartToLine(assetPartFromBytes(row.bytes, row.mime, row.hash))
           );
+        } catch (error) {
+          logExportError(`raster/postAsset hash=${row.hash}`, error, 'warn');
+          // Keep going — a single asset or progress post must not fail the whole export.
         } finally {
           this.metrics.endImagesUpload();
         }

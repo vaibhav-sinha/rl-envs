@@ -12,6 +12,7 @@ import { basename, join } from 'node:path';
 import { CHECK_CATALOG } from './check-catalog.js';
 import type { TaskBuilderConfig } from './config.js';
 import { buildDefaultInstruction } from './instruction-preamble.js';
+import { normalizeEvalSpec, prepareEvalSpecForSave } from './category-importance.js';
 import { defaultEvalSpec, validateEvalSpec } from './eval-spec-validator.js';
 import { HfcClient, type ImportHfcResponse } from './hfc-client.js';
 import { writeJsonFile } from './write-json-stream.js';
@@ -130,6 +131,9 @@ export class TasksStore {
 
     if (copyFrom) {
       this.validateSlug(copyFrom);
+      if (copyFrom === id) {
+        return this.loadHarborAsDraft(copyFrom);
+      }
       if (existsSync(draftPath(this.config, id))) {
         throw new Error(`DUPLICATE_ID: draft "${id}" already exists`);
       }
@@ -207,7 +211,9 @@ export class TasksStore {
       builderState,
       instruction: existsSync(instructionPath) ? readFileSync(instructionPath, 'utf8') : '',
       evalSpec: existsSync(evalPath)
-        ? (JSON.parse(readFileSync(evalPath, 'utf8')) as EvalSpec)
+        ? (normalizeEvalSpec(
+            JSON.parse(readFileSync(evalPath, 'utf8')) as Record<string, unknown>
+          ) as unknown as EvalSpec)
         : null,
       exportCompleted: builderState.export.completed,
       assets,
@@ -236,10 +242,13 @@ export class TasksStore {
       writeFileSync(join(root, 'instruction.md'), patch.instruction, 'utf8');
     }
     if (patch.evalSpec !== undefined) {
-      validateEvalSpec(this.config.evalSpecSchemaPath, patch.evalSpec);
+      const toSave = prepareEvalSpecForSave(
+        patch.evalSpec as unknown as Record<string, unknown>
+      ) as unknown as EvalSpec;
+      validateEvalSpec(this.config.evalSpecSchemaPath, toSave);
       writeFileSync(
         join(root, 'tests', EVAL_SPEC_FILE),
-        JSON.stringify(patch.evalSpec, null, 2) + '\n',
+        JSON.stringify(toSave, null, 2) + '\n',
         'utf8'
       );
     }
@@ -455,9 +464,16 @@ export class TasksStore {
     const draftId = harborId;
     this.validateSlug(draftId);
     if (existsSync(draftPath(this.config, draftId))) {
+      const completeMarker = join(draftPath(this.config, draftId), '.complete');
+      if (existsSync(completeMarker)) {
+        rmSync(completeMarker, { force: true });
+      }
       return this.readBuilderState(draftId);
     }
-    this.assertIdAvailable(draftId);
+    const harborRoot = join(this.config.harborTasksDir, harborId);
+    if (!existsSync(harborRoot)) {
+      throw new Error(`Harbor task not found: ${harborId}`);
+    }
     cloneHarborToDraft(this.config, harborId, draftId);
     return this.readBuilderState(draftId);
   }

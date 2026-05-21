@@ -170,12 +170,11 @@ export const CHECK_CATALOG = {
       },
     },
   },
-  weights: {
-    title: 'Category weights',
+  category_importance: {
+    title: 'Category importance',
     description:
-      'Relative weights for gates, commands, checks, design_system, visual, metadata, and heuristics when aggregating.',
+      'Relative importance for commands, checks, design_system, visual, metadata, and heuristics when aggregating raw score. Values are normalized over categories that actually ran. Gates only affect completion_gate.',
     defaults: {
-      gates: 1.0,
       commands: 0.15,
       checks: 0.35,
       design_system: 0.2,

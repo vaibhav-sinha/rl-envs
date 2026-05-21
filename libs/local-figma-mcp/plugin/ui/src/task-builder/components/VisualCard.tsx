@@ -151,10 +151,7 @@ export function VisualCard({
                   placeholder={'The new screen should use the same background pattern as the reference\nThe new screen should have a keyboard at the bottom'}
                   value={linesFromArray(value)}
                   onChange={(e) => {
-                    const lines = e.target.value
-                      .split('\n')
-                      .map((s) => s.trim())
-                      .filter(Boolean);
+                    const lines = e.target.value.split('\n');
                     onChange({ [key]: lines.length ? lines : undefined });
                   }}
                 />

@@ -10,7 +10,7 @@ export const WIZARD_STEPS: { id: WizardStep; label: string; hint: string }[] = [
   { id: 'design_system', label: 'Design system', hint: 'Token and style adherence' },
   { id: 'visual', label: 'Visual', hint: 'LLM screenshot judges' },
   { id: 'metadata', label: 'Metadata', hint: 'LLM diff judges (no screenshots)' },
-  { id: 'weights', label: 'Weights', hint: 'Score category balance' },
+  { id: 'weights', label: 'Importance', hint: 'Score category balance' },
   { id: 'review', label: 'Review', hint: 'Finalize to Harbor' },
 ];
 
@@ -61,18 +61,12 @@ const ENUM_LABELS: Record<string, Record<string, string>> = {
 };
 
 export function humanFieldLabel(key: string, catalog?: CheckCatalog, section?: 'checks' | 'visual', type?: string): string {
-  if (section && type && catalog) {
-    const fields = catalog[section].types[type]?.fields;
-    if (fields?.[key]) {
-      const firstLine = fields[key].split('.')[0]?.trim();
-      if (firstLine) return firstLine;
-    }
-  }
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
   const gate = catalog?.gates.fields[key];
   if (gate?.label) return gate.label;
   const ds = catalog?.design_system.fields[key];
   if (ds?.label) return ds.label;
-  return FIELD_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function humanFieldDescription(

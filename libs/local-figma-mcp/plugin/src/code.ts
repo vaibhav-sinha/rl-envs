@@ -5,7 +5,7 @@ import { runGetVariableDefs } from './tools/getVariableDefs.js';
 import { runSearchDesignSystem } from './tools/searchDesignSystem.js';
 import { runUseFigma } from './tools/useFigma.js';
 import { runFigmaStreamExport } from './tools/streamExport.js';
-import { formatExportError } from './exportError.js';
+import { formatExportError, logExportError } from './exportError.js';
 import { ExportMetricsCollector } from './exportMetrics.js';
 import { ExportUploadGate } from './exportUploadGate.js';
 import { ExportProgressReporter } from './exportProgressReporter.js';
@@ -70,11 +70,11 @@ function waitForStreamAck(seq: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       ackWaiter = null;
-      reject(
-        new Error(
-          `Upload ack timed out waiting for seq ${seq} (UI may have failed posting to Task Builder)`
-        )
+      const err = new Error(
+        `Upload ack timed out waiting for seq ${seq} (UI may have failed posting to Task Builder)`
       );
+      logExportError(`main/waitForStreamAck seq=${seq}`, err);
+      reject(err);
     }, STREAM_ACK_TIMEOUT_MS);
 
     ackWaiter = (acked) => {
@@ -83,7 +83,9 @@ function waitForStreamAck(seq: number): Promise<void> {
         ackWaiter = null;
         const msg = uploadAbortError;
         uploadAbortError = null;
-        reject(new Error(msg));
+        const err = new Error(msg);
+        logExportError('main/waitForStreamAck/uploadAbort', err);
+        reject(err);
         return;
       }
       if (acked >= seq) {
@@ -95,21 +97,33 @@ function waitForStreamAck(seq: number): Promise<void> {
   });
 }
 
-function postUiMessage(msg: MainToUi): void {
+/** Progress-only posts must never abort export (UI may be busy uploading large assets). */
+function postProgressSnapshot(snapshot: ExportProgressSnapshot): void {
   try {
-    figma.ui.postMessage(msg);
+    figma.ui.postMessage({
+      type: 'export_progress_v2',
+      snapshot,
+    } satisfies MainToUi);
   } catch (e) {
-    throw new Error(
-      `Failed to send message to plugin UI (${msg.type}): ${formatExportError(e)}`
-    );
+    logExportError('main/postProgressSnapshot', e, 'warn');
   }
 }
 
-function postProgressSnapshot(snapshot: ExportProgressSnapshot): void {
-  figma.ui.postMessage({
-    type: 'export_progress_v2',
-    snapshot,
-  } satisfies MainToUi);
+function postUiMessage(msg: MainToUi): void {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      figma.ui.postMessage(msg);
+      return;
+    } catch (e) {
+      lastError = e;
+      logExportError(`main/postUiMessage/${msg.type} attempt ${attempt}`, e, 'warn');
+    }
+  }
+  const wrapped = new Error(
+    `Failed to send message to plugin UI (${msg.type}): ${formatExportError(lastError)}`
+  );
+  throw wrapped;
 }
 
 async function dispatchTool(
@@ -164,7 +178,13 @@ async function runExportFile(
       postUiMessage(msg satisfies MainToUi);
     },
     onAbortError: () => uploadAbortError,
-    onPosted: () => progressReporter?.emit(),
+    onPosted: () => {
+      try {
+        progressReporter?.emit();
+      } catch (e) {
+        logExportError('main/onPostedProgress', e, 'warn');
+      }
+    },
   });
 
   progressReporter = new ExportProgressReporter(metrics, gate, postProgressSnapshot);
@@ -192,12 +212,16 @@ async function runExportFile(
     } satisfies MainToUi);
     figma.notify('Export streamed — finalizing…');
   } catch (e) {
-    const message = formatExportError(e);
+    const message = logExportError('main/runExportFile', e);
     progressReporter.emit(true);
     postUiMessage({
       type: 'export_stream_done',
       ok: false,
       error: message,
+    } satisfies MainToUi);
+    postUiMessage({
+      type: 'log',
+      line: `✗ [main/runExportFile] ${message}`,
     } satisfies MainToUi);
     figma.notify('Export failed: ' + message, { error: true });
   } finally {
@@ -228,7 +252,8 @@ figma.ui.onmessage = async (msg: UiToMain) => {
   }
 
   if (msg.type === 'export_stream_upload_failed') {
-    uploadAbortError = formatExportError(msg.error, 'Task Builder upload failed');
+    const err = new Error(formatExportError(msg.error, 'Task Builder upload failed'));
+    uploadAbortError = logExportError(`main/uploadFailed seq=${msg.seq}`, err);
     ackWaiter?.(Number.MAX_SAFE_INTEGER);
     return;
   }

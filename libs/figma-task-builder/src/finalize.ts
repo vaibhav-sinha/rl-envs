@@ -91,9 +91,6 @@ export function finalizeTask(config: TaskBuilderConfig, taskId: string): void {
   if (!existsSync(draftRoot)) {
     throw new Error(`Draft not found: ${taskId}`);
   }
-  if (existsSync(harborRoot)) {
-    throw new Error(`Harbor task already exists: ${taskId}`);
-  }
 
   const designPath = join(draftRoot, 'environment', 'design.hfc.json');
   if (!existsSync(designPath)) {

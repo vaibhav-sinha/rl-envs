@@ -68,8 +68,11 @@ export function remapEvalSpecIds(spec: EvalSpec, figmaToHfc: Record<string, stri
     next.design_system = { ...spec.design_system };
   }
 
-  if (spec.weights) {
-    next.weights = { ...spec.weights };
+  if (spec.category_importance) {
+    next.category_importance = { ...spec.category_importance };
+  } else if (spec.weights) {
+    const { gates: _g, ...rest } = spec.weights;
+    next.category_importance = { ...rest };
   }
 
   return next;

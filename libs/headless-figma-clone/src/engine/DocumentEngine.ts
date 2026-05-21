@@ -58,7 +58,6 @@ import {
   applyLayoutSelfPatch,
   assertGridChildFieldsInCreateSpec,
   validateFontName,
-  validateLayoutSizing,
   validateAxisSizingMode,
 } from './phase7Fields.js';
 import { validateEffects } from './validateEffects.js';

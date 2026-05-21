@@ -35,7 +35,7 @@ export interface CheckCatalog {
     description: string;
     types: Record<string, CatalogCheckType>;
   };
-  weights: {
+  category_importance: {
     title: string;
     description: string;
     defaults: Record<string, number>;

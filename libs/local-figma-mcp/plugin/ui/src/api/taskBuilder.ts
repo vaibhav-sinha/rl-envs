@@ -43,6 +43,7 @@ export interface EvalSpec {
   metadata_checks?: Record<string, unknown>[];
   design_system?: { allow_novelty?: boolean };
   weights?: Record<string, number>;
+  category_importance?: Record<string, number>;
 }
 
 export interface FullTask {
@@ -101,6 +102,8 @@ export const taskBuilderApi = {
     }),
   completeTask: (id: string) =>
     tbFetch<{ harborPath: string }>(`/tasks/${id}/complete`, { method: 'POST' }),
+  loadHarborAsDraft: (id: string) =>
+    tbFetch<{ task: { id: string } }>(`/tasks/${id}/load-harbor`, { method: 'POST' }),
   standaloneExport: (hfcFileName: string, snapshot: unknown) =>
     tbFetch<{ filePath: string }>('/export', {
       method: 'POST',

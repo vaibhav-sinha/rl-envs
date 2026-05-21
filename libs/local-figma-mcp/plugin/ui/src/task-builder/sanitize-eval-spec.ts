@@ -1,3 +1,5 @@
+import { prepareEvalSpecForSave as stripLegacyWeights } from './category-importance.js';
+
 /** Drop blank string fields so eval-spec JSON Schema validation passes (e.g. optional minLength fields). */
 function sanitizeEntries(entries: Record<string, unknown>[]): Record<string, unknown>[] {
   return entries.map((entry) => {
@@ -20,7 +22,7 @@ function sanitizeEntries(entries: Record<string, unknown>[]): Record<string, unk
 }
 
 export function sanitizeEvalSpecForSave<T extends Record<string, unknown>>(spec: T): T {
-  let next = spec;
+  let next = stripLegacyWeights(spec);
   if (Array.isArray(spec.visual)) {
     next = { ...next, visual: sanitizeEntries(spec.visual as Record<string, unknown>[]) };
   }

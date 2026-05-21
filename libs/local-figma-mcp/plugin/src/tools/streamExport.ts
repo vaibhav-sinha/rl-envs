@@ -1,3 +1,4 @@
+import { logExportError } from '../exportError.js';
 import { buildExportExcludeIds } from '../exportScope.js';
 import type { ExportMetricsCollector } from '../exportMetrics.js';
 import { shouldEmitProgressMetrics } from '../exportMetrics.js';
@@ -191,8 +192,8 @@ async function exportIconRoot(
         }
       });
     }
-  } catch {
-    /* skip */
+  } catch (error) {
+    logExportError(`icons/exportRoot nodeId=${nodeId}`, error, 'warn');
   }
 }
 
@@ -218,8 +219,8 @@ async function exportMixedFillVector(
         );
       }
     });
-  } catch {
-    /* skip */
+  } catch (error) {
+    logExportError(`icons/exportMixedFill nodeId=${nodeId}`, error, 'warn');
   }
 }
 

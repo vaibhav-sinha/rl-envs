@@ -2,11 +2,11 @@ schema_version = "1.2"
 
 [task]
 name = "metaphi/figma-design-oker-create-max-otp-screen"
-description = "Add max OTP attempts onboarding screen"
+description = "Figma design task: oker-create-max-otp-screen"
 keywords = ["figma", "mcp", "rewardkit", "design", "headless-figma-clone"]
 
 [metadata]
-difficulty = "medium"
+difficulty = "easy"
 category = "design"
 
 [verifier]

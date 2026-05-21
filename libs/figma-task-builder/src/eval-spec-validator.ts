@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { CHECK_CATALOG } from './check-catalog.js';
+import { DEFAULT_CATEGORY_IMPORTANCE } from './category-importance.js';
 import type { EvalSpec } from './types.js';
 
 const require = createRequire(import.meta.url);
@@ -46,7 +46,7 @@ export function defaultEvalSpec(): EvalSpec {
       { id: 'good_design_1', type: 'good_design' },
       { id: 'task_completeness_1', type: 'task_completeness' },
     ],
-    weights: { ...CHECK_CATALOG.weights.defaults },
+    category_importance: { ...DEFAULT_CATEGORY_IMPORTANCE },
   };
 }
 

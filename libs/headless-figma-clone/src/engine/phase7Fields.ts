@@ -6,7 +6,6 @@ import type {
   LayoutSelfFields,
   LayoutSizing,
 } from '../model/types.js';
-import { validateAxisSizingMode } from './axisSizingMode.js';
 import { ValidationErr } from '../util/errors.js';
 import {
   assertGridChildLayoutField,

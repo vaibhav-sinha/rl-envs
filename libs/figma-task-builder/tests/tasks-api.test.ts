@@ -51,6 +51,93 @@ describe('Task Builder API', () => {
     expect(res.status).toBe(409);
   });
 
+  it('completes an edit flow when the harbor task already exists', async () => {
+    const draftsDir = process.env.TB_TASKS_DIR!;
+    const harborDir = process.env.TB_HARBOR_TASKS_DIR!;
+    const taskId = 'edit-existing-harbor';
+
+    const create = await fetch(`http://127.0.0.1:${port}/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: taskId }),
+    });
+    expect(create.status).toBe(201);
+
+    const envDir = join(draftsDir, taskId, 'environment');
+    mkdirSync(envDir, { recursive: true });
+    writeFileSync(
+      join(envDir, 'design.hfc.json'),
+      JSON.stringify({ schemaVersion: 1, document: { id: 'I0', type: 'DOCUMENT', children: [] } }) + '\n',
+      'utf8'
+    );
+
+    const firstComplete = await fetch(`http://127.0.0.1:${port}/tasks/${taskId}/complete`, {
+      method: 'POST',
+    });
+    expect(firstComplete.status).toBe(200);
+    expect(readFileSync(join(harborDir, taskId, 'task.toml'), 'utf8')).toContain(taskId);
+
+    const del = await fetch(`http://127.0.0.1:${port}/tasks/${taskId}`, { method: 'DELETE' });
+    expect(del.status).toBe(200);
+
+    const reopen = await fetch(`http://127.0.0.1:${port}/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: taskId, copyFrom: taskId }),
+    });
+    expect(reopen.status).toBe(201);
+
+    writeFileSync(join(draftsDir, taskId, 'instruction.md'), '# Updated instruction\n', 'utf8');
+
+    const secondComplete = await fetch(`http://127.0.0.1:${port}/tasks/${taskId}/complete`, {
+      method: 'POST',
+    });
+    expect(secondComplete.status).toBe(200);
+    expect(readFileSync(join(harborDir, taskId, 'instruction.md'), 'utf8')).toBe('# Updated instruction\n');
+  });
+
+  it('reopens an existing draft when loading a harbor task for edit again', async () => {
+    const draftsDir = process.env.TB_TASKS_DIR!;
+    const taskId = 'reopen-existing-draft';
+    const marker = '# Reopen marker\n';
+
+    const create = await fetch(`http://127.0.0.1:${port}/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: taskId }),
+    });
+    expect(create.status).toBe(201);
+
+    const envDir = join(draftsDir, taskId, 'environment');
+    mkdirSync(envDir, { recursive: true });
+    writeFileSync(
+      join(envDir, 'design.hfc.json'),
+      JSON.stringify({ schemaVersion: 1, document: { id: 'I0', type: 'DOCUMENT', children: [] } }) + '\n',
+      'utf8'
+    );
+
+    const complete = await fetch(`http://127.0.0.1:${port}/tasks/${taskId}/complete`, {
+      method: 'POST',
+    });
+    expect(complete.status).toBe(200);
+
+    writeFileSync(join(draftsDir, taskId, 'instruction.md'), marker, 'utf8');
+
+    const reopen = await fetch(`http://127.0.0.1:${port}/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: taskId, copyFrom: taskId }),
+    });
+    expect(reopen.status).toBe(201);
+
+    const loadHarbor = await fetch(`http://127.0.0.1:${port}/tasks/${taskId}/load-harbor`, {
+      method: 'POST',
+    });
+    expect(loadHarbor.status).toBe(200);
+
+    expect(readFileSync(join(draftsDir, taskId, 'instruction.md'), 'utf8')).toBe(marker);
+  });
+
   it('copies design export from another task with optional exclusions', async () => {
     const draftsDir = process.env.TB_TASKS_DIR!;
 

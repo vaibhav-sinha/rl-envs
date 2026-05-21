@@ -21,21 +21,45 @@
       "type": "component_instances_under",
       "required": true,
       "scope_id": "1621:130309",
-      "component_id": "2176:169414",
+      "component_id": "2382:161267",
       "min_instances": 1
+    },
+    {
+      "id": "min_added_under_3",
+      "type": "min_added_under",
+      "required": true,
+      "parent_id": "1621:130309",
+      "min": 1
     }
   ],
-  "category_importance": {
-    "checks": 0.35,
-    "design_system": 0.2,
-    "visual": 0.35,
-    "heuristics": 0.1
-  },
   "visual": [
+    {
+      "id": "good_design_1",
+      "type": "good_design"
+    },
     {
       "id": "task_completeness_1",
       "type": "task_completeness",
       "evaluation_instructions": "Check for the following:\n\n- Is the button in disabled state\n- Is the message present to tell the user that they have reached max attempts\n- Is the countdown visible\n- Is the formatting of the message such that it looks like warning/error"
+    },
+    {
+      "id": "design_consistency_3",
+      "type": "design_consistency",
+      "reference_asset": "ref-design_consistency_3.png",
+      "criteria": [
+        "The background should exactly be the same",
+        "The keyboard should be present and look exactly the same",
+        "Any buttons should look the same. However, in disabled state the color can be different",
+        "The padding, spacing, etc should match"
+      ]
     }
-  ]
+  ],
+  "category_importance": {
+    "commands": 0.15,
+    "checks": 0.35,
+    "design_system": 0.2,
+    "visual": 0.35,
+    "metadata": 0.1,
+    "heuristics": 0.1
+  }
 }

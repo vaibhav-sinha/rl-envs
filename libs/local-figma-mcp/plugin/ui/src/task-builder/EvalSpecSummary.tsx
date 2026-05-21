@@ -104,7 +104,13 @@ export function EvalSpecSummary({
   const checks = spec.checks ?? [];
   const visual = spec.visual ?? [];
   const metadataChecks = spec.metadata_checks ?? [];
-  const weights = spec.weights ?? {};
+  const importance =
+    spec.category_importance ??
+    (spec.weights
+      ? Object.fromEntries(
+          Object.entries(spec.weights).filter(([k]) => k !== 'gates')
+        )
+      : {});
   const gateEntries = Object.entries(gates).filter(([, v]) => {
     if (Array.isArray(v)) return v.length > 0;
     return !!v;
@@ -273,11 +279,11 @@ export function EvalSpecSummary({
             </section>
           ) : null}
 
-          {Object.keys(weights).length > 0 ? (
+          {Object.keys(importance).length > 0 ? (
             <section>
-              <p className="text-[10px] font-semibold text-foreground m-0 mb-1">Score weights</p>
+              <p className="text-[10px] font-semibold text-foreground m-0 mb-1">Category importance</p>
               <div className="flex flex-wrap gap-1.5">
-                {Object.entries(weights).map(([k, v]) => (
+                {Object.entries(importance).map(([k, v]) => (
                   <span
                     key={k}
                     className="text-[9px] rounded bg-[#333] px-1.5 py-0.5 text-muted capitalize"

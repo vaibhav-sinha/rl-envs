@@ -14,10 +14,12 @@ export function FieldHelp({
 }) {
   return (
     <div className={cn('space-y-0.5', className)}>
-      <Label htmlFor={htmlFor} className="text-[11px] text-foreground">
+      <Label htmlFor={htmlFor} className="text-[11px] text-foreground break-words">
         {label}
       </Label>
-      {description ? <p className="text-[10px] text-muted m-0 leading-snug">{description}</p> : null}
+      {description ? (
+        <p className="text-[10px] text-muted m-0 leading-snug break-words">{description}</p>
+      ) : null}
     </div>
   );
 }

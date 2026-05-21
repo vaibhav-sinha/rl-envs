@@ -6,6 +6,7 @@ import {
   type TaskListItem,
   type WizardStep,
 } from '../api/taskBuilder';
+import { logExportError } from '../../../src/exportError.js';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -27,6 +28,7 @@ import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportPr
 import { PageMultiSelect } from '../components/PageMultiSelect';
 import { useFilePages } from '../hooks/useFilePages';
 import { WIZARD_STEPS, stepMeta } from './catalog-helpers';
+import { DEFAULT_CATEGORY_IMPORTANCE, normalizeEvalSpec } from './category-importance';
 import { sanitizeEvalSpecForSave } from './sanitize-eval-spec';
 import { CheckCard } from './components/CheckCard';
 import { FieldHelp } from './components/FieldHelp';
@@ -40,7 +42,7 @@ import { buildCheckOptions, buildMetadataOptions, buildVisualOptions, TypeSelect
 import { MetadataCard } from './components/MetadataCard';
 import { VisualCard } from './components/VisualCard';
 import { EvalSpecSummary } from './EvalSpecSummary';
-import { useCheckCatalog } from './useCheckCatalog';
+import { isCheckCatalog, useCheckCatalog } from './useCheckCatalog';
 
 const STEPS = WIZARD_STEPS.map((s) => s.id);
 
@@ -78,14 +80,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
       { id: 'task_completeness_1', type: 'task_completeness' },
     ],
     metadata_checks: [],
-    weights: {
-      gates: 1,
-      checks: 0.35,
-      design_system: 0.2,
-      visual: 0.35,
-      metadata: 0.1,
-      heuristics: 0.1,
-    },
+    category_importance: { ...DEFAULT_CATEGORY_IMPORTANCE },
   });
 
   const [exportProgress, setExportProgress] = useState<MultiPhaseExportProgress | null>(null);
@@ -101,6 +96,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
   const [newMetadataType, setNewMetadataType] = useState('diff');
 
   const catalog = useCheckCatalog(task?.checkCatalog);
+  const catalogReady = isCheckCatalog(catalog);
   const checkOptions = useMemo(() => buildCheckOptions(catalog), [catalog]);
   const visualOptions = useMemo(() => buildVisualOptions(catalog), [catalog]);
   const metadataOptions = useMemo(() => buildMetadataOptions(catalog), [catalog]);
@@ -138,8 +134,13 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     setTaskId(id);
     setInstruction(t.instruction);
     setMeta(t.builderState.metadata);
-    if (t.evalSpec) setEvalSpec(ensureDefaultVisualChecks(t.evalSpec));
-    setStep(t.builderState.current_step);
+    if (t.evalSpec) {
+      setEvalSpec(ensureDefaultVisualChecks(normalizeEvalSpec(t.evalSpec as Record<string, unknown>)));
+    }
+    const resumedStep = t.builderState.current_step;
+    setStep(
+      resumedStep === 'review' && t.exportCompleted ? 'instruction' : resumedStep
+    );
     setView('wizard');
   }, []);
 
@@ -264,7 +265,10 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
       onLog('Design exported to draft');
       setStep('gates');
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = logExportError(
+        streamFinished ? 'ui/TaskBuilder/exportFinalize' : 'ui/TaskBuilder/exportStream',
+        e
+      );
       setExportOutcome({
         kind: 'error',
         title: streamFinished ? 'Finalize failed' : 'Export failed',
@@ -334,7 +338,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
   const editHarbor = async (id: string) => {
     setBusy(true);
     try {
-      await taskBuilderApi.createTask(id, id);
+      await taskBuilderApi.loadHarborAsDraft(id);
       await loadTask(id);
       onLog(`Loaded harbor task ${id} as draft`);
     } catch (e) {
@@ -449,7 +453,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
             Back
           </Button>
         </div>
-        <div className="flex-1 overflow-auto space-y-1">
+        <div className="flex-1 min-h-0 overflow-auto space-y-1">
           {tasks.length === 0 ? (
             <p className="text-[10px] text-muted m-0 p-2">No drafts or completed tasks yet.</p>
           ) : (
@@ -525,18 +529,19 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
         </div>
       </div>
 
-      {taskId && step !== 'name' ? (
-        <div className="px-2 pt-2 shrink-0">
-          <EvalSpecSummary
-            spec={evalSpec}
-            catalog={catalog}
-            taskInstruction={instruction}
-            defaultExpanded={step === 'review'}
-          />
-        </div>
-      ) : null}
+      <div className="flex-1 min-h-0 flex flex-col">
+        {taskId && step !== 'name' && step !== 'review' ? (
+          <div className="px-2 pt-2 shrink-0 max-h-[45%] min-h-0 overflow-auto">
+            <EvalSpecSummary
+              spec={evalSpec}
+              catalog={catalog}
+              taskInstruction={instruction}
+              defaultExpanded={false}
+            />
+          </div>
+        ) : null}
 
-      <div className="flex-1 overflow-auto p-2 space-y-3">
+        <div className="flex-1 min-h-0 overflow-auto p-2 space-y-3">
         {step === 'name' && (
           <>
             <SectionIntro
@@ -748,7 +753,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
           </>
         )}
 
-        {step === 'gates' && catalog ? (
+        {step === 'gates' && catalogReady && catalog ? (
           <>
             <SectionIntro title={catalog.gates.title} description={catalog.gates.description} />
             <div className="flex items-start gap-2">
@@ -879,7 +884,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
           </>
         ) : null}
 
-        {step === 'checks' && catalog ? (
+        {step === 'checks' && catalogReady && catalog ? (
           <>
             <SectionIntro title={catalog.checks.title} description={catalog.checks.description} />
             <p className="text-[10px] text-muted m-0">
@@ -914,7 +919,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
           </>
         ) : null}
 
-        {step === 'design_system' && catalog ? (
+        {step === 'design_system' && catalogReady && catalog ? (
           <>
             <SectionIntro
               title={catalog.design_system.title}
@@ -936,7 +941,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
           </>
         ) : null}
 
-        {step === 'visual' && catalog ? (
+        {step === 'visual' && catalogReady && catalog ? (
           <>
             <SectionIntro title={catalog.visual.title} description={catalog.visual.description} />
             <p className="text-[10px] text-muted m-0">
@@ -975,7 +980,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
           </>
         ) : null}
 
-        {step === 'metadata' && catalog?.metadata_checks ? (
+        {step === 'metadata' && catalogReady && catalog?.metadata_checks ? (
           <>
             <SectionIntro
               title={catalog.metadata_checks.title}
@@ -1013,31 +1018,44 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
           </>
         ) : null}
 
-        {step === 'weights' && catalog ? (
+        {step === 'weights' && catalogReady && catalog ? (
           <>
-            <SectionIntro title={catalog.weights.title} description={catalog.weights.description} />
-            {Object.entries(evalSpec.weights ?? {}).map(([k, v]) => (
-              <div key={k} className="space-y-1">
-                <FieldHelp
-                  label={k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                  description={`Default: ${catalog.weights.defaults[k] ?? '—'}`}
-                />
-                <Input
-                  type="number"
-                  step="0.05"
-                  min={0}
-                  max={1}
-                  value={v}
-                  onChange={(e) =>
-                    setEvalSpec({
-                      ...evalSpec,
-                      weights: { ...evalSpec.weights, [k]: Number(e.target.value) },
-                    })
-                  }
-                />
-              </div>
-            ))}
+            <SectionIntro
+              title={catalog.category_importance.title}
+              description={catalog.category_importance.description}
+            />
+            {Object.entries(catalog.category_importance.defaults).map(([k, defaultVal]) => {
+              const v = evalSpec.category_importance?.[k] ?? defaultVal;
+              return (
+                <div key={k} className="space-y-1">
+                  <FieldHelp
+                    label={k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                    description={`Default: ${defaultVal}`}
+                  />
+                  <Input
+                    type="number"
+                    step="0.05"
+                    min={0.01}
+                    value={v}
+                    onChange={(e) =>
+                      setEvalSpec({
+                        ...evalSpec,
+                        category_importance: {
+                          ...(evalSpec.category_importance ?? DEFAULT_CATEGORY_IMPORTANCE),
+                          [k]: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                </div>
+              );
+            })}
           </>
+        ) : null}
+
+        {['gates', 'checks', 'design_system', 'visual', 'metadata', 'weights'].includes(step) &&
+        !catalogReady ? (
+          <p className="text-[10px] text-muted m-0">Loading check catalog…</p>
         ) : null}
 
         {step === 'review' && (
@@ -1054,6 +1072,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
             />
           </>
         )}
+        </div>
       </div>
 
       <footer className="p-2 border-t border-[#333] flex gap-2 shrink-0">

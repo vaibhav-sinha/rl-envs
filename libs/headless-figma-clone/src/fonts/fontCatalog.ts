@@ -1,5 +1,5 @@
 import type { FontName, TextNode, FileEnvelope, DocumentNode } from '../model/types.js';
-import { listLocalFontFaces, isFontAvailable } from './localFontRegistry.js';
+import { listLocalFontFaces } from './localFontRegistry.js';
 import { listFontsUsed } from './collectDocumentFonts.js';
 import { getFontAvailability, resolveRenderingFontName } from './fontSubstitution.js';
 import { DEFAULT_FONT } from './fontTypes.js';

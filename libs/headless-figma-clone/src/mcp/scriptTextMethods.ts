@@ -10,7 +10,7 @@ import type {
   StyledSegment,
 } from '../model/types.js';
 import { ValidationErr } from '../util/errors.js';
-import { parseStyledSegmentsInput } from '../engine/styledSegmentsNormalize.js';
+
 function deepClone<T>(v: T): T {
   return structuredClone(v);
 }

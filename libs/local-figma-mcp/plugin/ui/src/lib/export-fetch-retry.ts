@@ -1,3 +1,5 @@
+import { logExportError } from '../../../src/exportError.js';
+
 const DEFAULT_MAX_ATTEMPTS = 5;
 const INITIAL_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 15_000;
@@ -52,6 +54,9 @@ export async function fetchWithExportRetry(
     try {
       const res = await fetch(url, init);
       if (isRetryableHttpStatus(res.status) && attempt < maxAttempts) {
+        console.warn(
+          `[export:fetch/retry] HTTP ${res.status} ${url} attempt ${attempt}/${maxAttempts}`
+        );
         await sleep(exportRetryBackoffMs(attempt));
         continue;
       }
@@ -59,11 +64,16 @@ export async function fetchWithExportRetry(
     } catch (error) {
       lastError = error;
       if (!isRetryableFetchError(error) || attempt >= maxAttempts) {
+        logExportError(`fetch/failed ${url}`, error);
         throw error;
       }
+      logExportError(`fetch/retry ${url} attempt ${attempt}/${maxAttempts}`, error, 'warn');
       await sleep(exportRetryBackoffMs(attempt));
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('Export request failed after retries');
+  const final =
+    lastError instanceof Error ? lastError : new Error('Export request failed after retries');
+  logExportError(`fetch/exhausted ${url}`, final);
+  throw final;
 }

@@ -13,6 +13,7 @@ import type { ExportOutcome, MultiPhaseExportProgress } from '../lib/export-prog
 import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportProgress';
 import { PageMultiSelect } from '../components/PageMultiSelect';
 import { useFilePages } from '../hooks/useFilePages';
+import { logExportError } from '../../../src/exportError.js';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -95,7 +96,10 @@ export function ExportTab({
         throw finalizeError;
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = logExportError(
+        pendingExportId ? 'ui/ExportTab/finalize' : 'ui/ExportTab/export',
+        e
+      );
       setOutcome({
         kind: 'error',
         title: pendingExportId ? 'Finalize failed' : 'Export failed',
@@ -114,7 +118,7 @@ export function ExportTab({
     try {
       await runFinalize(exportId, sessionName, true);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = logExportError('ui/ExportTab/retryFinalize', e);
       setOutcome({
         kind: 'error',
         title: 'Finalize failed',

@@ -1,3 +1,4 @@
+import { logExportError } from './exportError.js';
 import type { ExportMetricsCollector } from './exportMetrics.js';
 import {
   EXPORT_ASSET_MAX_INFLIGHT,
@@ -127,18 +128,22 @@ export class ExportUploadGate {
 
   private async waitForInflightBelow(max: number): Promise<void> {
     const err = this.onAbortError();
-    if (err) throw new Error(err);
+    if (err) {
+      const abortErr = new Error(err);
+      logExportError('uploadGate/uploadAbort', abortErr);
+      throw abortErr;
+    }
     while (this.inflight >= max) {
       const waitStart = Date.now();
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           const i = this.inflightWaiters.indexOf(resolve);
           if (i >= 0) this.inflightWaiters.splice(i, 1);
-          reject(
-            new Error(
-              `Upload ack timed out with ${this.inflight} in flight (UI may have failed posting to Task Builder)`
-            )
+          const ackErr = new Error(
+            `Upload ack timed out with ${this.inflight} in flight (UI may have failed posting to Task Builder)`
           );
+          logExportError('uploadGate/ackTimeout', ackErr);
+          reject(ackErr);
         }, STREAM_ACK_TIMEOUT_MS);
         this.inflightWaiters.push(() => {
           clearTimeout(timer);
@@ -147,7 +152,11 @@ export class ExportUploadGate {
       });
       this.metrics.addUploadWaitMs(Date.now() - waitStart);
       const errAfter = this.onAbortError();
-      if (errAfter) throw new Error(errAfter);
+      if (errAfter) {
+        const abortErr = new Error(errAfter);
+        logExportError('uploadGate/uploadAbort', abortErr);
+        throw abortErr;
+      }
     }
   }
 

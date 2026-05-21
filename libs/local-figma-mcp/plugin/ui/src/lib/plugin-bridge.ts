@@ -1,24 +1,6 @@
 import { TB_URL } from './constants';
+import { formatExportError, logExportError } from '../../../src/exportError.js';
 import { EXPORT_UI_ASSET_UPLOAD_CONCURRENCY } from '../../../src/streamProtocol.js';
-
-function formatExportError(error: unknown, fallback = 'Export failed'): string {
-  if (error instanceof Error) {
-    const msg = error.message.trim();
-    if (msg) return msg;
-    if (error.name && error.name !== 'Error' && error.name !== 'undefined') {
-      return `${error.name} (no message)`;
-    }
-  }
-  if (typeof error === 'string') {
-    const msg = error.trim();
-    if (msg) return msg;
-  }
-  if (error !== undefined && error !== null && !(error instanceof Error)) {
-    const msg = String(error).trim();
-    if (msg && msg !== '[object Object]') return msg;
-  }
-  return fallback;
-}
 
 async function readTbErrorMessage(res: Response): Promise<string> {
   const text = await res.text().catch(() => '');
@@ -107,8 +89,9 @@ async function tbPostPartBodyOnce(exportId: string, body: string): Promise<{ seq
   });
   if (!res.ok) {
     const message = await readTbErrorMessage(res);
-    console.error('[export] Task Builder part upload failed:', res.status, message);
-    throw new Error(message);
+    const err = new Error(message);
+    logExportError(`ui/tbPostPart HTTP ${res.status}`, err);
+    throw err;
   }
   const parsed = (await res.json().catch(() => ({}))) as { seq?: number };
   return { seq: parsed.seq ?? 0 };
@@ -122,10 +105,7 @@ async function tbPostPartBody(exportId: string, body: string): Promise<{ seq: nu
     if (!fallbackLine || !isImagePartUploadFallbackError(error)) {
       throw error;
     }
-    console.warn(
-      '[export] Raster image part upload failed; sending blank PNG placeholder instead.',
-      error
-    );
+    logExportError('ui/tbPostPart rasterFallback', error, 'warn');
     return await tbPostPartBodyOnce(exportId, fallbackLine);
   }
 }
@@ -148,7 +128,9 @@ export async function createExportStreamSession(): Promise<{ exportId: string }>
     error?: { message?: string };
   };
   if (!res.ok || !body.exportId) {
-    throw new Error(body.error?.message ?? 'Failed to create export session');
+    const err = new Error(body.error?.message ?? 'Failed to create export session');
+    logExportError('ui/createExportSession', err);
+    throw err;
   }
   return { exportId: body.exportId };
 }
@@ -180,7 +162,9 @@ export async function listReadyExportSessions(): Promise<PendingExportSession[]>
     error?: { message?: string };
   };
   if (!res.ok) {
-    throw new Error(body.error?.message ?? 'Failed to list export sessions');
+    const err = new Error(body.error?.message ?? 'Failed to list export sessions');
+    logExportError('ui/listReadyExportSessions', err);
+    throw err;
   }
   return body.sessions ?? [];
 }
@@ -201,7 +185,11 @@ export async function finishExportStreamSession(
     error?: { message?: string };
   };
   if (!res.ok) {
-    throw new Error(body.error?.message?.trim() || res.statusText.trim() || `HTTP ${res.status}`);
+    const err = new Error(
+      body.error?.message?.trim() || res.statusText.trim() || `HTTP ${res.status}`
+    );
+    logExportError(`ui/finishExportStreamSession exportId=${exportId}`, err);
+    throw err;
   }
   return body;
 }
@@ -224,7 +212,11 @@ export async function replayFinishExportStreamSession(
     error?: { message?: string };
   };
   if (!res.ok) {
-    throw new Error(body.error?.message?.trim() || res.statusText.trim() || `HTTP ${res.status}`);
+    const err = new Error(
+      body.error?.message?.trim() || res.statusText.trim() || `HTTP ${res.status}`
+    );
+    logExportError(`ui/replayFinishExportStreamSession exportId=${exportId}`, err);
+    throw err;
   }
   return body;
 }
@@ -277,11 +269,11 @@ export async function exportSnapshotStreaming(
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler);
-      reject(
-        new Error(
-          'Export timed out after 20 hours (try again or export a smaller scope)'
-        )
+      const err = new Error(
+        'Export timed out after 20 hours (try again or export a smaller scope)'
       );
+      logExportError('ui/exportSnapshotStreaming', err);
+      reject(err);
     }, 72_000_000);
 
     const handler = (event: MessageEvent) => {
@@ -295,7 +287,7 @@ export async function exportSnapshotStreaming(
       }
 
       const failUpload = (seq: number, error: unknown): void => {
-        const message = formatExportError(error);
+        const message = logExportError(`ui/uploadPart seq=${seq}`, error);
         parent.postMessage(
           {
             pluginMessage: {
@@ -331,15 +323,25 @@ export async function exportSnapshotStreaming(
       }
 
       if (msg.type === 'export_stream_done') {
-        void uploadQueue.whenIdle().then(() => {
-          clearTimeout(timer);
-          window.removeEventListener('message', handler);
-          if (!msg.ok) {
-            reject(new Error(formatExportError(msg.error, 'Export failed in plugin')));
-            return;
-          }
-          resolve({ exportId });
-        });
+        void uploadQueue
+          .whenIdle()
+          .then(() => {
+            clearTimeout(timer);
+            window.removeEventListener('message', handler);
+            if (!msg.ok) {
+              const err = new Error(formatExportError(msg.error, 'Export failed in plugin'));
+              logExportError('ui/export_stream_done', err);
+              reject(err);
+              return;
+            }
+            resolve({ exportId });
+          })
+          .catch((e) => {
+            logExportError('ui/export_stream_done/whenIdle', e);
+            clearTimeout(timer);
+            window.removeEventListener('message', handler);
+            reject(e instanceof Error ? e : new Error(formatExportError(e)));
+          });
       }
     };
 
@@ -365,7 +367,9 @@ async function waitForPluginReply<T extends PluginReply['type']>(
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler);
-      reject(new Error('Plugin request timed out'));
+      const err = new Error('Plugin request timed out');
+      logExportError(`ui/waitForPluginReply/${successType}`, err);
+      reject(err);
     }, timeoutMs);
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage as PluginReply | undefined;
@@ -373,7 +377,9 @@ async function waitForPluginReply<T extends PluginReply['type']>(
       if (errorTypes.includes(msg.type as 'selection_error' | 'pages_error')) {
         clearTimeout(timer);
         window.removeEventListener('message', handler);
-        reject(new Error((msg as { message: string }).message));
+        const err = new Error((msg as { message: string }).message);
+        logExportError(`ui/waitForPluginReply/${msg.type}`, err);
+        reject(err);
         return;
       }
       if (msg.type !== successType) return;
@@ -408,7 +414,9 @@ export async function captureScreenshot(): Promise<string> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler);
-      reject(new Error('Screenshot timed out'));
+      const err = new Error('Screenshot timed out');
+      logExportError('ui/captureScreenshot', err);
+      reject(err);
     }, 30_000);
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage as PluginReply | undefined;
@@ -416,8 +424,11 @@ export async function captureScreenshot(): Promise<string> {
       if (msg.type === 'selection_screenshot') {
         clearTimeout(timer);
         window.removeEventListener('message', handler);
-        if (!msg.ok || !msg.data) reject(new Error(msg.error ?? 'Screenshot failed'));
-        else resolve(msg.data);
+        if (!msg.ok || !msg.data) {
+          const err = new Error(msg.error ?? 'Screenshot failed');
+          logExportError('ui/captureScreenshot', err);
+          reject(err);
+        } else resolve(msg.data);
       }
     };
     window.addEventListener('message', handler);
