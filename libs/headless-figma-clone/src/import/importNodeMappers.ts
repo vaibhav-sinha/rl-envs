@@ -10,6 +10,10 @@ import type {
 } from '../model/types.js';
 import type { FigmaIdMap } from './idMap.js';
 import { normalizeLayoutConstraints, normalizeLayoutGrids } from '../engine/figmaInterop.js';
+import {
+  mapImportedFrameAutoLayoutScalars,
+  mapImportedFrameLayoutProps,
+} from '../engine/frameLayoutFields.js';
 import { parseStyledSegmentsInput } from '../engine/styledSegmentsNormalize.js';
 import {
   parseLetterSpacing,
@@ -270,40 +274,11 @@ export function mapFrameLayout(
   props: Record<string, unknown>,
   frameWidth: number
 ): Partial<FrameNode> {
-  const out: Partial<FrameNode> = {};
-  const wrap = optStr(prop(props, 'layoutWrap'));
-  if (wrap === 'NO_WRAP' || wrap === 'WRAP') out.layoutWrap = wrap;
-  const cas = optNum(prop(props, 'counterAxisSpacing'));
-  if (cas !== undefined) out.counterAxisSpacing = cas;
-  const cac = optStr(prop(props, 'counterAxisAlignContent'));
-  if (cac === 'AUTO' || cac === 'SPACE_BETWEEN') out.counterAxisAlignContent = cac;
-  const pasm = optStr(prop(props, 'primaryAxisSizingMode'));
-  if (pasm === 'FIXED' || pasm === 'HUG' || pasm === 'FILL') out.primaryAxisSizingMode = pasm;
-  const casm = optStr(prop(props, 'counterAxisSizingMode'));
-  if (casm === 'FIXED' || casm === 'HUG' || casm === 'FILL') out.counterAxisSizingMode = casm;
-  if (prop(props, 'itemReverseZIndex') === true) out.itemReverseZIndex = true;
-  if (prop(props, 'strokesIncludedInLayout') === true) out.strokesIncludedInLayout = true;
-  const rc = optNum(prop(props, 'gridRowCount'));
-  const cc = optNum(prop(props, 'gridColumnCount'));
-  const rg = optNum(prop(props, 'gridRowGap'));
-  const cg = optNum(prop(props, 'gridColumnGap'));
-  if (rc !== undefined) out.gridRowCount = rc;
-  if (cc !== undefined) out.gridColumnCount = cc;
-  if (rg !== undefined) out.gridRowGap = rg;
-  if (cg !== undefined) out.gridColumnGap = cg;
-  if (Array.isArray(prop(props, 'gridRowSizes'))) {
-    out.gridRowSizes = prop(props, 'gridRowSizes') as FrameNode['gridRowSizes'];
-  }
-  if (Array.isArray(prop(props, 'gridColumnSizes'))) {
-    out.gridColumnSizes = prop(props, 'gridColumnSizes') as FrameNode['gridColumnSizes'];
-  }
-  try {
-    const grids = normalizeLayoutGrids(prop(props, 'layoutGrids'), frameWidth, 'layoutGrids');
-    if (grids?.length) out.layoutGrids = grids;
-  } catch {
-    /* skip invalid grid */
-  }
-  return out;
+  const mapperOpts = { optStr, optNum, prop, normalizeLayoutGrids };
+  return {
+    ...mapImportedFrameAutoLayoutScalars(props, mapperOpts),
+    ...mapImportedFrameLayoutProps(props, frameWidth, mapperOpts),
+  };
 }
 
 export function mapIndividualStrokes(props: Record<string, unknown>): Record<string, unknown> {

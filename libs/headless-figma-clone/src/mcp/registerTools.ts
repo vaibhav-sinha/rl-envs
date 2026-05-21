@@ -178,7 +178,9 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
     'search_design_system',
     {
       description:
-        'Search variables, text styles, paint styles, and components in the active file. Returns deterministic ranked hits (tie-break: kind, id, name).',
+        'Search file-local variables, text/paint/effect/grid styles, and components in the active file. ' +
+        'Optional query (default ""): case-insensitive substring match on names; omit or use "" to list items without name filtering (first `limit` hits, sorted by kind then id). ' +
+        'Optional limit (default 20, max 500).',
       inputSchema: {
         query: z.string().default(''),
         limit: z.number().int().positive().max(500).optional().default(20),
@@ -434,7 +436,6 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             touchedNodeIds,
             warnings: [...txWarnings, ...detachedWarnings, ...(run.snapshotWarnings ?? [])],
             result: run.result,
-            detachedCount: run.detachedNodes.length,
           };
           return {
             content: [

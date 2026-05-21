@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "detached": [],
+  "commands": [
+    {
+      "success": true,
+      "at": "2026-05-21T15:29:20.154Z"
+    },
+    {
+      "success": true,
+      "at": "2026-05-21T15:29:30.081Z"
+    },
+    {
+      "success": true,
+      "at": "2026-05-21T15:59:00.489Z"
+    },
+    {
+      "success": true,
+      "at": "2026-05-21T15:59:11.634Z"
+    },
+    {
+      "success": true,
+      "at": "2026-05-21T16:08:15.531Z"
+    },
+    {
+      "success": true,
+      "at": "2026-05-21T16:08:26.586Z"
+    }
+  ]
+}

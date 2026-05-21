@@ -71,6 +71,15 @@ import { findVariableDefinition } from '../variables/resolution.js';
 import type { FrameVariableBindings, TextVariableBindings } from '../model/types.js';
 import { DEFAULT_FRAME_FILLS } from '../model/types.js';
 import { syncBooleanOperationBounds, syncGroupBounds, translateGroupDescendants } from './graphOps.js';
+import {
+  assertFrameLayoutPatchAllowed,
+  assertTextTruncationPatchAllowed,
+  filterFrameBoundVariablesForMode,
+  frameBoundVariableFieldsForMode,
+  isHorizontalVerticalAutoLayout,
+  sanitizeFrameLayoutFields,
+  sanitizeTextTruncationFields,
+} from './frameLayoutFields.js';
 
 export type { EngineErrorCode } from '../util/errors.js';
 
@@ -130,6 +139,17 @@ export type { EnvelopeOperation };
 
 export function isAssetRegisterOperation(op: { op: string }): op is AssetRegisterOperation {
   return op.op === 'registerAssetBytes';
+}
+
+export function isSceneGraphOperation(op: { op: string }): op is SceneGraphOperation {
+  return (
+    op.op === 'createNode' ||
+    op.op === 'updateNode' ||
+    op.op === 'deleteNode' ||
+    op.op === 'moveNode' ||
+    op.op === 'duplicateNode' ||
+    op.op === 'detachInstance'
+  );
 }
 
 const EXCLUDED_PATCH_KEYS = new Set([
@@ -491,6 +511,10 @@ function validateBlendMode(v: unknown, label: string): void {
 }
 
 function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: string, env: FileEnvelope): FrameNode {
+  let initialChildren: SceneNode[] = [];
+  if (spec.children !== undefined && Array.isArray(spec.children)) {
+    initialChildren = spec.children.map((c) => cloneSceneSubtreeWithNewIds(env, c as SceneNode));
+  }
   const frame: FrameNode = {
     id,
     type: 'FRAME',
@@ -499,8 +523,7 @@ function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: st
     y: typeof spec.y === 'number' ? spec.y : 0,
     width: typeof spec.width === 'number' ? spec.width : 100,
     height: typeof spec.height === 'number' ? spec.height : 100,
-    /** New nodes always start empty; subtrees are added via further ops. */
-    children: [],
+    children: initialChildren,
     fills: spec.fills !== undefined ? spec.fills : [...DEFAULT_FRAME_FILLS],
     backgrounds: spec.backgrounds,
     strokes: spec.strokes,
@@ -648,26 +671,43 @@ function validateOptionalCounterAxisAlignItems(v: unknown): void {
 }
 
 function validateLayoutNumbers(f: FrameNode): void {
-  for (const [k, v] of [
-    ['paddingLeft', f.paddingLeft],
-    ['paddingRight', f.paddingRight],
-    ['paddingTop', f.paddingTop],
-    ['paddingBottom', f.paddingBottom],
-    ['itemSpacing', f.itemSpacing],
-    ['counterAxisSpacing', f.counterAxisSpacing],
-    ['gridRowGap', f.gridRowGap],
-    ['gridColumnGap', f.gridColumnGap],
-  ] as const) {
-    if (v === undefined) continue;
-    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
-      throw new ValidationErr('VALIDATION_ERROR', `${k} must be finite number >= 0`);
+  sanitizeFrameLayoutFields(f);
+  if (isHorizontalVerticalAutoLayout(f.layoutMode)) {
+    for (const [k, v] of [
+      ['paddingLeft', f.paddingLeft],
+      ['paddingRight', f.paddingRight],
+      ['paddingTop', f.paddingTop],
+      ['paddingBottom', f.paddingBottom],
+      ['itemSpacing', f.itemSpacing],
+    ] as const) {
+      if (v === undefined) continue;
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+        throw new ValidationErr('VALIDATION_ERROR', `${k} must be finite number >= 0`);
+      }
+    }
+    if (f.layoutMode === 'HORIZONTAL' && f.layoutWrap === 'WRAP') {
+      const cas = f.counterAxisSpacing;
+      if (cas !== undefined && (typeof cas !== 'number' || !Number.isFinite(cas) || cas < 0)) {
+        throw new ValidationErr('VALIDATION_ERROR', 'counterAxisSpacing must be finite number >= 0');
+      }
     }
   }
-  if (f.gridRowCount !== undefined && (!Number.isInteger(f.gridRowCount) || f.gridRowCount < 1)) {
-    throw new ValidationErr('VALIDATION_ERROR', 'gridRowCount must be integer >= 1');
-  }
-  if (f.gridColumnCount !== undefined && (!Number.isInteger(f.gridColumnCount) || f.gridColumnCount < 1)) {
-    throw new ValidationErr('VALIDATION_ERROR', 'gridColumnCount must be integer >= 1');
+  if (f.layoutMode === 'GRID') {
+    for (const [k, v] of [
+      ['gridRowGap', f.gridRowGap],
+      ['gridColumnGap', f.gridColumnGap],
+    ] as const) {
+      if (v === undefined) continue;
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+        throw new ValidationErr('VALIDATION_ERROR', `${k} must be finite number >= 0`);
+      }
+    }
+    if (f.gridRowCount !== undefined && (!Number.isInteger(f.gridRowCount) || f.gridRowCount < 1)) {
+      throw new ValidationErr('VALIDATION_ERROR', 'gridRowCount must be integer >= 1');
+    }
+    if (f.gridColumnCount !== undefined && (!Number.isInteger(f.gridColumnCount) || f.gridColumnCount < 1)) {
+      throw new ValidationErr('VALIDATION_ERROR', 'gridColumnCount must be integer >= 1');
+    }
   }
   if (f.cornerSmoothing !== undefined && (typeof f.cornerSmoothing !== 'number' || f.cornerSmoothing < 0 || f.cornerSmoothing > 1)) {
     throw new ValidationErr('VALIDATION_ERROR', 'cornerSmoothing must be 0..1');
@@ -779,6 +819,7 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
     throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
   }
   applyLayoutSelfFromSpec(text, spec as Record<string, unknown>);
+  sanitizeTextTruncationFields(text);
   return text;
 }
 
@@ -1823,6 +1864,11 @@ function applyAutoLayoutChildDefaults(parent: FrameNode, child: SceneNode): void
   }
 }
 
+/** Detach a scene node from the document tree (Figma reparent / embed). */
+export function detachSceneNodeById(root: DocumentNode, nodeId: string): SceneNode {
+  return detachSubtree(root, nodeId);
+}
+
 function detachSubtree(root: DocumentNode, nodeId: string): SceneNode {
   const parent = findParent(root, nodeId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
@@ -1996,10 +2042,23 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
     }
     if (node.type === 'FRAME') {
       const f = node;
+      assertFrameLayoutPatchAllowed(f, patch);
       if ('primaryAxisSizingMode' in patch) {
+        if (!isHorizontalVerticalAutoLayout(f.layoutMode)) {
+          throw new ValidationErr(
+            'VALIDATION_ERROR',
+            'primaryAxisSizingMode requires layoutMode HORIZONTAL or VERTICAL'
+          );
+        }
         f.primaryAxisSizingMode = validateLayoutSizing(patch.primaryAxisSizingMode, 'primaryAxisSizingMode');
       }
       if ('counterAxisSizingMode' in patch) {
+        if (!isHorizontalVerticalAutoLayout(f.layoutMode)) {
+          throw new ValidationErr(
+            'VALIDATION_ERROR',
+            'counterAxisSizingMode requires layoutMode HORIZONTAL or VERTICAL'
+          );
+        }
         f.counterAxisSizingMode = validateLayoutSizing(patch.counterAxisSizingMode, 'counterAxisSizingMode');
       }
     }
@@ -2504,18 +2563,17 @@ export class DocumentEngine {
           }
           continue;
         }
-        if (op.op === 'createNode') {
+        if (isSceneGraphOperation(op)) {
           const id = applyEngineOp(working, op);
-          if (id) touched.add(id);
-        } else if (op.op === 'updateNode') {
-          applyEngineOp(working, op);
-          touched.add(op.nodeId);
-        } else if (op.op === 'deleteNode') {
-          applyEngineOp(working, op);
-          touched.add(op.nodeId);
-        } else if (op.op === 'moveNode') {
-          applyEngineOp(working, op);
-          touched.add(op.nodeId);
+          if (op.op === 'createNode' && id) touched.add(id);
+          else if (op.op === 'duplicateNode' && id) touched.add(id);
+          else if (op.op === 'detachInstance' && id) touched.add(id);
+          else if (op.op === 'moveNode') {
+            touched.add(op.nodeId);
+            touched.add(op.newParentId);
+          } else if ('nodeId' in op) {
+            touched.add(op.nodeId);
+          }
         }
       }
     } catch (e) {
@@ -2550,35 +2608,6 @@ export class DocumentEngine {
     await appendCommandIssue(this.activeFilePath, entry);
   }
 }
-
-const FRAME_BIND_FIELDS = new Set([
-  'width',
-  'height',
-  'characters',
-  'itemSpacing',
-  'paddingLeft',
-  'paddingRight',
-  'paddingTop',
-  'paddingBottom',
-  'visible',
-  'topLeftRadius',
-  'topRightRadius',
-  'bottomLeftRadius',
-  'bottomRightRadius',
-  'minWidth',
-  'maxWidth',
-  'minHeight',
-  'maxHeight',
-  'counterAxisSpacing',
-  'strokeWeight',
-  'strokeTopWeight',
-  'strokeRightWeight',
-  'strokeBottomWeight',
-  'strokeLeftWeight',
-  'opacity',
-  'gridRowGap',
-  'gridColumnGap',
-]);
 
 const TEXT_BIND_FIELDS = new Set([
   'fontFamily',
@@ -2633,15 +2662,20 @@ function parseVariableAliasId(raw: unknown, label: string): string {
   throw new ValidationErr('VALIDATION_ERROR', `${label} must be a variable id or VARIABLE_ALIAS`);
 }
 
-function parseFrameBoundVariablesPatch(env: FileEnvelope, raw: unknown): FrameVariableBindings | undefined {
+function parseFrameBoundVariablesPatch(
+  env: FileEnvelope,
+  raw: unknown,
+  layoutMode: FrameNode['layoutMode']
+): FrameVariableBindings | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (!isRecord(raw)) throw new ValidationErr('VALIDATION_ERROR', 'FRAME.boundVariables must be object');
 
+  const allowedScalars = frameBoundVariableFieldsForMode(layoutMode);
   const scalarRaw: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
-    if (FRAME_BIND_FIELDS.has(k)) scalarRaw[k] = v;
+    if (allowedScalars.has(k)) scalarRaw[k] = v;
   }
-  const scalar = parseBoundVariablesPatch(env, scalarRaw, FRAME_BIND_FIELDS, 'FRAME') ?? {};
+  const scalar = parseBoundVariablesPatch(env, scalarRaw, allowedScalars, 'FRAME') ?? {};
   const out: FrameVariableBindings = { ...scalar };
 
   for (const k of FRAME_BOUND_ARRAY_FIELDS) {
@@ -2681,6 +2715,7 @@ function applyStrokeFieldsFromPatch(
 function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, unknown>): void {
   if (node.type === 'FRAME') {
     const f = node;
+    assertFrameLayoutPatchAllowed(f, patch);
     if ('name' in patch) {
       if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
       f.name = patch.name;
@@ -2859,14 +2894,15 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     applyStrokeFieldsFromPatch(f as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('FRAME', f);
     if ('boundVariables' in patch) {
-      const bv = parseFrameBoundVariablesPatch(env, patch.boundVariables);
+      const bv = parseFrameBoundVariablesPatch(env, patch.boundVariables, f.layoutMode);
       if (bv === undefined) delete f.boundVariables;
-      else f.boundVariables = bv;
+      else f.boundVariables = filterFrameBoundVariablesForMode(bv, f.layoutMode);
     }
     return;
   }
   if (node.type === 'TEXT') {
     const t = node;
+    assertTextTruncationPatchAllowed(t, patch);
     if ('name' in patch) {
       if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
       t.name = patch.name;
@@ -2955,6 +2991,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       if (va === undefined || va === null) delete t.textAlignVertical;
       else t.textAlignVertical = parseTextAlignVertical(va, 'textAlignVertical');
     }
+    sanitizeTextTruncationFields(t);
     if ('lineHeight' in patch) {
       const lh = patch.lineHeight;
       if (lh === undefined || lh === null) delete t.lineHeight;

@@ -2,6 +2,7 @@ import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import {
   applyCreateNodeOp,
   applyEngineOp,
+  detachSceneNodeById,
   findComponentIdByKey,
   findEnvelopeNode,
   findParentNode,
@@ -184,6 +185,36 @@ function queueUpdate(ctx: ScriptContext, nodeId: string, patch: Record<string, u
   const op: EngineOperation = { op: 'updateNode', nodeId, patch };
   ctx.ops.push(op);
   applyScriptEngineOp(ctx, op);
+}
+
+/** Collect subtrees for Figma-style attach: detach document children, defer detached runtime nodes. */
+function materializePendingForCreate(
+  ctx: ScriptContext,
+  pending: Array<{ child: RuntimeSceneNode | { id: string }; index?: number }>
+): {
+  embedded: SceneNode[];
+  pendingRuntime: Array<{ child: RuntimeSceneNode; index?: number }>;
+  journalDeleteIds: string[];
+} {
+  const embedded: SceneNode[] = [];
+  const pendingRuntime: Array<{ child: RuntimeSceneNode; index?: number }> = [];
+  const journalDeleteIds: string[] = [];
+
+  for (const entry of pending) {
+    const { child } = entry;
+    if (isRuntimeSceneNode(child) && !child.attached) {
+      pendingRuntime.push({ child, index: entry.index });
+      continue;
+    }
+    const nodeId = readChildId(child);
+    if (ctx.deletedIds.has(nodeId)) {
+      throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
+    }
+    embedded.push(detachSceneNodeById(ctx.working.document, nodeId));
+    journalDeleteIds.push(nodeId);
+  }
+
+  return { embedded, pendingRuntime, journalDeleteIds };
 }
 
 function readChildId(child: RuntimeSceneNode | { id: string }): string {
@@ -976,17 +1007,33 @@ abstract class RuntimeSceneNode {
     if (this.attached) {
       throw new Error('Node is already attached to the document');
     }
-    const node = this.toNewNodeSpec();
-    const op: EngineOperation = { op: 'createNode', parentId, index, node };
+    const pending = [...this.pendingChildren];
+    this.pendingChildren = [];
+
+    const { embedded, pendingRuntime, journalDeleteIds } = materializePendingForCreate(ctx, pending);
+
+    for (const nodeId of journalDeleteIds) {
+      ctx.ops.push({ op: 'deleteNode', nodeId });
+    }
+
+    const nodeSpec = this.toNewNodeSpec();
+    if (embedded.length > 0) {
+      (nodeSpec as NewNodeSpec & { children?: SceneNode[] }).children = embedded;
+    }
+    const op: EngineOperation = { op: 'createNode', parentId, index, node: nodeSpec };
     ctx.ops.push(op);
     try {
       this._id = applyScriptCreateNodeOp(ctx, op);
     } catch (e) {
       ctx.ops.pop();
+      for (let i = 0; i < journalDeleteIds.length; i++) ctx.ops.pop();
       throw e;
     }
     this.attached = true;
-    this.flushPendingChildren();
+
+    for (const { child, index: childIndex } of pendingRuntime) {
+      child.appendUnderParent(this._id!, childIndex, ctx);
+    }
     this.flushPendingBoundVariables();
   }
 

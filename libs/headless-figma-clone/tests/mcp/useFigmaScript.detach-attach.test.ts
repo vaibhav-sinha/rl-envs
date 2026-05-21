@@ -1,0 +1,139 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { describe, expect, it } from 'vitest';
+import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
+import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
+import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
+import { createConsoleLogger } from '../../src/util/logger.js';
+
+const designPath = join(
+  import.meta.dirname,
+  '../../../../envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json'
+);
+
+function withWs<T>(fn: () => Promise<T>): Promise<T> {
+  const base = mkdtempSync(join(tmpdir(), 'hfc-detach-'));
+  const prev = process.env.HFC_WORKSPACE_DIR;
+  process.env.HFC_WORKSPACE_DIR = join(base, 'ws');
+  return (async () => {
+    try {
+      return await fn();
+    } finally {
+      if (prev === undefined) delete process.env.HFC_WORKSPACE_DIR;
+      else process.env.HFC_WORKSPACE_DIR = prev;
+      rmSync(base, { recursive: true, force: true });
+    }
+  })();
+}
+
+describe('useFigmaScript detached frame attach (Figma parity)', () => {
+  it('step 14 pattern: clone into detached frame then append to section commits', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.loadFromDisk({ absolutePath: designPath, save: false });
+
+      const run = await runUseFigmaScript(
+        `
+const targetPage = figma.root.children.find((p) => p.name === "Final design");
+await figma.setCurrentPageAsync(targetPage);
+
+const source = await figma.getNodeByIdAsync('I1235');
+const section = await figma.getNodeByIdAsync('I27');
+
+const newFrame = figma.createFrame();
+newFrame.name = 'Onboarding/OTP/MaxAttempts';
+newFrame.resize(source.width, source.height);
+newFrame.x = 1313.25;
+newFrame.y = 1533;
+newFrame.fills = JSON.parse(JSON.stringify(source.fills));
+
+for (const child of source.children) {
+  const childClone = child.clone();
+  newFrame.appendChild(childClone);
+}
+
+section.appendChild(newFrame);
+
+return { createdNodeIds: [newFrame.id], childCount: newFrame.children.length };
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+
+      const tx = await engine.applyTransaction(run.operations);
+      expect(tx.success).toBe(true);
+      if (!tx.success) return;
+
+      const frameId = (run.result as { createdNodeIds: string[] }).createdNodeIds[0];
+      const file = engine.getActiveFile()!;
+      const section = file.document.children
+        .find((p) => p.type === 'PAGE' && p.name === 'Final design')
+        ?.children.find((n) => n.id === 'I27');
+      expect(section?.type).toBe('SECTION');
+      const frame = section && 'children' in section ? section.children.find((c) => c.id === frameId) : undefined;
+      expect(frame?.name).toBe('Onboarding/OTP/MaxAttempts');
+      expect(frame && 'children' in frame ? frame.children.length : 0).toBe(3);
+    });
+  });
+
+  it('step 15+16: clone into attached dest commits via duplicateNode replay', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.loadFromDisk({ absolutePath: designPath, save: false });
+
+      const step15 = await runUseFigmaScript(
+        `
+const targetPage = figma.root.children.find((p) => p.name === "Final design");
+await figma.setCurrentPageAsync(targetPage);
+const section = await figma.getNodeByIdAsync('I27');
+const newFrame = figma.createFrame();
+newFrame.name = 'Onboarding/OTP/MaxAttempts';
+newFrame.resize(360, 800);
+section.appendChild(newFrame);
+return { frameId: newFrame.id };
+`.trim(),
+        engine
+      );
+      expect(step15.kind).toBe('ok');
+      if (step15.kind !== 'ok') return;
+      const tx15 = await engine.applyTransaction(step15.operations);
+      expect(tx15.success).toBe(true);
+
+      const frameId = (step15.result as { frameId: string }).frameId;
+
+      const step16 = await runUseFigmaScript(
+        `
+const targetPage = figma.root.children.find((p) => p.name === "Final design");
+await figma.setCurrentPageAsync(targetPage);
+const source = await figma.getNodeByIdAsync('I1235');
+const dest = await figma.getNodeByIdAsync('${frameId}');
+const clonedIds = [];
+for (const child of source.children) {
+  const c = child.clone();
+  dest.appendChild(c);
+  clonedIds.push(c.id);
+}
+return { clonedIds, destChildCount: dest.children.length };
+`.trim(),
+        engine
+      );
+      expect(step16.kind).toBe('ok');
+      if (step16.kind !== 'ok') return;
+
+      const tx16 = await engine.applyTransaction(step16.operations);
+      expect(tx16.success).toBe(true);
+      if (!tx16.success) return;
+
+      expect((step16.result as { destChildCount: number }).destChildCount).toBe(3);
+    });
+  });
+});

@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { importFigmaPluginSnapshot } from '../../src/import/figmaPluginSnapshot.js';
+import {
+  importFigmaPluginSnapshot,
+  UNRESOLVED_MAIN_COMPONENT_ID,
+} from '../../src/import/figmaPluginSnapshot.js';
 import { parseFigmaPluginSnapshot } from '../../src/import/snapshotSchema.js';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
 
@@ -35,7 +38,7 @@ describe('INSTANCE mainComponent import', () => {
     expect(inst?.type).toBe('INSTANCE');
     if (inst?.type !== 'INSTANCE') return;
 
-    expect(inst.mainComponentId).not.toBe('I0');
+    expect(inst.mainComponentId).not.toBe(UNRESOLVED_MAIN_COMPONENT_ID);
     const findComponent = (componentId: string) => {
       const stack = envelope.document.children.flatMap((p) => p.children);
       while (stack.length) {
@@ -54,7 +57,7 @@ describe('INSTANCE mainComponent import', () => {
     expect(inst?.type).toBe('INSTANCE');
     if (inst?.type !== 'INSTANCE') return;
 
-    expect(inst.mainComponentId).not.toBe('I0');
+    expect(inst.mainComponentId).not.toBe(UNRESOLVED_MAIN_COMPONENT_ID);
     expect(inst.mainComponentId).toBe(
       findInstanceByName(envelope, 'Visual', 'Image')?.mainComponentId
     );
@@ -73,6 +76,36 @@ describe('INSTANCE mainComponent import', () => {
 
     expect(out.html).toContain('width:200px;height:150px');
     expect(out.html).not.toContain('width:100px;height:80px');
+  });
+
+  it('links mainComponent when the instance appears before its COMPONENT in the snapshot tree', () => {
+    const outOfOrder = parseFigmaPluginSnapshot(
+      JSON.parse(
+        readFileSync(
+          join(fixturesDir, 'instance-main-component-out-of-order.snapshot.json'),
+          'utf8'
+        )
+      )
+    );
+    const { envelope } = importFigmaPluginSnapshot(outOfOrder, {
+      fileName: 'Instance Main Out Of Order',
+    });
+    const inst = findInstanceByName(envelope, 'Visual', 'Image');
+    expect(inst?.type).toBe('INSTANCE');
+    if (inst?.type !== 'INSTANCE') return;
+
+    expect(inst.mainComponentId).not.toBe(UNRESOLVED_MAIN_COMPONENT_ID);
+    const stack = envelope.document.children.flatMap((p) => p.children);
+    let compName: string | undefined;
+    while (stack.length) {
+      const n = stack.pop()!;
+      if (n.type === 'COMPONENT' && n.id === inst.mainComponentId) {
+        compName = n.name;
+        break;
+      }
+      if ('children' in n && Array.isArray(n.children)) stack.push(...(n.children as typeof stack));
+    }
+    expect(compName).toBe('Property 1=Coffee, Property 2=6');
   });
 
   it('compiles instances via component masters without missing_component warnings', () => {

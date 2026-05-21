@@ -7,6 +7,7 @@ import type {
   FileEnvelope,
   FrameNode,
   GroupNode,
+  InstanceNode,
   PageNode,
   SceneNode,
   VariableCollection,
@@ -66,6 +67,16 @@ const SUPPORTED_SCENE_TYPES = new Set([
   'INSTANCE',
 ]);
 
+/** Placeholder when import cannot resolve an instance main component on the first DFS pass. */
+export const UNRESOLVED_MAIN_COMPONENT_ID = 'I0';
+
+interface DeferredInstanceMainComponent {
+  inst: InstanceNode;
+  figmaMainComponentId?: string;
+  componentKey?: string;
+  componentProperties?: Record<string, ComponentPropertyValue>;
+}
+
 interface ImportContext {
   idMap: FigmaIdMap;
   imageRemap: (h: string) => string | undefined;
@@ -77,6 +88,8 @@ interface ImportContext {
   componentByKey: Map<string, string>;
   /** Variant display name (e.g. `Property 1=Coffee, Property 2=6`) → HFC component id */
   componentByVariantName: Map<string, string>;
+  /** Instances imported before their COMPONENT; linked after the full tree is in idMap. */
+  deferredInstances: DeferredInstanceMainComponent[];
 }
 
 const SKIP_SCENE_TYPES = new Set([
@@ -165,6 +178,7 @@ export function importFigmaPluginSnapshot(
     componentRootFrames: new Map(),
     componentByKey: new Map(),
     componentByVariantName: new Map(),
+    deferredInstances: [],
   };
 
   const variableCollections = mapVariableCollections(snapshot, idMap);
@@ -193,6 +207,8 @@ export function importFigmaPluginSnapshot(
     }
     document.children.push(importPage(pageNode, ctx));
   }
+
+  linkDeferredInstanceMainComponents(ctx);
 
   attachComponentMasterRoots(document, ctx.componentRootFrames, idMap);
 
@@ -319,43 +335,64 @@ function variantDisplayNameFromProperties(
   return parts.length > 0 ? parts.join(', ') : undefined;
 }
 
-function resolveMainComponentId(
+function extractInstanceMainComponentHints(
   p: Record<string, unknown>,
-  ctx: ImportContext,
   componentProperties: Record<string, ComponentPropertyValue> | undefined
-): string | undefined {
+): Pick<DeferredInstanceMainComponent, 'figmaMainComponentId' | 'componentKey'> {
   const explicitFigmaId = optStr(prop(p, 'mainComponentId'));
-  if (explicitFigmaId) {
-    const mapped = ctx.idMap.get(explicitFigmaId);
-    if (mapped) return mapped;
-  }
-
   const mainRef = prop(p, 'mainComponent') as
     | { id?: string; key?: string; __ref?: string }
     | string
     | undefined;
 
+  let figmaMainComponentId = explicitFigmaId;
+  let componentKey: string | undefined;
+
   if (typeof mainRef === 'string') {
-    const mapped = ctx.idMap.get(mainRef);
-    if (mapped) return mapped;
+    figmaMainComponentId ??= mainRef;
   } else if (mainRef && typeof mainRef === 'object' && mainRef.__ref !== 'cycle') {
     if (typeof mainRef.id === 'string') {
-      const mapped = ctx.idMap.get(mainRef.id);
-      if (mapped) return mapped;
+      figmaMainComponentId ??= mainRef.id;
     }
     if (typeof mainRef.key === 'string') {
-      const byKey = ctx.componentByKey.get(mainRef.key);
-      if (byKey) return byKey;
+      componentKey = mainRef.key;
     }
   }
 
-  const variantName = variantDisplayNameFromProperties(componentProperties);
+  return { figmaMainComponentId, componentKey };
+}
+
+function resolveMainComponentIdFromHints(
+  ctx: ImportContext,
+  hints: Pick<DeferredInstanceMainComponent, 'figmaMainComponentId' | 'componentKey' | 'componentProperties'>
+): string | undefined {
+  if (hints.figmaMainComponentId) {
+    const mapped = ctx.idMap.get(hints.figmaMainComponentId);
+    if (mapped) return mapped;
+  }
+
+  if (hints.componentKey) {
+    const byKey = ctx.componentByKey.get(hints.componentKey);
+    if (byKey) return byKey;
+  }
+
+  const variantName = variantDisplayNameFromProperties(hints.componentProperties);
   if (variantName) {
     const byName = ctx.componentByVariantName.get(variantName);
     if (byName) return byName;
   }
 
   return undefined;
+}
+
+function linkDeferredInstanceMainComponents(ctx: ImportContext): void {
+  for (const entry of ctx.deferredInstances) {
+    const resolved = resolveMainComponentIdFromHints(ctx, entry);
+    if (resolved) {
+      entry.inst.mainComponentId = resolved;
+    }
+  }
+  ctx.deferredInstances.length = 0;
 }
 
 function importSceneNode(
@@ -481,23 +518,6 @@ function importSceneNode(
         ...mapFrameLayout(p, b.width),
         clipsContent: prop(p, 'clipsContent') === true,
         layoutMode: optStr(prop(p, 'layoutMode')) as 'NONE' | 'HORIZONTAL' | 'VERTICAL' | 'GRID' | undefined,
-        paddingLeft: optNum(prop(p, 'paddingLeft')),
-        paddingRight: optNum(prop(p, 'paddingRight')),
-        paddingTop: optNum(prop(p, 'paddingTop')),
-        paddingBottom: optNum(prop(p, 'paddingBottom')),
-        itemSpacing: optNum(prop(p, 'itemSpacing')),
-        primaryAxisAlignItems: optStr(prop(p, 'primaryAxisAlignItems')) as
-          | 'MIN'
-          | 'CENTER'
-          | 'MAX'
-          | 'SPACE_BETWEEN'
-          | undefined,
-        counterAxisAlignItems: optStr(prop(p, 'counterAxisAlignItems')) as
-          | 'MIN'
-          | 'CENTER'
-          | 'MAX'
-          | 'BASELINE'
-          | undefined,
         fillStyleId: optStr(prop(p, 'fillStyleId')),
         strokeStyleId: optStr(prop(p, 'strokeStyleId')),
         effectStyleId: optStr(prop(p, 'effectStyleId')),
@@ -659,18 +679,15 @@ function importSceneNode(
     }
     case 'INSTANCE': {
       const componentProperties = mapComponentProperties(prop(p, 'componentProperties'));
-      const mainComponentId = resolveMainComponentId(p, ctx, componentProperties);
+      const mainHints = extractInstanceMainComponentHints(p, componentProperties);
+      const mainComponentId = resolveMainComponentIdFromHints(ctx, {
+        ...mainHints,
+        componentProperties,
+      });
       if (!mainComponentId && importStrict()) {
         throw new Error(`HFC_IMPORT_STRICT: INSTANCE ${node.id} missing mainComponent`);
       }
-      if (!mainComponentId && importVerbose()) {
-        const variantName = variantDisplayNameFromProperties(componentProperties);
-        console.warn(
-          `[hfc-import] unresolved mainComponent for INSTANCE ${node.id}` +
-            (variantName ? ` (variant ${variantName})` : '')
-        );
-      }
-      return {
+      const inst = {
         ...base,
         type: 'INSTANCE',
         x: b.x,
@@ -683,11 +700,30 @@ function importSceneNode(
         effects,
         ...strokeExtras,
         ...corners,
-        mainComponentId: mainComponentId ?? 'I0',
+        mainComponentId: mainComponentId ?? UNRESOLVED_MAIN_COMPONENT_ID,
         componentProperties,
         overrides: mapInstanceOverrides(prop(p, 'overrides'), idMap, imageRemap),
         effectStyleId: optStr(prop(p, 'effectStyleId')),
-      } as SceneNode;
+      } as InstanceNode;
+      if (!mainComponentId) {
+        if (importVerbose()) {
+          const variantName = variantDisplayNameFromProperties(componentProperties);
+          console.warn(
+            `[hfc-import] deferred mainComponent for INSTANCE ${node.id}` +
+              (variantName ? ` (variant ${variantName})` : '')
+          );
+        }
+        if (mainHints.figmaMainComponentId || mainHints.componentKey || componentProperties) {
+          ctx.deferredInstances.push({
+            inst,
+            ...mainHints,
+            componentProperties,
+          });
+        } else if (importVerbose()) {
+          console.warn(`[hfc-import] unresolved mainComponent for INSTANCE ${node.id} (no export hints)`);
+        }
+      }
+      return inst;
     }
     default:
       return null;

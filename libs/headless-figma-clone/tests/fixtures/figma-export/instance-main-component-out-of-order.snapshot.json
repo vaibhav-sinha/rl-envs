@@ -1,0 +1,106 @@
+{
+  "snapshotVersion": 1,
+  "exportedAt": "2026-05-16T00:00:00.000Z",
+  "figmaFileKey": "test-instance-main-ooo",
+  "figmaFileName": "Instance Main Out Of Order",
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "properties": {},
+    "children": [
+      {
+        "id": "0:2",
+        "type": "PAGE",
+        "name": "Visual",
+        "properties": {
+          "absoluteBoundingBox": { "x": 0, "y": 0, "width": 200, "height": 200 }
+        },
+        "children": [
+          {
+            "id": "2:20",
+            "type": "FRAME",
+            "name": "Screen",
+            "properties": {
+              "absoluteBoundingBox": { "x": 0, "y": 0, "width": 200, "height": 200 }
+            },
+            "children": [
+              {
+                "id": "2:21",
+                "type": "INSTANCE",
+                "name": "Image",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 10, "y": 10, "width": 100, "height": 80 },
+                  "mainComponentId": "1:10",
+                  "componentProperties": {
+                    "Property 1": { "type": "VARIANT", "value": "Coffee" },
+                    "Property 2": { "type": "VARIANT", "value": "6" }
+                  }
+                },
+                "children": [
+                  {
+                    "id": "2:22",
+                    "type": "RECTANGLE",
+                    "name": "Image",
+                    "properties": {
+                      "absoluteBoundingBox": { "x": 10, "y": 10, "width": 100, "height": 80 },
+                      "fills": [
+                        {
+                          "type": "SOLID",
+                          "color": { "r": 0.4, "g": 0.2, "b": 0.1 },
+                          "visible": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "0:1",
+        "type": "PAGE",
+        "name": "Assets",
+        "properties": {
+          "absoluteBoundingBox": { "x": 0, "y": 0, "width": 400, "height": 400 }
+        },
+        "children": [
+          {
+            "id": "1:10",
+            "type": "COMPONENT",
+            "name": "Property 1=Coffee, Property 2=6",
+            "properties": {
+              "absoluteBoundingBox": { "x": 0, "y": 0, "width": 100, "height": 80 },
+              "componentKey": "coffee-image-6"
+            },
+            "children": [
+              {
+                "id": "1:11",
+                "type": "RECTANGLE",
+                "name": "Image",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 0, "y": 0, "width": 100, "height": 80 },
+                  "fills": [
+                    {
+                      "type": "SOLID",
+                      "color": { "r": 0.4, "g": 0.2, "b": 0.1 },
+                      "visible": true
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "variableCollections": [],
+  "paintStyles": [],
+  "textStyles": [],
+  "effectStyles": [],
+  "gridStyles": [],
+  "assets": []
+}

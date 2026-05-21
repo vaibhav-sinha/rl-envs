@@ -173,7 +173,9 @@ describe('mcp-http smoke', () => {
     });
     const orphanBody = parseToolJson(getToolText(orphan)!);
     expect(orphanBody.ok).toBe(true);
-    expect((orphanBody.data as { detachedCount: number }).detachedCount).toBe(1);
+    expect((orphanBody.data as { warnings: string[] }).warnings).toContainEqual(
+      '1 detached node(s) recorded in issues.hfc.json'
+    );
     expect(existsSync(issuesPath)).toBe(true);
     const issues = JSON.parse(readFileSync(issuesPath, 'utf8')) as {
       detached: unknown[];
