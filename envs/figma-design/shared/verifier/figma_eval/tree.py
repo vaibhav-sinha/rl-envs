@@ -15,6 +15,20 @@ CONTAINER_TYPES = frozenset(
 
 ENCLOSING_FRAME_TYPES = frozenset({"FRAME", "SECTION", "GROUP", "TRANSFORM_GROUP"})
 
+COMPONENT_NODE_TYPES = frozenset({"COMPONENT", "COMPONENT_SET"})
+
+
+def is_component_node(node: TreeNode) -> bool:
+    return node.get("type") in COMPONENT_NODE_TYPES
+
+
+def collect_component_ids(envelope: Envelope) -> set[str]:
+    return {
+        nid
+        for node in find_all_nodes(envelope)
+        if (nid := node.get("id")) and is_component_node(node)
+    }
+
 
 def _children(node: TreeNode) -> list[TreeNode]:
     if node.get("type") in ("DOCUMENT", "PAGE"):
@@ -35,7 +49,11 @@ def _register_node_ref(index: dict[str, str], node: TreeNode) -> None:
         return
     index[nid] = nid
     sfid = node.get("sourceFigmaId")
-    if isinstance(sfid, str) and sfid:
+    if not isinstance(sfid, str) or not sfid:
+        return
+    if is_component_node(node):
+        index[sfid] = nid
+    elif sfid not in index:
         index[sfid] = nid
 
 
@@ -50,13 +68,6 @@ def _build_node_ref_index(envelope: Envelope) -> dict[str, str]:
     doc = envelope.get("document")
     if doc:
         walk(doc)
-    for comp in envelope.get("components") or []:
-        cid = comp.get("id")
-        if isinstance(cid, str) and cid:
-            index[cid] = cid
-        root = comp.get("root")
-        if isinstance(root, dict):
-            walk(root)
     return index
 
 
@@ -79,9 +90,6 @@ def resolve_config_node_id(envelope: Envelope, ref_id: str) -> str | None:
         return None
     if _find_node_by_hfc_id(envelope, hfc_id) is not None:
         return hfc_id
-    for comp in envelope.get("components") or []:
-        if comp.get("id") == hfc_id:
-            return hfc_id
     return None
 
 
@@ -114,16 +122,6 @@ def _find_node_by_hfc_id(envelope: Envelope, node_id: str) -> TreeNode | None:
         found = walk(page)
         if found is not None:
             return found
-    for comp in envelope.get("components") or []:
-        root = comp.get("root")
-        if comp.get("id") == node_id:
-            return root if isinstance(root, dict) else None
-        if isinstance(root, dict):
-            if root.get("id") == node_id:
-                return root
-            found = walk(root)
-            if found is not None:
-                return found
     return None
 
 
@@ -227,10 +225,6 @@ def parent_id_map(envelope: Envelope) -> dict[str, str]:
         return parents
     for page in doc.get("children") or []:
         walk(page, None)
-    for comp in envelope.get("components") or []:
-        root = comp.get("root")
-        if isinstance(root, dict):
-            walk(root, None)
     return parents
 
 

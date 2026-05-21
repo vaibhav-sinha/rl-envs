@@ -27,6 +27,12 @@ import { getImmediateSceneChildren } from '../traversal/findNodes.js';
 import { createTraversalMethods } from './scriptTraversal.js';
 import { createDocumentTraversalMethods } from './scriptDocumentTraversal.js';
 import {
+  createDetachedTraversalMethods,
+  getDetachedImmediateChildren,
+  runtimeSupportsDetachedTraversal,
+  type DetachedTraversalContext,
+} from './scriptDetachedTraversal.js';
+import {
   createTextHandleMethodTable,
   TEXT_HANDLE_METHOD_KEYS,
 } from './scriptTextMethods.js';
@@ -160,6 +166,17 @@ function scriptTraversalMethods(ctx: ScriptContext, containerId: string) {
     },
     containerId
   );
+}
+
+function detachedTraversalContext(ctx: ScriptContext): DetachedTraversalContext {
+  return {
+    working: ctx.working,
+    deletedIds: ctx.deletedIds,
+    createHandle: (nid) => createHandleProxy(ctx, nid),
+    wrapRuntime: (node) => wrapRuntimeNode(node as RuntimeSceneNode, ctx),
+    signal: ctx.signal,
+    nodeIndex: getNodeIndex(ctx),
+  };
 }
 
 export interface RunUseFigmaScriptOptions {
@@ -777,6 +794,9 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
       const nid = target.getAttachedIdOrNull();
       if (TRAVERSAL_METHODS.has(p)) {
         if (!target.attached || nid === null) {
+          if (runtimeSupportsDetachedTraversal(target.type)) {
+            return (createDetachedTraversalMethods(detachedTraversalContext(ctx), target) as Record<string, unknown>)[p];
+          }
           throw new ValidationErr(
             'VALIDATION_ERROR',
             `${p}: node must be appended to the document before traversal`
@@ -784,7 +804,8 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
         }
         return (scriptTraversalMethods(ctx, nid) as Record<string, unknown>)[p];
       }
-      if (p === 'parent' && target.attached && nid !== null) {
+      if (p === 'parent') {
+        if (!target.attached || nid === null) return null;
         const par = findParentNode(ctx.working.document, nid);
         if (!par) return null;
         if (par.type === 'DOCUMENT') {
@@ -792,12 +813,17 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
         }
         return createHandleProxy(ctx, par.id);
       }
-      if (p === 'children' && target.attached && nid !== null) {
-        const live = scriptLookup(ctx, nid);
-        if (!live) return [];
-        return getImmediateSceneChildren(live, ctx.working, getNodeIndex(ctx))
-          .filter((c) => !ctx.deletedIds.has(c.id))
-          .map((c) => createHandleProxy(ctx, c.id));
+      if (p === 'children') {
+        if (!target.attached && runtimeSupportsDetachedTraversal(target.type)) {
+          return getDetachedImmediateChildren(target, detachedTraversalContext(ctx));
+        }
+        if (target.attached && nid !== null) {
+          const live = scriptLookup(ctx, nid);
+          if (!live) return [];
+          return getImmediateSceneChildren(live, ctx.working, getNodeIndex(ctx))
+            .filter((c) => !ctx.deletedIds.has(c.id))
+            .map((c) => createHandleProxy(ctx, c.id));
+        }
       }
       if (
         (p === 'appendChild' || p === 'insertChild') &&
@@ -972,6 +998,13 @@ abstract class RuntimeSceneNode {
         this.pendingChildren.push({ child, index });
         return;
       }
+      if (isRuntimeSceneNode(child) && child.attached) {
+        const attachedId = child.getAttachedIdOrNull();
+        if (attachedId) {
+          this.pendingChildren.push({ child: { id: attachedId }, index });
+          return;
+        }
+      }
       if (!isRuntimeSceneNode(child) && typeof child.id === 'string') {
         this.pendingChildren.push({ child, index });
         return;
@@ -988,6 +1021,11 @@ abstract class RuntimeSceneNode {
     for (const { child, index } of pending) {
       appendChildToScriptParent(this.ctx, this._id, child, index);
     }
+  }
+
+  /** Pending `appendChild` / `insertChild` queue (detached or deferred). */
+  getPendingChildEntries(): ReadonlyArray<{ child: RuntimeSceneNode | { id: string }; index?: number }> {
+    return this.pendingChildren;
   }
 
   /** Unattached children queued via appendChild before this node was in the document. */

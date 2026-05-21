@@ -13,7 +13,7 @@ from .tokens import (
     canonical_paint,
     extract_node_tokens,
 )
-from .tree import find_all_nodes, resolve_config_node_id
+from .tree import collect_component_ids, find_all_nodes, resolve_config_node_id
 from .types import CanonicalValue, DesignCatalog, Envelope, TreeNode
 
 
@@ -130,7 +130,7 @@ def _build_bindable(envelope: Envelope, resolver: VariableResolver) -> dict[str,
 
 
 def build_catalog(envelope: Envelope) -> DesignCatalog:
-    component_ids = {c["id"] for c in envelope.get("components") or [] if c.get("id")}
+    component_ids = collect_component_ids(envelope)
     text_style_ids = {t["id"] for t in envelope.get("textStyles") or [] if t.get("id")}
     paint_style_ids = {p["id"] for p in envelope.get("paintStyles") or [] if p.get("id")}
     effect_style_ids = {e["id"] for e in envelope.get("effectStyles") or [] if e.get("id")}

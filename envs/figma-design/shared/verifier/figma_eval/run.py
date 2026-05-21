@@ -17,7 +17,7 @@ from .commands import run_command_checks
 from .gates import run_gates
 from .heuristics import run_heuristics
 from .schema import load_and_validate_eval_spec
-from .envelope_normalize import normalize_component_envelope
+from .envelope_normalize import normalize_envelope_on_load
 from .types import EvalReport, Envelope, SubCheckResult
 from .metadata import run_all_metadata_checks
 from .visual import run_all_visual_checks
@@ -28,7 +28,7 @@ def load_envelope(path: str | Path) -> Envelope:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not data.get("document"):
         raise ValueError(f"Invalid envelope at {path}: missing document")
-    return normalize_component_envelope(data)
+    return normalize_envelope_on_load(data)
 
 
 def _subcheck_to_dict(s: SubCheckResult) -> dict[str, Any]:

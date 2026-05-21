@@ -12,7 +12,8 @@ BEFORE_PATH = Path("/tests/design.initial.hfc.json")
 AFTER_PATH = Path("/data/workspace/design.hfc.json")
 REPORT_PATH = Path("/logs/verifier/eval-report.json")
 SCREENSHOTS_DIR = Path("/logs/verifier/screenshots")
-ASSETS_DIR = Path("/data/workspace/design.hfc.assets")
+# Task reference images (eval-spec reference_asset) ship in environment/assets/ → /app/assets/.
+ASSETS_DIR = Path("/app/assets")
 
 
 @criterion

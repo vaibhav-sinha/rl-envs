@@ -3,9 +3,6 @@
   "fileKey": "eval-min",
   "fileName": "EvalMinimal",
   "nextInternalId": 25,
-  "components": [
-    { "id": "COMP1", "name": "Button", "rootFrameId": "I10" }
-  ],
   "document": {
     "id": "I1",
     "type": "DOCUMENT",
@@ -49,6 +46,39 @@
                 "width": 80,
                 "height": 32,
                 "mainComponentId": "COMP1"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "I90",
+        "type": "PAGE",
+        "name": "__Component Masters",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "children": [
+          {
+            "id": "COMP1",
+            "type": "COMPONENT",
+            "name": "Button",
+            "x": 0,
+            "y": 0,
+            "width": 80,
+            "height": 32,
+            "rootFrameId": "I10",
+            "children": [
+              {
+                "id": "I10",
+                "type": "FRAME",
+                "name": "Button",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 32,
+                "children": []
               }
             ]
           }

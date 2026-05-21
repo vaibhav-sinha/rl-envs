@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from figma_eval.catalog import build_catalog, component_exists
 from figma_eval.edit_graph import build_edit_graph
 from figma_eval.gates import run_gates
 from figma_eval.tree import (
@@ -19,7 +20,7 @@ OKER_BEFORE = (
 )
 OKER_AFTER_JOB = (
     _REPO_ROOT
-    / "jobs/2026-05-21__21-48-53/oker-create-max-otp-screen__AU5hEZx/artifacts/design.hfc.json"
+    / "jobs/2026-05-22__00-48-07/oker-create-max-otp-screen__DR3WQEj/artifacts/design.hfc.json"
 )
 
 
@@ -62,6 +63,47 @@ def test_resolve_config_node_id_by_source_figma_id():
     assert find_node(envelope, "1:2")["name"] == "Screen"
 
 
+def test_resolve_source_figma_id_prefers_component_over_frame():
+    envelope = {
+        "document": {
+            "id": "I1",
+            "type": "DOCUMENT",
+            "children": [
+                {
+                    "id": "I2",
+                    "type": "PAGE",
+                    "children": [
+                        {
+                            "id": "I10",
+                            "type": "COMPONENT",
+                            "name": "Master",
+                            "sourceFigmaId": "99:1",
+                            "children": [],
+                        },
+                        {
+                            "id": "I11",
+                            "type": "FRAME",
+                            "name": "DetachedCopy",
+                            "sourceFigmaId": "99:1",
+                            "children": [],
+                        },
+                    ],
+                }
+            ],
+        }
+    }
+    assert resolve_config_node_id(envelope, "99:1") == "I10"
+
+
+def test_oker_component_in_catalog_by_figma_id():
+    if not OKER_BEFORE.is_file():
+        pytest.skip("oker before fixture not present")
+    before = json.loads(OKER_BEFORE.read_text(encoding="utf-8"))
+    catalog = build_catalog(before)
+    assert resolve_config_node_id(before, "2382:161267") == "I48824"
+    assert component_exists(catalog, before, "2382:161267") is True
+
+
 def test_allowed_change_inside_gate_accepts_figma_root_id():
     if not OKER_BEFORE.is_file() or not OKER_AFTER_JOB.is_file():
         pytest.skip("oker job fixtures not present")
@@ -90,7 +132,7 @@ def test_task_completeness_screenshot_with_figma_allowed_root():
         graph,
         allowed_root_ids=["1621:130309"],
     )
-    assert node_id == "I78923"
+    assert node_id == "I78386"
     node = find_node(after, node_id)
     assert node is not None
     assert node.get("name") == "Onboarding/OTP/MaxAttempts"

@@ -7,6 +7,16 @@ import pytest
 from figma_eval.edit_graph import build_edit_graph
 from figma_eval.visual.run_visual import run_visual_check
 
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+OKER_BEFORE = (
+    _REPO_ROOT
+    / "envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json"
+)
+OKER_AFTER_JOB = (
+    _REPO_ROOT
+    / "jobs/2026-05-22__00-48-07/oker-create-max-otp-screen__DR3WQEj/artifacts/design.hfc.json"
+)
+
 
 @patch("figma_eval.visual.run_visual.render_node_or_error")
 def test_render_failure_scores_zero(mock_render, load_fixture, tmp_path):
@@ -48,7 +58,7 @@ def test_good_design_no_changes_unresolved(load_fixture, tmp_path):
         model="test",
     )
     assert result.score == 0.0
-    assert result.details["reason"] == "screenshot_node_unresolved"
+    assert result.details["reason"] == "no_changes"
 
 
 @patch("figma_eval.visual.run_visual.render_node_or_error")
@@ -82,6 +92,45 @@ def test_good_design_renders_largest_change(mock_judge, mock_render, load_fixtur
     assert result.score == 0.8
     assert rendered["node_id"] == "I20"
     mock_judge.assert_called_once()
+
+
+@patch("figma_eval.visual.run_visual.render_node_or_error")
+@patch("figma_eval.visual.run_visual.run_llm_judge")
+def test_good_design_uses_task_completeness_screenshot_with_allowed_root(
+    mock_judge, mock_render, tmp_path
+):
+    if not OKER_BEFORE.is_file() or not OKER_AFTER_JOB.is_file():
+        pytest.skip("oker job fixtures not present")
+    before = json.loads(OKER_BEFORE.read_text(encoding="utf-8"))
+    after = json.loads(OKER_AFTER_JOB.read_text(encoding="utf-8"))
+    rendered: dict[str, str] = {}
+
+    def fake_render(**kwargs):
+        rendered["node_id"] = kwargs["node_id"]
+        Path(kwargs["out"]).write_bytes(b"png")
+        return None
+
+    mock_render.side_effect = fake_render
+    mock_judge.return_value = {"mean_score": 0.9, "consistency_scores": {"typography": 0.9}}
+
+    spec = {"id": "gd1", "type": "good_design"}
+    gates = {"allowed_change_inside_ids": ["1621:130309"]}
+    result = run_visual_check(
+        spec=spec,
+        before=before,
+        after=after,
+        graph=build_edit_graph(before, after),
+        before_path=str(OKER_BEFORE),
+        after_path=str(OKER_AFTER_JOB),
+        work_dir=tmp_path,
+        task_instruction="Create max OTP screen",
+        gates=gates,
+        skip_llm=False,
+        model="test",
+    )
+    assert result.score == 0.9
+    assert rendered["node_id"] == "I78386"
+    assert result.details["screenshot_node_id"] == "I78386"
 
 
 def test_design_fit_missing_node_scores_zero(load_fixture, tmp_path):

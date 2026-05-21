@@ -81,24 +81,56 @@ def _resolve_largest_change_screenshot_id(
     return resolve_largest_change_region_node(after, graph)
 
 
+def _resolve_visual_screenshot_node(
+    *,
+    spec: dict[str, Any],
+    before: Envelope,
+    after: Envelope,
+    graph: EditGraph,
+    gates: dict[str, Any] | None,
+) -> str | None:
+    """Screenshot target shared by good_design and task_completeness."""
+    explicit = spec.get("node_id")
+    if explicit:
+        return explicit
+    allowed_roots = (gates or {}).get("allowed_change_inside_ids")
+    return resolve_task_completeness_screenshot_node(
+        after,
+        before,
+        graph,
+        allowed_root_ids=allowed_roots,
+    )
+
+
 def _run_good_design(
     *,
     spec: dict[str, Any],
+    before: Envelope,
     after: Envelope,
     after_path: str,
     graph: EditGraph,
+    gates: dict[str, Any] | None,
     work: Path,
     task_instruction: str,
     skip_llm: bool,
     model: str,
     hfc_cli: str | None,
 ) -> SubCheckResult:
-    screenshot_id = _resolve_largest_change_screenshot_id(after, graph)
+    if not changed_node_ids(graph):
+        return _visual_result(spec, 0.0, {"reason": "no_changes"})
+
+    screenshot_id = _resolve_visual_screenshot_node(
+        spec=spec,
+        before=before,
+        after=after,
+        graph=graph,
+        gates=gates,
+    )
     if not screenshot_id or not node_exists(after, screenshot_id):
         return _visual_result(
             spec,
             0.0,
-            {"reason": "screenshot_node_unresolved", "node_id": screenshot_id},
+            {"reason": "enclosing_frame_missing", "node_id": screenshot_id},
         )
 
     shot_path = work / f"{spec['id']}-good-design.png"
@@ -315,16 +347,15 @@ def _run_task_completeness(
     model: str,
     hfc_cli: str | None,
 ) -> SubCheckResult:
-    changes = changed_node_ids(graph)
-    if not changes:
+    if not changed_node_ids(graph):
         return _visual_result(spec, 0.0, {"reason": "no_changes"})
 
-    allowed_roots = (gates or {}).get("allowed_change_inside_ids")
-    frame_id = spec.get("node_id") or resolve_task_completeness_screenshot_node(
-        after,
-        before,
-        graph,
-        allowed_root_ids=allowed_roots,
+    frame_id = _resolve_visual_screenshot_node(
+        spec=spec,
+        before=before,
+        after=after,
+        graph=graph,
+        gates=gates,
     )
     if not frame_id or not node_exists(after, frame_id):
         return _visual_result(spec, 0.0, {"reason": "enclosing_frame_missing", "node_id": frame_id})
@@ -477,9 +508,11 @@ def run_visual_check(
             spec,
             _run_good_design(
                 spec=spec,
+                before=before,
                 after=after,
                 after_path=after_path,
                 graph=graph,
+                gates=gates,
                 work=work,
                 task_instruction=task_instruction,
                 skip_llm=skip_llm,

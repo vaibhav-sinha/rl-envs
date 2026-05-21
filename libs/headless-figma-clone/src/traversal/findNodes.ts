@@ -260,6 +260,24 @@ function walkFromRoots(
 }
 
 /**
+ * Pre-order walk of `root` and all descendants (includes `root` when it matches).
+ * Use for subtrees rooted at a single node (e.g. pending document children on detached frames).
+ */
+export function findSubtreeNodes(
+  root: AnyTreeNode,
+  working: FileEnvelope,
+  criteria: FindCriteria = {},
+  predicate?: (node: AnyTreeNode) => boolean,
+  options?: TraversalOptions
+): AnyTreeNode[] {
+  walkStep = 0;
+  throwIfAborted(options?.signal);
+  const out: AnyTreeNode[] = [];
+  walkPreorder(root, working, criteria, out, predicate, options?.signal, options?.nodeIndex);
+  return out;
+}
+
+/**
  * All descendants of `container` (Figma `findAll`: **does not** include `container`).
  */
 export function findAllDescendants(
