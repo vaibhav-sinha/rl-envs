@@ -21,7 +21,7 @@ import type {
 } from '../model/types.js';
 import type { FigmaPluginSnapshot, SerializedAsset, SerializedNode } from './snapshotSchema.js';
 import { FigmaIdMap } from './idMap.js';
-import { createImportReport, importStrict, importVerbose, type ImportReport } from './importReport.js';
+import { createImportReport, importDebug, importStrict, importVerbose, type ImportReport } from './importReport.js';
 import {
   boundsFromProps,
   childPageOrigin,
@@ -49,6 +49,7 @@ import {
   mapExplicitVariableModes,
   mapFrameLayout,
   mapIndividualStrokes,
+  applyInstanceShellOverridesFromFigmaApi,
   mapInstanceOverrides,
   mapLayoutExtras,
   mapPaintsExtended,
@@ -815,6 +816,7 @@ function importSceneNode(
       } else if (Object.prototype.hasOwnProperty.call(p, 'clipsContent')) {
         instanceAppearance.clipsContent = false;
       }
+      applyInstanceShellOverridesFromFigmaApi(instanceAppearance, node.id, p);
       const inst = {
         ...base,
         type: 'INSTANCE',
@@ -831,6 +833,17 @@ function importSceneNode(
         overrides: mapInstanceOverrides(prop(p, 'overrides'), idMap, imageRemap),
         ...(optNum(prop(p, 'scaleFactor')) !== undefined ? { scaleFactor: optNum(prop(p, 'scaleFactor')) } : {}),
       } as InstanceNode;
+      if (importDebug()) {
+        const shellFields = ['fills', 'strokes', 'backgrounds', 'effects'] as const;
+        const propsKeys = shellFields.filter((f) => Object.prototype.hasOwnProperty.call(p, f));
+        const hfcKeys = shellFields.filter((f) => Object.prototype.hasOwnProperty.call(inst, f));
+        if (propsKeys.length > 0 || Object.prototype.hasOwnProperty.call(p, 'overrides')) {
+          console.warn(
+            `[instance-import] ${node.id} snapshotProps=[${propsKeys.join(',')}] hfcKeys=[${hfcKeys.join(',')}] ` +
+              `fills=${Object.prototype.hasOwnProperty.call(inst, 'fills') ? JSON.stringify(inst.fills) : 'absent'}`
+          );
+        }
+      }
       if (!mainComponentId) {
         if (importVerbose()) {
           const variantName = variantDisplayNameFromProperties(componentProperties);

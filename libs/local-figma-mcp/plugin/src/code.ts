@@ -4,6 +4,7 @@ import { runGetScreenshot } from './tools/getScreenshot.js';
 import { runGetVariableDefs } from './tools/getVariableDefs.js';
 import { runSearchDesignSystem } from './tools/searchDesignSystem.js';
 import { runUseFigma } from './tools/useFigma.js';
+import { drainInstanceExportDebug } from './tools/instanceExportDebug.js';
 import { runFigmaStreamExport } from './tools/streamExport.js';
 import { formatExportError, logExportError } from './exportError.js';
 import { ExportMetricsCollector } from './exportMetrics.js';
@@ -210,6 +211,10 @@ async function runExportFile(
       metrics,
       progress: progressReporter,
     });
+
+    for (const line of drainInstanceExportDebug()) {
+      postUiMessage({ type: 'log', line } satisfies MainToUi);
+    }
 
     await gate.drain();
     progressReporter.emit(true);

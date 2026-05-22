@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { debugLogForExport, exportDebugEnabled, type ExportInstanceDebugLog } from './export-instance-debug.js';
 import type { ExportTotals, SerializedNodeWire, StreamPart } from './stream-protocol.js';
 
 export interface AssembledMeta {
@@ -36,6 +37,17 @@ export class SnapshotAssembler {
   private stack: StackEntry[] = [];
   private documentRoot: StackEntry | null = null;
   private readonly nodeById = new Map<string, StackEntry>();
+  private debugExportId: string | null = null;
+
+  /** Optional: attach export session id for TB_EXPORT_DEBUG logs. */
+  setDebugExportId(exportId: string | null): void {
+    this.debugExportId = exportId;
+  }
+
+  private debug(): ExportInstanceDebugLog | null {
+    if (!exportDebugEnabled() || !this.debugExportId) return null;
+    return debugLogForExport(this.debugExportId);
+  }
   private meta: AssembledMeta | null = null;
   private readonly assets: AssembledAsset[] = [];
   private snapshotVersion = 1;
@@ -69,6 +81,13 @@ export class SnapshotAssembler {
   }
 
   applyTreeEnter(part: Extract<StreamPart, { kind: 'tree_enter' }>): void {
+    this.debug()?.logInstanceShell(
+      'assembler_tree_enter',
+      part.node.id,
+      part.node.name,
+      part.node.type,
+      part.node.properties
+    );
     const node: StackEntry = {
       id: part.node.id,
       type: part.node.type,
@@ -96,7 +115,25 @@ export class SnapshotAssembler {
   applyNodeProps(part: Extract<StreamPart, { kind: 'node_props' }>): void {
     const node = this.nodeById.get(part.nodeId);
     if (!node) throw new Error(`NODE_PROPS_UNKNOWN_ID: ${part.nodeId}`);
+    if (node.type === 'INSTANCE') {
+      this.debug()?.logInstanceShell(
+        'assembler_node_props_before',
+        node.id,
+        node.name,
+        node.type,
+        node.properties
+      );
+    }
     node.properties = { ...node.properties, ...part.properties };
+    if (node.type === 'INSTANCE') {
+      this.debug()?.logInstanceShell(
+        'assembler_node_props_after',
+        node.id,
+        node.name,
+        node.type,
+        node.properties
+      );
+    }
   }
 
   applyAsset(part: Extract<StreamPart, { kind: 'asset' }>): void {

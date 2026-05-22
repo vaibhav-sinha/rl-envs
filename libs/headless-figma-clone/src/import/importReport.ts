@@ -11,6 +11,10 @@ export function importVerbose(): boolean {
   return process.env.HFC_IMPORT_VERBOSE === '1';
 }
 
+export function importDebug(): boolean {
+  return process.env.HFC_IMPORT_DEBUG === '1' || importVerbose();
+}
+
 export function importStrict(): boolean {
   return process.env.HFC_IMPORT_STRICT === '1';
 }

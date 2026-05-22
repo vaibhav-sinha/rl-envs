@@ -14,8 +14,16 @@ import type { TaskBuilderConfig } from './config.js';
 import { buildDefaultInstruction } from './instruction-preamble.js';
 import { normalizeEvalSpec, prepareEvalSpecForSave } from './category-importance.js';
 import { defaultEvalSpec, validateEvalSpec } from './eval-spec-validator.js';
+import { debugLogForExport, exportDebugEnabled } from './export-instance-debug.js';
 import { HfcClient, type ImportHfcResponse } from './hfc-client.js';
 import { writeJsonFile } from './write-json-stream.js';
+
+function logPersistDebug(exportId: string, imported: ImportHfcResponse, filePath: string): void {
+  if (!exportDebugEnabled()) return;
+  const dbg = debugLogForExport(exportId);
+  dbg.walkImportEnvelope('persist_disk_envelope', imported.envelope);
+  dbg.log('persist', `wrote ${filePath}`);
+}
 import { cloneHarborToDraft, finalizeTask } from './finalize.js';
 import { envelopeHasSourceFigmaIds, pruneEnvelopeBySourceFigmaIds } from './prune-hfc.js';
 import { remapEvalSpecIds } from './remap-eval-spec.js';
@@ -391,10 +399,13 @@ export class TasksStore {
     return this.persistStandaloneImport(imported);
   }
 
-  persistStandaloneImport(imported: ImportHfcResponse): { filePath: string } {
+  persistStandaloneImport(imported: ImportHfcResponse, exportId?: string): { filePath: string } {
     mkdirSync(this.config.exportDir, { recursive: true });
     const filePath = join(this.config.exportDir, `${imported.slug}.hfc.json`);
     writeJsonFile(filePath, imported.envelope);
+    if (exportId) {
+      logPersistDebug(exportId, imported, filePath);
+    }
 
     const sidecarDir = join(this.config.exportDir, `${imported.slug}.hfc.assets`);
     mkdirSync(sidecarDir, { recursive: true });

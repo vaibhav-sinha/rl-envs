@@ -9,6 +9,7 @@ import type {
   Paint,
   TextNode,
 } from '../model/types.js';
+import type { InstanceAppearanceFields } from '../render/instanceAppearance.js';
 import type { FigmaIdMap } from './idMap.js';
 import { normalizeLayoutConstraints, normalizeLayoutGrids } from '../engine/figmaInterop.js';
 import {
@@ -24,6 +25,7 @@ import {
   parseTextListOptions,
 } from '../engine/typographyParse.js';
 import type { ImportReport } from './importReport.js';
+import { importVerbose } from './importReport.js';
 import {
   bool,
   mapEffectsPreservingEmpty,
@@ -467,12 +469,74 @@ function mapOverrideEntry(
   return entry;
 }
 
+const INSTANCE_SHELL_PAINT_FIELDS: (keyof InstanceAppearanceFields)[] = [
+  'fills',
+  'strokes',
+  'backgrounds',
+  'effects',
+];
+
+/**
+ * Figma Plugin API exports `overrides` as `{ id, overriddenFields }[]`.
+ * When paint keys are missing from properties but listed on the instance shell,
+ * treat them as cleared (`[]`) so compile does not inherit the component master.
+ */
+export function applyInstanceShellOverridesFromFigmaApi(
+  appearance: Partial<InstanceAppearanceFields>,
+  figmaNodeId: string,
+  properties: Record<string, unknown>
+): void {
+  const inferred: string[] = [];
+  const raw = properties.overrides;
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const o = entry as { id?: string; overriddenFields?: unknown };
+      if (o.id !== figmaNodeId || !Array.isArray(o.overriddenFields)) continue;
+      for (const field of o.overriddenFields) {
+        if (typeof field !== 'string') continue;
+        if (!INSTANCE_SHELL_PAINT_FIELDS.includes(field as keyof InstanceAppearanceFields)) continue;
+        if (!Object.prototype.hasOwnProperty.call(appearance, field)) {
+          (appearance as Record<string, unknown>)[field] = [];
+          inferred.push(field);
+        }
+      }
+    }
+  } else if (raw && typeof raw === 'object') {
+    const self = (raw as Record<string, unknown>)[figmaNodeId];
+    if (self && typeof self === 'object') {
+      const o = self as Record<string, unknown>;
+      for (const field of INSTANCE_SHELL_PAINT_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(o, field)) continue;
+        if (Object.prototype.hasOwnProperty.call(appearance, field)) continue;
+        if (field === 'effects') {
+          appearance.effects = mapEffectsPreservingEmpty(o.effects) ?? [];
+          inferred.push(field);
+          continue;
+        }
+        const rawPaint = o[field];
+        if (rawPaint === undefined || (Array.isArray(rawPaint) && rawPaint.length === 0)) {
+          (appearance as Record<string, unknown>)[field] = [];
+          inferred.push(field);
+        }
+      }
+    }
+  }
+  if (importVerbose() && inferred.length > 0) {
+    console.warn(
+      `[instance-import] ${figmaNodeId} inferred cleared shell paints: ${inferred.join(', ')}`
+    );
+  }
+}
+
 export function mapInstanceOverrides(
   raw: unknown,
   idMap: FigmaIdMap,
   imageHashRemap: (figmaHash: string) => string | undefined
 ): Record<string, ComponentOverrideFields> | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
+  // Figma API array format carries field names only; shell paints are inferred above.
+  if (Array.isArray(raw)) return undefined;
   const out: Record<string, ComponentOverrideFields> = {};
   for (const [figmaNodeId, val] of Object.entries(raw as Record<string, unknown>)) {
     if (!val || typeof val !== 'object') continue;

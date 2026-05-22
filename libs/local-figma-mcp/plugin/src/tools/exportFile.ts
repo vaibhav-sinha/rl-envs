@@ -14,6 +14,7 @@ import {
 import { ExportAssetDedup } from './exportAssetDedup.js';
 import { keysForNodeType } from './nodePropertyKeys.js';
 import { bytesToBase64, serializeValue } from './serializeValue.js';
+import { pushInstanceExportDebug } from './instanceExportDebug.js';
 import { enrichTextNodeExport } from './textNodeExport.js';
 
 const IMAGE_HASHES = new Set<string>();
@@ -44,28 +45,108 @@ export function clearImageHashesForExport(): void {
 
 const INSTANCE_TRI_STATE_PAINT_FIELDS = ['fills', 'strokes', 'backgrounds', 'effects'] as const;
 const INSTANCE_TRI_STATE_STYLE_ID_FIELDS = ['fillStyleId', 'strokeStyleId', 'effectStyleId'] as const;
+const INSTANCE_SHELL_PAINT_FIELD_SET = new Set<string>(INSTANCE_TRI_STATE_PAINT_FIELDS);
+
+function readInstanceField(inst: InstanceNode, field: string): unknown {
+  try {
+    return (inst as Record<string, unknown>)[field];
+  } catch {
+    return undefined;
+  }
+}
+
+/** Paint fields listed on the instance shell in Figma's overrides array. */
+export function getInstanceShellOverriddenPaintFields(inst: InstanceNode): ReadonlySet<string> {
+  const fields = new Set<string>();
+  const raw = inst.overrides;
+  if (!Array.isArray(raw)) return fields;
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const o = entry as { id?: string; overriddenFields?: unknown };
+    if (typeof o.id !== 'string' || o.id !== inst.id || !Array.isArray(o.overriddenFields)) continue;
+    for (const field of o.overriddenFields) {
+      if (typeof field === 'string' && INSTANCE_SHELL_PAINT_FIELD_SET.has(field)) {
+        fields.add(field);
+      }
+    }
+  }
+  return fields;
+}
+
+function logInstanceShellExport(inst: InstanceNode, props: Record<string, unknown>): void {
+  const shellOverridden = getInstanceShellOverriddenPaintFields(inst);
+  if (shellOverridden.size === 0) return;
+  const read = (field: (typeof INSTANCE_TRI_STATE_PAINT_FIELDS)[number]) => {
+    const v = readInstanceField(inst, field);
+    if (v === undefined) return 'undefined';
+    if (Array.isArray(v)) return `array(${v.length})`;
+    return typeof v;
+  };
+  const written = INSTANCE_TRI_STATE_PAINT_FIELDS.filter((f) =>
+    Object.prototype.hasOwnProperty.call(props, f)
+  ).map((f) => `${f}=${JSON.stringify(props[f])}`);
+  pushInstanceExportDebug(
+    `[instance-export] ${inst.id} "${inst.name}" overridden=[${[...shellOverridden].join(',')}] ` +
+      `api=${INSTANCE_TRI_STATE_PAINT_FIELDS.map(read).join(' ')} props={${written.join(' ')}} ` +
+      `overrides=${Object.prototype.hasOwnProperty.call(props, 'overrides') ? 'yes' : 'no'}`
+  );
+}
 
 /**
  * Instance shell uses tri-state semantics on import: key absent = inherit master, [] = cleared.
- * Ensure cleared paints and detached style ids are always written to the snapshot.
+ * Plugin API often returns undefined (not []) for cleared shell paints; trust overrides[] too.
  */
 export function enrichInstanceNodeExport(inst: InstanceNode, props: Record<string, unknown>): void {
+  const shellOverridden = getInstanceShellOverriddenPaintFields(inst);
   for (const field of INSTANCE_TRI_STATE_PAINT_FIELDS) {
-    const paints = inst[field];
+    const paints = readInstanceField(inst, field);
     if (Array.isArray(paints) && paints.length === 0) {
+      props[field] = [];
+    } else if (shellOverridden.has(field)) {
       props[field] = [];
     }
   }
   for (const field of INSTANCE_TRI_STATE_STYLE_ID_FIELDS) {
-    try {
-      const styleId = inst[field];
-      if (styleId === '' || styleId === null) {
-        props[field] = null;
-      }
-    } catch {
-      /* skip unreadable */
+    const styleId = readInstanceField(inst, field);
+    if (styleId === '' || styleId === null) {
+      props[field] = null;
     }
   }
+}
+
+/** Expand Figma API overrides array into a patch map (import-friendly) for the instance shell. */
+export function exportInstanceOverridesRecord(
+  inst: InstanceNode,
+  props: Record<string, unknown>,
+  visited: WeakSet<object>
+): void {
+  const raw = inst.overrides;
+  if (!Array.isArray(raw)) return;
+  const map: Record<string, unknown> = {};
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const o = entry as { id?: string; overriddenFields?: unknown };
+    if (typeof o.id !== 'string' || o.id !== inst.id || !Array.isArray(o.overriddenFields)) continue;
+    const patch: Record<string, unknown> = {};
+    for (const field of o.overriddenFields) {
+      if (typeof field !== 'string') continue;
+      const val = readInstanceField(inst, field);
+      if (INSTANCE_SHELL_PAINT_FIELD_SET.has(field)) {
+        if (val === undefined || (Array.isArray(val) && val.length === 0)) {
+          patch[field] = [];
+          continue;
+        }
+      }
+      if (val === undefined) continue;
+      try {
+        patch[field] = serializeValue(val, visited);
+      } catch {
+        /* skip unreadable */
+      }
+    }
+    if (Object.keys(patch).length > 0) map[o.id] = patch;
+  }
+  if (Object.keys(map).length > 0) props.overrides = map;
 }
 
 function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Record<string, unknown> {
@@ -96,15 +177,21 @@ function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Reco
   }
 
   if (node.type === 'INSTANCE') {
+    const inst = node as InstanceNode;
     try {
-      const inst = node as InstanceNode;
       const mc = inst.mainComponent;
       if (mc && typeof mc.id === 'string') {
         props.mainComponentId = mc.id;
       }
-      enrichInstanceNodeExport(inst, props);
     } catch {
       /* detached or unreadable */
+    }
+    try {
+      enrichInstanceNodeExport(inst, props);
+      exportInstanceOverridesRecord(inst, props, visited);
+      logInstanceShellExport(inst, props);
+    } catch {
+      /* skip unreadable instance shell fields */
     }
   }
   if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {

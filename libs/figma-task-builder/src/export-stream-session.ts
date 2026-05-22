@@ -26,6 +26,11 @@ import {
   parseStreamPartLine,
   type StreamPart,
 } from './stream-protocol.js';
+import {
+  clearDebugLogForExport,
+  debugLogForExport,
+  exportDebugEnabled,
+} from './export-instance-debug.js';
 import { TasksStore } from './tasks-store.js';
 
 export type FinishStreamSource = 'auto' | 'memory' | 'disk';
@@ -71,7 +76,9 @@ export class ExportStreamSessionStore {
     mkdirSync(join(dir, 'assets'), { recursive: true });
     writeFileSync(join(dir, 'parts.jsonl'), '', 'utf8');
     writeSessionManifest(dir, defaultManifest(exportId));
-    this.assemblers.set(exportId, new SnapshotAssembler());
+    const assembler = new SnapshotAssembler();
+    assembler.setDebugExportId(exportId);
+    this.assemblers.set(exportId, assembler);
     return {
       exportId,
       uploadUrl: `/export/stream/${exportId}/part`,
@@ -97,6 +104,11 @@ export class ExportStreamSessionStore {
         throw new Error('PART_LINE_TOO_LARGE');
       }
       const part = parseStreamPartLine(trimmed);
+      if (part.kind === 'tree_enter') {
+        debugLogForExport(exportId).logWirePart('stream_part_parsed', part);
+      } else if (part.kind === 'node_props') {
+        debugLogForExport(exportId).logWirePart('stream_part_parsed', part);
+      }
       applyStreamPart(assembler, part);
       chunks.push(streamPartLineForSpool(part));
       if (part.kind === 'asset') {
@@ -168,9 +180,14 @@ export class ExportStreamSessionStore {
           replayedFromDisk = true;
         }
       }
+      assembler.setDebugExportId(exportId);
 
+      const dbg = debugLogForExport(exportId);
       const assembled = assembler.finish();
       this.assemblers.delete(exportId);
+
+      dbg.walkAssembledDocument('assembler_finish', assembled.document);
+      dbg.log('finish', `replayedFromDisk=${replayedFromDisk} source=${source}`);
 
       const assetFiles = assetFilesFromSession(dir, assembled);
       const fileName =
@@ -178,21 +195,32 @@ export class ExportStreamSessionStore {
         manifest?.hfcFileName ??
         assembled.figmaFileName;
       const snapshot = assembledToFigmaPluginSnapshot({ ...assembled, assets: [] });
+      dbg.walkAssembledDocument('snapshot_for_import', snapshot.document);
 
       const useHttpOnly = process.env.TB_HFC_HTTP_ONLY === '1';
-      const imported =
-        !useHttpOnly && isLocalHfcImportAvailable()
-          ? await importFigmaSnapshotInProcess(fileName, snapshot, assetFiles)
-          : await (async () => {
-              writeAssembledToDisk(dir, assembled);
-              const hfc = new HfcClient(this.config.hfcUrl);
-              return hfc.importFromSession(
-                resolve(dir),
-                fileName,
-                assetFiles,
-                this.config.exportSessionsDir
-              );
-            })();
+      const inProcess = !useHttpOnly && isLocalHfcImportAvailable();
+      dbg.log(
+        'import_route',
+        `inProcess=${inProcess} TB_HFC_HTTP_ONLY=${process.env.TB_HFC_HTTP_ONLY ?? ''} hfcUrl=${this.config.hfcUrl}`
+      );
+
+      const imported = inProcess
+        ? await importFigmaSnapshotInProcess(fileName, snapshot, assetFiles, exportId)
+        : await (async () => {
+            writeAssembledToDisk(dir, assembled);
+            dbg.log('import_route', 'using HTTP importFromSession (assembled written to disk)');
+            const hfc = new HfcClient(this.config.hfcUrl);
+            const res = await hfc.importFromSession(
+              resolve(dir),
+              fileName,
+              assetFiles,
+              this.config.exportSessionsDir
+            );
+            dbg.walkImportEnvelope('import_http_envelope', res.envelope);
+            return res;
+          })();
+
+      dbg.walkImportEnvelope('import_envelope', imported.envelope);
 
       const store = new TasksStore(this.config);
       let result: FinishStreamResult = { exportId, slug: imported.slug, replayedFromDisk };
@@ -206,9 +234,13 @@ export class ExportStreamSessionStore {
         );
         result = { ...result, saved: applied.saved };
       } else if (options.standaloneFileName ?? manifest?.hfcFileName) {
-        const standalone = store.persistStandaloneImport(imported);
+        const standalone = store.persistStandaloneImport(imported, exportId);
         result = { ...result, filePath: standalone.filePath };
+        dbg.log('persist', `filePath=${standalone.filePath}`);
       }
+
+      dbg.flush(dir);
+      clearDebugLogForExport(exportId);
 
       patchSessionManifest(dir, {
         finished: true,
@@ -218,10 +250,14 @@ export class ExportStreamSessionStore {
         resultFilePath: result.filePath,
       });
 
-      try {
-        rmSync(dir, { recursive: true, force: true });
-      } catch {
-        /* best-effort cleanup */
+      if (!exportDebugEnabled()) {
+        try {
+          rmSync(dir, { recursive: true, force: true });
+        } catch {
+          /* best-effort cleanup */
+        }
+      } else {
+        dbg.log('finish', `TB_EXPORT_DEBUG=1: session kept at ${dir}`);
       }
 
       return result;
