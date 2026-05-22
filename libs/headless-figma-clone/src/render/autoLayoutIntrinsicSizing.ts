@@ -41,7 +41,11 @@ function hugTextIntrinsicWidthPx(t: TextNode, env: FileEnvelope | undefined): nu
   const approx = approximateTextWidthPx(t, textCharactersForIntrinsicSizing(t, env), fs);
   const exported = t.width ?? 0;
   if (exported > 0) {
-    if (t.layoutSizingHorizontal === 'HUG' || t.layoutSizingHorizontal === 'FILL') {
+    /** FILL with an exported width fills the parent; do not replace with single-line content width. */
+    if (t.layoutSizingHorizontal === 'FILL') {
+      return exported;
+    }
+    if (t.layoutSizingHorizontal === 'HUG') {
       return reasonableExportedTextWidth(exported, approx);
     }
     if (t.layoutSizingHorizontal !== 'FIXED') {
@@ -51,13 +55,18 @@ function hugTextIntrinsicWidthPx(t: TextNode, env: FileEnvelope | undefined): nu
   return approx;
 }
 
+/** Figma line/paragraph separators (U+2028/U+2029) are intentional breaks for wrap metrics. */
+function normalizeFigmaTextForSizing(s: string): string {
+  return s.replace(/\u2028/g, '\n').replace(/\u2029/g, '\n');
+}
+
 export function textCharactersForIntrinsicSizing(t: TextNode, env: FileEnvelope | undefined): string {
   const vid = t.boundVariables?.characters;
   if (env && vid) {
     const s = resolveVariableToStringValue(env, vid);
-    if (s !== null) return s;
+    if (s !== null) return normalizeFigmaTextForSizing(s);
   }
-  return t.characters ?? '';
+  return normalizeFigmaTextForSizing(t.characters ?? '');
 }
 
 function textIntrinsicWidthForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
@@ -389,11 +398,12 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
   /** HUG/FILL, or legacy absolute text (no layout sizing + 0×0 defaults) — HTML needs a non-zero box. */
   const needsIntrinsicW =
     t.layoutSizingHorizontal === 'HUG' ||
-    t.layoutSizingHorizontal === 'FILL' ||
+    (t.layoutSizingHorizontal === 'FILL' && (t.width ?? 0) <= 0) ||
     (t.layoutSizingHorizontal !== 'FIXED' && (t.width ?? 0) <= 0);
   const needsIntrinsicH =
-    t.layoutSizingVertical === 'HUG' ||
-    t.layoutSizingVertical === 'FILL' ||
+    (t.layoutSizingVertical === 'HUG' &&
+      !(t.textAutoResize === 'HEIGHT' && (t.height ?? 0) > 0)) ||
+    (t.layoutSizingVertical === 'FILL' && (t.height ?? 0) <= 0) ||
     (t.layoutSizingVertical !== 'FIXED' && (t.height ?? 0) <= 0);
   if (needsIntrinsicW) {
     t.width = hugTextIntrinsicWidthPx(t, env);

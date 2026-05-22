@@ -307,6 +307,11 @@ export interface NodeBase {
   visible?: boolean;
   /** Original Figma node id from import (e.g. "123:456"). Used for copy-export exclusions. */
   sourceFigmaId?: string;
+  /**
+   * Layer field → component property name (from `componentPropertyDefinitions`).
+   * Used to apply instance `componentProperties` without name-based heuristics.
+   */
+  componentPropertyReferences?: Record<string, string>;
 }
 
 export type LayoutSizing = 'FIXED' | 'HUG' | 'FILL';

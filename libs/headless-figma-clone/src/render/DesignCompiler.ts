@@ -869,6 +869,7 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[], s
   const defaultColor = paintColorCss(base.fills?.[0], env, 'rgba(0,0,0,1)', warnings, 'text_default');
   const defaultFsCss = base.fontSizeCss;
   const defaultFw = base.fontWeight;
+  const omitParagraphSpacing = text.includes('\n') || singleLine || t.textAlignVertical === 'CENTER';
 
   function spanStyle(style: StyledSegment['style'], excludeListLayout = false): string {
     const fs = style.fontSize ?? base.fontSize;
@@ -881,7 +882,11 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[], s
       `font-weight:${String(fw)}`,
       `color:${color}`,
       fontFamilyCssFromName(style.fontName ?? t.fontName, style.boundVariables?.fontFamily ?? t.boundVariables?.fontFamily, env).replace(/;$/, ''),
-      paragraphTypographyCss(typo, fs, env, { tightAutoLineHeight: singleLine, excludeListLayout })
+      paragraphTypographyCss(typo, fs, env, {
+        tightAutoLineHeight: singleLine || omitParagraphSpacing,
+        excludeListLayout,
+        omitParagraphSpacing,
+      })
         .replace(/;$/g, '')
         .split(';')
         .filter(Boolean)
@@ -1711,16 +1716,19 @@ function emitScene(
       ? sceneChildPos(t, insideFlex, absX, absY, parentFrame)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
     const singleLine = textIsSingleLineBox(t, env);
+    const compactCentered =
+      t.textAlignVertical === 'CENTER' && !effectiveTextCharacters(t, env).includes('\n') && !t.textOnPath;
     const flexOuterAlign = textFlexContainerCss(t, singleLine);
     const baseTypo = effectiveTextBase(t, env);
     const lhPx = hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t, env), t.lineHeight, t.fontName);
     const textColor = paintColorCss(baseTypo.fills?.[0], env, 'rgba(0,0,0,1)', warnings, `text:${t.id}`);
-    const flexTextMetrics = singleLine
-      ? `line-height:${String(lhPx)}px;${leadingTrimCss(t.leadingTrim)}`
-      : paragraphTypographyCss(mergeTypographyFromText(t), baseTypo.fontSize, env);
+    const flexTextMetrics =
+      singleLine || compactCentered
+        ? `line-height:${String(lhPx)}px;${leadingTrimCss(t.leadingTrim)}`
+        : paragraphTypographyCss(mergeTypographyFromText(t), baseTypo.fontSize, env);
     const innerRule = `${textInnerHorizontalCss(t)}${
       singleLine ? 'min-width:0;width:100%;display:block;box-sizing:border-box;' : ''
-    }`;
+    }${compactCentered ? 'display:flex;align-items:center;height:100%;min-height:0;box-sizing:border-box;' : ''}`;
     const textStroke = t.strokes?.[0];
     const tsw = t.strokeWeight ?? 0;
     const textStrokeCss =
@@ -1999,13 +2007,6 @@ function scaleSceneNodeGeometry(n: SceneNode, sx: number, sy: number): void {
   if (n.type === 'TEXT') {
     n.width *= sx;
     n.height *= sy;
-    if (n.fontSize !== undefined) n.fontSize *= avg;
-    if (n.letterSpacing?.unit === 'PIXELS' && n.letterSpacing.value !== undefined) {
-      n.letterSpacing = { ...n.letterSpacing, value: n.letterSpacing.value * sx };
-    }
-    if (n.lineHeight?.unit === 'PIXELS' && n.lineHeight.value !== undefined) {
-      n.lineHeight = { ...n.lineHeight, value: n.lineHeight.value * sy };
-    }
   }
 
   if (n.type === 'RECTANGLE' || n.type === 'FRAME') {
@@ -2171,39 +2172,63 @@ function collectSceneNodes(root: SceneNode): SceneNode[] {
   return out;
 }
 
-/** Apply Figma instance `componentProperties` to a cloned component root before emit. */
+function componentPropertyValuesByName(
+  props: Record<string, ComponentPropertyValue>
+): Map<string, ComponentPropertyValue> {
+  const byName = new Map<string, ComponentPropertyValue>();
+  for (const [key, val] of Object.entries(props)) {
+    byName.set(key, val);
+    byName.set(componentPropertyLabel(key), val);
+  }
+  return byName;
+}
+
+function applyComponentPropertyToNodeField(
+  node: SceneNode,
+  field: string,
+  val: ComponentPropertyValue
+): void {
+  if (val.type === 'BOOLEAN' && field === 'visible') {
+    node.visible = val.value;
+    return;
+  }
+  if (val.type === 'TEXT' && field === 'characters' && node.type === 'TEXT') {
+    node.characters = val.value;
+    return;
+  }
+  if (val.type === 'VARIANT' && field === 'mainComponent') {
+    return;
+  }
+}
+
+/**
+ * Apply instance `componentProperties` via exported `componentPropertyReferences` on layers.
+ * VARIANT properties are handled when selecting the component variant before clone.
+ */
 function applyComponentProperties(root: FrameNode, props?: Record<string, ComponentPropertyValue>): void {
   if (!props) return;
-  const nodes = collectSceneNodes(root);
+  const byName = componentPropertyValuesByName(props);
+  for (const node of collectSceneNodes(root)) {
+    const refs = node.componentPropertyReferences;
+    if (!refs) continue;
+    for (const [field, propName] of Object.entries(refs)) {
+      const val = byName.get(propName);
+      if (val) applyComponentPropertyToNodeField(node, field, val);
+    }
+  }
+}
 
-  const boolByLabel = new Map<string, boolean>();
-  for (const [key, val] of Object.entries(props)) {
-    if (val.type !== 'BOOLEAN') continue;
-    boolByLabel.set(componentPropertyLabel(key), val.value);
+/** Stretch cloned component root box to instance bounds; typography is not scaled. */
+function normalizeInstanceComponentRootForEmit(
+  root: FrameNode,
+  inst: Pick<InstanceNode, 'width' | 'height'>,
+  opts?: { skipGeometryScale?: boolean }
+): void {
+  if (!opts?.skipGeometryScale) {
+    scaleComponentRootToInstance(root, inst.width, inst.height);
   }
-  const leftIcon = boolByLabel.get('Left Icon');
-  const rightIcon = boolByLabel.get('Right Icon');
-  if (leftIcon === false && rightIcon === false) {
-    for (const n of nodes) {
-      if (n.name === 'Icon') n.visible = false;
-    }
-  }
-
-  for (const [key, val] of Object.entries(props)) {
-    const label = componentPropertyLabel(key);
-    if (val.type === 'TEXT') {
-      for (const n of nodes) {
-        if (n.type === 'TEXT' && (label === 'Text' || n.name === 'Button')) {
-          n.characters = val.value;
-        }
-      }
-    }
-    if (val.type === 'VARIANT' && label === 'Level' && val.value === 'Secondary') {
-      if (root.fills?.length) {
-        root.fills = root.fills.map((f) => ({ ...f, visible: false }));
-      }
-    }
-  }
+  root.width = inst.width;
+  root.height = inst.height;
 }
 
 function instanceHasDropShadow(effects: Effect[] | undefined): boolean {
@@ -2283,13 +2308,8 @@ function prepareInstanceComponentRoot(
   const detached = instanceDetachedChildren(inst as InstanceNode);
   if (detached) {
     mergeDetachedChildrenIntoRoot(root, detached);
-  } else {
-    scaleComponentRootToInstance(root, inst.width, inst.height);
-    root.width = inst.width;
-    root.height = inst.height;
-    root.layoutSizingHorizontal = 'FIXED';
-    root.layoutSizingVertical = 'FIXED';
   }
+  normalizeInstanceComponentRootForEmit(root, inst, { skipGeometryScale: detached !== undefined });
   prepareClonedComponentSubtreeForEmit(root, env);
 }
 

@@ -133,7 +133,7 @@ export function flexChildLayoutCss(
     const px = Math.round(mainSize);
     basisMain = `${String(px)}px`;
   }
-  if ((isAutoLayoutFrameNode(node) || isTextNode(node)) && mainSizing === 'HUG') {
+  if (isAutoLayoutFrameNode(node) && mainSizing === 'HUG') {
     basisMain = `${String(Math.round(mainSize))}px`;
   }
   let alignSelf =
@@ -165,10 +165,13 @@ export function flexChildLayoutCss(
     (node as TextNode).textAlignVertical === 'CENTER'
   ) {
     const isRow = parentFrame.layoutMode !== 'VERTICAL';
-    const parentCross = isRow ? (parentFrame.height ?? 0) : (parentFrame.width ?? 0);
-    const textCross = isRow ? (node.height ?? 0) : (node.width ?? 0);
-    if (parentCross > 0 && textCross > 0 && parentCross >= textCross) {
-      alignSelf = 'align-self:center;';
+    const crossSizing = isRow ? n.layoutSizingVertical : n.layoutSizingHorizontal;
+    if (crossSizing !== 'FILL' && n.layoutAlign !== 'STRETCH') {
+      const parentCross = isRow ? (parentFrame.height ?? 0) : (parentFrame.width ?? 0);
+      const textCross = isRow ? (node.height ?? 0) : (node.width ?? 0);
+      if (parentCross > 0 && textCross > 0 && parentCross >= textCross) {
+        alignSelf = 'align-self:center;';
+      }
     }
   }
   const crossDim =

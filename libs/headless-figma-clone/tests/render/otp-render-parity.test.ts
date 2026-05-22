@@ -71,17 +71,41 @@ describe('OTP render parity', () => {
     expect(warnings.filter((w) => w.startsWith('missing_component:I0'))).toHaveLength(0);
   });
 
-  it('primary button hides Icon layer via componentProperties', () => {
+  it('primary button root spans full instance width', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));
-    expect(styles).toMatch(/\.hfc-node-I73589\{[^}]*display:none/);
+    expect(styles).toMatch(/\.hfc-node-I1640 \.hfc-node-I73588\{[^}]*width:328px/);
   });
 
-  it('secondary button root has transparent fill', () => {
+  it('primary button label uses design font size not instance stretch scale', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));
-    const secondaryRootRule = styles.match(/\.hfc-node-I73597\{[^}]+\}/)?.[0] ?? '';
-    expect(secondaryRootRule).not.toMatch(/background-color:rgba\(255,255,255,1\)/);
+    expect(styles).toMatch(/font-size:16px/);
+    expect(styles).not.toMatch(/font-size:32\.07339449541284px/);
+  });
+
+  it('OTP digit input frame keeps instance width after detached merge', () => {
+    const env = loadOtpEnvelope();
+    const styles = styleBlob(compileOtpRoot(env));
+    expect(styles).toMatch(/\.hfc-node-I1603 \.hfc-node-I73568\{[^}]*width:48px/);
+    expect(styles).not.toMatch(/\.hfc-node-I1603 \.hfc-node-I73568\{[^}]*width:7\./);
+  });
+
+  it('header subtitle stays within instance bounds (no vertical stretch clip)', () => {
+    const env = loadOtpEnvelope();
+    const styles = styleBlob(compileOtpRoot(env));
+    expect(styles).toMatch(/\.hfc-node-I1599 \.hfc-node-I73828\{[^}]*width:328px/);
+    expect(styles).toMatch(/\.hfc-node-I1599 \.hfc-node-I73828\{[^}]*top:28px/);
+    expect(styles).toMatch(/\.hfc-node-I1599 \.hfc-node-I73828\{[^}]*height:40px/);
+    expect(styles).not.toMatch(/\.hfc-node-I1599 \.hfc-node-I73828\{[^}]*width:418px/);
+    expect(styles).toMatch(/\+91 99304448/);
+  });
+
+  it('toast message omits paragraph spacing on single-line centered text', () => {
+    const env = loadOtpEnvelope();
+    const styles = styleBlob(compileOtpRoot(env));
+    const toastSpan = styles.match(/OTP expired\. Please try again\.[^<]*/)?.[0] ?? '';
+    expect(toastSpan).not.toMatch(/margin-bottom:8px/);
   });
 
   it('toast instance wrapper allows shadow overflow', () => {

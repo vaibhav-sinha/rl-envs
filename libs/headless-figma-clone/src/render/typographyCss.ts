@@ -141,7 +141,7 @@ export function paragraphTypographyCss(
   t: TypographyInput,
   fontSize: number,
   env?: FileEnvelope,
-  opts?: { tightAutoLineHeight?: boolean; excludeListLayout?: boolean }
+  opts?: { tightAutoLineHeight?: boolean; excludeListLayout?: boolean; omitParagraphSpacing?: boolean }
 ): string {
   let s = '';
   const lh = opts?.tightAutoLineHeight
@@ -159,7 +159,7 @@ export function paragraphTypographyCss(
       : `${String(t.paragraphIndent)}px`;
     s += `text-indent:${indent};`;
   }
-  if (t.paragraphSpacing !== undefined && t.paragraphSpacing > 0) {
+  if (!opts?.omitParagraphSpacing && t.paragraphSpacing !== undefined && t.paragraphSpacing > 0) {
     s += `margin-bottom:${String(t.paragraphSpacing)}px;`;
   }
   if (t.hangingPunctuation) s += 'hanging-punctuation:first last;';
