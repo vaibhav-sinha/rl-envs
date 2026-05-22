@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { FileEnvelope } from '../../src/model/types.js';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
-import { buildImageDataUrlByHash } from '../../src/render/imageDataUrls.js';
+import { buildImageDataUrlForSubtree } from '../../src/render/imageDataUrls.js';
 import { resolveHfcNodeIdBySourceFigmaId } from '../../src/resolveNodeRef.js';
 
 const OTP_HFC = join(
@@ -25,7 +25,7 @@ function compileOtpRoot(env: FileEnvelope): string {
       viewportPaddingPx: 0,
       includeCss: true,
       inlineCss: false,
-      imageDataUrlByHash: buildImageDataUrlByHash(env, OTP_HFC),
+      imageDataUrlByHash: buildImageDataUrlForSubtree(env, OTP_HFC, rootId!),
     },
   });
   return `${out.css}\n${out.html}`;

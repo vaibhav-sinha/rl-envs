@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
-import { buildImageDataUrlByHash } from '../../src/render/imageDataUrls.js';
+import { buildImageDataUrlForSubtree } from '../../src/render/imageDataUrls.js';
 import { playwrightScreenshotService, __closeTestBrowser } from '../../src/screenshot/PlaywrightScreenshotService.js';
 import type { FileEnvelope } from '../../src/model/types.js';
 
@@ -21,11 +21,15 @@ describe('Phase 3 exit screenshot', () => {
 
   it('matches golden PNG for phase3-showcase fixture (root I3)', async () => {
     const { envelope, jsonPath } = loadShowcase();
-    const imgMap = buildImageDataUrlByHash(envelope, jsonPath);
     const compiled = designCompiler.compileSubtree({
       envelope,
       rootNodeId: 'I3',
-      options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true, imageDataUrlByHash: imgMap },
+      options: {
+        viewportPaddingPx: 0,
+        includeCss: true,
+        inlineCss: true,
+        imageDataUrlByHash: buildImageDataUrlForSubtree(envelope, jsonPath, 'I3'),
+      },
     });
     const shot = await playwrightScreenshotService.capture({
       compiled,

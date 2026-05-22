@@ -5,7 +5,7 @@ import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import { compileSubtreeForScreenshot } from '../render/compileForScreenshot.js';
 import { getLocalFontsFileBaseUrl } from '../fonts/localFontRegistry.js';
 import { designCompiler } from '../render/DesignCompiler.js';
-import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
+import { buildImageDataUrlForSubtree } from '../render/imageDataUrls.js';
 import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
 import { collectMetadataTree, collectPagesIndex } from './metadata.js';
 import { runMcpToolWithCancellation } from './runMcpToolWithCancellation.js';
@@ -23,13 +23,6 @@ export interface RegisterToolsDeps {
 
 export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterToolsDeps): void {
   const { engine } = deps;
-
-  function imageDataUrlMapForActiveFile(): Record<string, string> {
-    const file = engine.getActiveFile();
-    const fp = engine.getActiveFilePath();
-    if (!file || !fp) return {};
-    return buildImageDataUrlByHash(file, fp);
-  }
 
   server.registerTool(
     'create_new_file',
@@ -297,6 +290,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             isError: true,
           };
         }
+        const fp = engine.getActiveFilePath();
         const compiled = designCompiler.compileSubtree({
           envelope: file,
           rootNodeId: args.nodeId,
@@ -304,7 +298,8 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             viewportPaddingPx: args.viewportPaddingPx,
             includeCss: args.includeCss,
             inlineCss: args.inlineCss,
-            imageDataUrlByHash: imageDataUrlMapForActiveFile(),
+            imageDataUrlByHash:
+              fp !== null ? buildImageDataUrlForSubtree(file, fp, args.nodeId) : {},
           },
         });
         return {
@@ -345,6 +340,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             isError: true,
           };
         }
+        const fp = engine.getActiveFilePath();
         const compiled = await compileSubtreeForScreenshot({
           envelope: file,
           rootNodeId: args.nodeId,
@@ -353,7 +349,8 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             includeCss: true,
             inlineCss: true,
             fontBaseUrl: getLocalFontsFileBaseUrl(),
-            imageDataUrlByHash: imageDataUrlMapForActiveFile(),
+            imageDataUrlByHash:
+              fp !== null ? buildImageDataUrlForSubtree(file, fp, args.nodeId) : {},
           },
           screenshot: playwrightScreenshotService,
           screenshotTimeoutMs: deps.screenshotTimeoutMs,

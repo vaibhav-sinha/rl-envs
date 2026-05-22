@@ -27,3 +27,9 @@ npm run benchmark:i1538-512    # must complete without OOM at 512MB heap
 ```
 
 Vitest: `tests/integration/oker-i1538-clone.test.ts` asserts `commitEnvelope` on the same clone script.
+
+### MCP memory (oker + subtree assets)
+
+`tests/integration/mcp-http.oker-max-otp-server-break.test.ts` — agent clone stays up at 512MB/2048MB with `HFC_PREVIEW_ON_LOAD=0` and subtree-scoped image loading. Both describes copy the oker fixture into a temp workspace so `use_figma` never writes the task `environment/design.hfc.json`.
+
+`tests/integration/preview-on-load.test.ts` — `--file` startup at 512MB with assets when preview compile is skipped.

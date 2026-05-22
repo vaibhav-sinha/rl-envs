@@ -9,7 +9,7 @@ import type { FileEnvelope } from '../model/types.js';
 import type { HeadlessFigmaRuntimeConfig } from '../config/types.js';
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import { designCompiler } from '../render/DesignCompiler.js';
-import { buildImageDataUrlByHash } from '../render/imageDataUrls.js';
+import { buildImageDataUrlForSubtree } from '../render/imageDataUrls.js';
 import type { Logger } from '../util/logger.js';
 import { createHeadlessMcpServer } from '../mcp/registerTools.js';
 import { ExportError, handleImportHfc, handleImportHfcFromSession } from '../import/exportHandler.js';
@@ -141,6 +141,12 @@ function resolvePreviewPageId(
   return pages[0]!.id;
 }
 
+/** When `HFC_PREVIEW_ON_LOAD` is `0` / `false`, skip compiling preview at HTTP startup (saves memory). */
+function isPreviewOnLoadEnabled(): boolean {
+  const raw = process.env.HFC_PREVIEW_ON_LOAD?.trim().toLowerCase();
+  return raw !== '0' && raw !== 'false' && raw !== 'no';
+}
+
 function shellParams(env: FileEnvelope, pageId: string | null): PreviewShellParams {
   return {
     fileName: env.fileName,
@@ -195,7 +201,7 @@ export async function createHttpServer(params: {
           fontBaseUrl: previewFontBaseUrl(req),
           imageDataUrlByHash: (() => {
             const fp = engine.getActiveFilePath();
-            return fp ? buildImageDataUrlByHash(env, fp) : {};
+            return fp ? buildImageDataUrlForSubtree(env, fp, page.id) : {};
           })(),
         },
       });
@@ -207,12 +213,15 @@ export async function createHttpServer(params: {
   };
 
   const refreshPreview = (env: FileEnvelope): void => {
-    previewStore.html = compilePreviewHtml(env, previewStore.pageId);
+    const resolvedPageId = resolvePreviewPageId(env, engine, previewStore.pageId);
+    previewStore.pageId = resolvedPageId;
+    if (!isPreviewOnLoadEnabled()) return;
+    previewStore.html = compilePreviewHtml(env, resolvedPageId);
   };
 
   engine.attachPreviewListener(refreshPreview);
   const cur = engine.getActiveFile();
-  if (cur) refreshPreview(cur);
+  if (cur && isPreviewOnLoadEnabled()) refreshPreview(cur);
 
   const httpServer = createServer(async (req, res) => {
     try {
