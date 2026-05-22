@@ -419,7 +419,13 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           let touchedNodeIds: string[] = [];
           let txWarnings: string[] = [];
           if (run.operations.length > 0) {
-            const r = await engine.applyTransaction(run.operations, { signal });
+            const r =
+              run.preApplied && run.committedWorking
+                ? await engine.commitEnvelope(run.committedWorking, {
+                    signal,
+                    touchedNodeIds: run.touchedNodeIds,
+                  })
+                : await engine.applyTransaction(run.operations, { signal });
             if (!r.success) {
               commandErrorCode = r.errorCode;
               commandMessage = r.message;

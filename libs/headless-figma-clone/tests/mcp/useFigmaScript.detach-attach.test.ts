@@ -52,7 +52,7 @@ describe('useFigmaScript detached frame attach (Figma parity)', () => {
 const targetPage = figma.root.children.find((p) => p.name === "Final design");
 await figma.setCurrentPageAsync(targetPage);
 
-const source = await figma.getNodeByIdAsync('I1548');
+const source = await figma.getNodeByIdAsync('I1538');
 const section = await figma.getNodeByIdAsync('I27');
 
 const newFrame = figma.createFrame();
@@ -77,7 +77,12 @@ return { createdNodeIds: [newFrame.id], childCount: newFrame.children.length };
       expect(run.kind).toBe('ok');
       if (run.kind !== 'ok') return;
 
-      const tx = await engine.applyTransaction(run.operations);
+      const tx =
+        run.preApplied && run.committedWorking
+          ? await engine.commitEnvelope(run.committedWorking, {
+              touchedNodeIds: run.touchedNodeIds,
+            })
+          : await engine.applyTransaction(run.operations);
       expect(tx.success).toBe(true);
       if (!tx.success) return;
 
@@ -116,17 +121,31 @@ return { frameId: newFrame.id };
       );
       expect(step15.kind).toBe('ok');
       if (step15.kind !== 'ok') return;
-      const tx15 = await engine.applyTransaction(step15.operations);
+      const tx15 =
+        step15.preApplied && step15.committedWorking
+          ? await engine.commitEnvelope(step15.committedWorking, {
+              touchedNodeIds: step15.touchedNodeIds,
+            })
+          : await engine.applyTransaction(step15.operations);
       expect(tx15.success).toBe(true);
 
-      const frameId = (step15.result as { frameId: string }).frameId;
+      const fileAfter15 = engine.getActiveFile()!;
+      const sectionAfter15 = fileAfter15.document.children
+        .find((p) => p.type === 'PAGE' && p.name === 'Final design')
+        ?.children.find((n) => n.id === 'I27');
+      const frameId =
+        sectionAfter15 && 'children' in sectionAfter15
+          ? sectionAfter15.children.find((c) => c.name === 'Onboarding/OTP/MaxAttempts')?.id
+          : undefined;
+      expect(frameId).toBeTruthy();
+      const destFrameId = frameId as string;
 
       const step16 = await runUseFigmaScript(
         `
 const targetPage = figma.root.children.find((p) => p.name === "Final design");
 await figma.setCurrentPageAsync(targetPage);
-const source = await figma.getNodeByIdAsync('I1548');
-const dest = await figma.getNodeByIdAsync('${frameId}');
+const source = await figma.getNodeByIdAsync('I1538');
+const dest = await figma.getNodeByIdAsync('${destFrameId}');
 const clonedIds = [];
 for (const child of source.children) {
   const c = child.clone();
@@ -140,7 +159,12 @@ return { clonedIds, destChildCount: dest.children.length };
       expect(step16.kind).toBe('ok');
       if (step16.kind !== 'ok') return;
 
-      const tx16 = await engine.applyTransaction(step16.operations);
+      const tx16 =
+        step16.preApplied && step16.committedWorking
+          ? await engine.commitEnvelope(step16.committedWorking, {
+              touchedNodeIds: step16.touchedNodeIds,
+            })
+          : await engine.applyTransaction(step16.operations);
       expect(tx16.success).toBe(true);
       if (!tx16.success) return;
 

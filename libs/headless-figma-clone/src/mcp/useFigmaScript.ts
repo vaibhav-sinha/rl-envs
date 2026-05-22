@@ -7,10 +7,11 @@ import {
   findEnvelopeNode,
   registerAssetBytesInEnvelope,
   validateTransformModifiers,
+  isSceneGraphOperation,
   type EngineOperation,
   type NewNodeSpec,
 } from '../engine/DocumentEngine.js';
-import { applyEnvelopeOperation } from '../engine/envelopeOps.js';
+import { applyEnvelopeOperation, isEnvelopeOperation } from '../engine/envelopeOps.js';
 import { boundsOfNodes, queueFlattenNodes, queueGroupNodes, queueUngroup } from '../engine/graphOps.js';
 import { computeFillGeometry, computeStrokeGeometry, outlineStrokeToVector } from '../render/geometry.js';
 import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
@@ -104,6 +105,8 @@ interface ScriptContext {
   graphIndexes: GraphIndexes;
   indexStale: boolean;
   ops: EngineOperation[];
+  /** Node ids touched during sandbox apply (for commitEnvelope without replay). */
+  touchedIds: Set<string>;
   deletedIds: Set<string>;
   selectionByPageId: Map<string, string[]>;
   /** Runtime nodes from figma.create* (for detached-node capture at end of script). */
@@ -174,9 +177,36 @@ function ensureWorkingCopy(ctx: ScriptContext): void {
   rebuildGraphIndexes(ctx);
 }
 
+function recordTouchedFromOp(ctx: ScriptContext, op: EngineOperation, resultId?: string): void {
+  if (isEnvelopeOperation(op)) {
+    if (op.op === 'createVariable') ctx.touchedIds.add(op.variableId);
+    else if (op.op === 'createVariableCollection') ctx.touchedIds.add(op.collectionId);
+    else if (
+      op.op === 'createPaintStyle' ||
+      op.op === 'createTextStyle' ||
+      op.op === 'createEffectStyle' ||
+      op.op === 'createGridStyle'
+    ) {
+      ctx.touchedIds.add(op.id);
+    }
+    return;
+  }
+  if (!isSceneGraphOperation(op)) return;
+  if (op.op === 'createNode' && resultId) ctx.touchedIds.add(resultId);
+  else if (op.op === 'duplicateNode' && resultId) ctx.touchedIds.add(resultId);
+  else if (op.op === 'detachInstance' && resultId) ctx.touchedIds.add(resultId);
+  else if (op.op === 'moveNode') {
+    ctx.touchedIds.add(op.nodeId);
+    ctx.touchedIds.add(op.newParentId);
+  } else if ('nodeId' in op) {
+    ctx.touchedIds.add(op.nodeId);
+  }
+}
+
 function applyScriptEngineOp(ctx: ScriptContext, op: EngineOperation): string | undefined {
   ensureWorkingCopy(ctx);
   const result = applyEngineOp(ctx.working, op, ctx.signal);
+  recordTouchedFromOp(ctx, op, result);
   ctx.indexStale = true;
   return result;
 }
@@ -187,6 +217,7 @@ function applyScriptCreateNodeOp(
 ): string {
   ensureWorkingCopy(ctx);
   const result = applyCreateNodeOp(ctx.working, op);
+  ctx.touchedIds.add(result);
   ctx.indexStale = true;
   return result;
 }
@@ -2403,6 +2434,11 @@ export interface RunUseFigmaScriptOk {
   snapshotWarnings: string[];
   /** Node specs for runtime nodes never appended to the document (for issues.hfc.json). */
   detachedNodes: unknown[];
+  /** Sandbox already applied ops to a working copy; commit without replay. */
+  preApplied: boolean;
+  /** Pre-mutated envelope when preApplied (not serialized to MCP). */
+  committedWorking: import('../model/types.js').FileEnvelope | null;
+  touchedNodeIds: string[];
 }
 
 export interface RunUseFigmaScriptErr {
@@ -2461,6 +2497,7 @@ export async function runUseFigmaScript(
     graphIndexes: buildGraphIndexes(file),
     indexStale: false,
     ops: [],
+    touchedIds: new Set(),
     deletedIds: new Set(),
     selectionByPageId: new Map(),
     createdNodes: new Set(),
@@ -3001,6 +3038,9 @@ export async function runUseFigmaScript(
   }
 
   const detachedNodes = collectDetachedSnapshots(ctx);
+  if (ctx.ownsWorking) {
+    engine.adoptSandboxEnvelope(ctx.working);
+  }
   return {
     kind: 'ok',
     operations: ctx.ops,
@@ -3008,5 +3048,8 @@ export async function runUseFigmaScript(
     result,
     snapshotWarnings,
     detachedNodes,
+    preApplied: ctx.ownsWorking,
+    committedWorking: ctx.ownsWorking ? ctx.working : null,
+    touchedNodeIds: [...ctx.touchedIds],
   };
 }

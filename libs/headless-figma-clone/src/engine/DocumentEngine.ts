@@ -1737,30 +1737,53 @@ function allocNodeId(working: FileEnvelope): string {
   return id;
 }
 
+/** Shallow copy scene node scalars; omit `children` (filled by clone walk). */
+function shallowCloneSceneNodeShell(node: SceneNode, newId: string): SceneNode {
+  const cloned = { ...node, id: newId } as SceneNode;
+  if ('children' in cloned) {
+    const c = cloned as SceneNode & { children?: SceneNode[] };
+    delete c.children;
+  }
+  return cloned;
+}
+
 export function cloneSceneSubtreeWithNewIds(
   working: FileEnvelope,
   node: SceneNode,
   signal?: AbortSignal
 ): SceneNode {
   engineThrowIfAborted(signal);
-  const cloned = structuredClone(node) as SceneNode;
-  cloned.id = allocNodeId(working);
+  const newId = allocNodeId(working);
+
   if (
-    cloned.type === 'FRAME' ||
-    cloned.type === 'TRANSFORM_GROUP' ||
-    cloned.type === 'GROUP' ||
-    cloned.type === 'SECTION'
+    node.type === 'FRAME' ||
+    node.type === 'TRANSFORM_GROUP' ||
+    node.type === 'GROUP' ||
+    node.type === 'SECTION'
   ) {
-    cloned.children = cloned.children.map((c) => cloneSceneSubtreeWithNewIds(working, c, signal));
-  } else if (cloned.type === 'BOOLEAN_OPERATION') {
-    const b = cloned;
-    b.children = b.children.map(
-      (c) => cloneSceneSubtreeWithNewIds(working, c as SceneNode, signal) as (typeof b.children)[number]
-    );
-  } else if (cloned.type === 'INSTANCE' && cloned.children?.length) {
-    cloned.children = cloned.children.map((c) => cloneSceneSubtreeWithNewIds(working, c, signal));
+    const cloned = shallowCloneSceneNodeShell(node, newId) as FrameNode;
+    cloned.children = node.children.map((c) => cloneSceneSubtreeWithNewIds(working, c, signal));
+    return cloned;
   }
-  return cloned;
+
+  if (node.type === 'BOOLEAN_OPERATION') {
+    const cloned = shallowCloneSceneNodeShell(node, newId) as BooleanOperationNode;
+    cloned.children = node.children.map(
+      (c) =>
+        cloneSceneSubtreeWithNewIds(working, c as SceneNode, signal) as BooleanOperationNode['children'][number]
+    );
+    return cloned;
+  }
+
+  if (node.type === 'INSTANCE') {
+    const cloned = shallowCloneSceneNodeShell(node, newId) as InstanceNode;
+    if (node.children?.length) {
+      cloned.children = node.children.map((c) => cloneSceneSubtreeWithNewIds(working, c, signal));
+    }
+    return cloned;
+  }
+
+  return shallowCloneSceneNodeShell(node, newId);
 }
 
 /** Duplicate a scene node as a sibling (Figma `clone` / `duplicate`). */
@@ -2284,6 +2307,97 @@ function pageExists(document: DocumentNode, pageId: string): boolean {
   return document.children.some((c) => c.type === 'PAGE' && c.id === pageId);
 }
 
+/** Collect touched ids from queued ops (for pre-applied sandbox commits without replay). */
+export function collectTouchedNodeIdsFromOps(ops: EngineOperation[]): string[] {
+  const touched = new Set<string>();
+  for (const op of ops) {
+    if (isEnvelopeOperation(op)) {
+      if (op.op === 'createVariable') touched.add(op.variableId);
+      else if (op.op === 'createVariableCollection') touched.add(op.collectionId);
+      else if (
+        op.op === 'createPaintStyle' ||
+        op.op === 'createTextStyle' ||
+        op.op === 'createEffectStyle' ||
+        op.op === 'createGridStyle'
+      ) {
+        touched.add(op.id);
+      }
+      continue;
+    }
+    if (isSceneGraphOperation(op)) {
+      if (op.op === 'createNode') {
+        /* id assigned at apply time — skip unless replayed */
+      } else if (op.op === 'duplicateNode') {
+        /* clone id assigned at apply time */
+      } else if (op.op === 'detachInstance') {
+        touched.add(op.nodeId);
+      } else if (op.op === 'moveNode') {
+        touched.add(op.nodeId);
+        touched.add(op.newParentId);
+      } else if ('nodeId' in op) {
+        touched.add(op.nodeId);
+      }
+    }
+  }
+  return [...touched];
+}
+
+/**
+ * Apply a batch of engine operations to an in-memory envelope (no clone, no save).
+ * Used by applyTransaction replay and internally by the script sandbox.
+ */
+export async function applyOpsToEnvelope(
+  working: FileEnvelope,
+  ops: EngineOperation[],
+  activeFilePath: string,
+  signal?: AbortSignal
+): Promise<{ touchedNodeIds: string[]; warnings: string[] }> {
+  const touched = new Set<string>();
+  const warnings: string[] = [];
+  let opSteps = 0;
+
+  for (const op of ops) {
+    opSteps += 1;
+    if (opSteps % 32 === 0) engineThrowIfAborted(signal);
+    if (isAssetRegisterOperation(op)) {
+      const buf = Buffer.from(op.dataBase64, 'base64');
+      if (buf.length === 0) {
+        throw new ValidationErr('VALIDATION_ERROR', 'registerAssetBytes: empty payload');
+      }
+      await persistAssetBytesOnDisk(activeFilePath, working, buf, op.mimeType);
+      continue;
+    }
+    if (isEnvelopeOperation(op)) {
+      applyEnvelopeOperation(working, op);
+      if (op.op === 'createVariable') touched.add(op.variableId);
+      else if (op.op === 'createVariableCollection') touched.add(op.collectionId);
+      else if (
+        op.op === 'createPaintStyle' ||
+        op.op === 'createTextStyle' ||
+        op.op === 'createEffectStyle' ||
+        op.op === 'createGridStyle'
+      ) {
+        touched.add(op.id);
+      }
+      continue;
+    }
+    if (isSceneGraphOperation(op)) {
+      const id = applyEngineOp(working, op, signal);
+      if (op.op === 'createNode' && id) touched.add(id);
+      else if (op.op === 'duplicateNode' && id) touched.add(id);
+      else if (op.op === 'detachInstance' && id) touched.add(id);
+      else if (op.op === 'moveNode') {
+        touched.add(op.nodeId);
+        touched.add(op.newParentId);
+      } else if ('nodeId' in op) {
+        touched.add(op.nodeId);
+      }
+    }
+  }
+
+  return { touchedNodeIds: [...touched], warnings };
+}
+
 export class DocumentEngine {
   private activeFile: FileEnvelope | null = null;
   private activeFilePath: string | null = null;
@@ -2306,6 +2420,15 @@ export class DocumentEngine {
     if (this.previewListener && this.activeFile) {
       this.previewListener(this.activeFile);
     }
+  }
+
+  /**
+   * Replace activeFile with the use_figma sandbox copy so the pre-mutation envelope can be GC'd
+   * before commitEnvelope save (avoids holding two full copies at commit time).
+   */
+  adoptSandboxEnvelope(envelope: FileEnvelope): void {
+    this.activeFile = envelope;
+    this.syncCurrentPageToDocument(envelope.document);
   }
 
   getActiveFile(): FileEnvelope | null {
@@ -2586,47 +2709,22 @@ export class DocumentEngine {
       return { success: false, errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
     }
     const signal = options?.signal;
-    const touched = new Set<string>();
-    const warnings: string[] = [];
-    let opSteps = 0;
     let working: FileEnvelope;
 
     try {
       engineThrowIfAborted(signal);
       working = deepClone(this.activeFile);
-      for (const op of ops) {
-        opSteps += 1;
-        if (opSteps % 32 === 0) engineThrowIfAborted(signal);
-        if (isAssetRegisterOperation(op)) {
-          const buf = Buffer.from(op.dataBase64, 'base64');
-          if (buf.length === 0) {
-            throw new ValidationErr('VALIDATION_ERROR', 'registerAssetBytes: empty payload');
-          }
-          await persistAssetBytesOnDisk(this.activeFilePath, working, buf, op.mimeType);
-          continue;
-        }
-        if (isEnvelopeOperation(op)) {
-          applyEnvelopeOperation(working, op);
-          if (op.op === 'createVariable') touched.add(op.variableId);
-          else if (op.op === 'createVariableCollection') touched.add(op.collectionId);
-          else if (op.op === 'createPaintStyle' || op.op === 'createTextStyle' || op.op === 'createEffectStyle' || op.op === 'createGridStyle') {
-            touched.add(op.id);
-          }
-          continue;
-        }
-        if (isSceneGraphOperation(op)) {
-          const id = applyEngineOp(working, op, signal);
-          if (op.op === 'createNode' && id) touched.add(id);
-          else if (op.op === 'duplicateNode' && id) touched.add(id);
-          else if (op.op === 'detachInstance' && id) touched.add(id);
-          else if (op.op === 'moveNode') {
-            touched.add(op.nodeId);
-            touched.add(op.newParentId);
-          } else if ('nodeId' in op) {
-            touched.add(op.nodeId);
-          }
-        }
-      }
+      const { touchedNodeIds, warnings } = await applyOpsToEnvelope(
+        working,
+        ops,
+        this.activeFilePath,
+        signal
+      );
+      this.activeFile = working;
+      this.syncCurrentPageToDocument(working.document);
+      await this.deps.persistence.save({ path: this.activeFilePath, envelope: working });
+      this.emitPreview();
+      return { success: true, touchedNodeIds, warnings };
     } catch (e) {
       if (e instanceof ValidationErr) {
         return {
@@ -2641,12 +2739,52 @@ export class DocumentEngine {
       }
       throw e;
     }
+  }
 
-    this.activeFile = working;
-    this.syncCurrentPageToDocument(working.document);
-    await this.deps.persistence.save({ path: this.activeFilePath, envelope: working });
-    this.emitPreview();
-    return { success: true, touchedNodeIds: [...touched], warnings };
+  /**
+   * Commit a pre-mutated envelope from the use_figma sandbox without replaying operations.
+   * Transfers ownership of `envelope`; callers must not reuse the object afterward.
+   */
+  async commitEnvelope(
+    envelope: FileEnvelope,
+    options?: {
+      signal?: AbortSignal;
+      touchedNodeIds?: string[];
+      warnings?: string[];
+    }
+  ): Promise<TransactionResult | TransactionFailure> {
+    if (!this.activeFilePath) {
+      return { success: false, errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
+    }
+    const signal = options?.signal;
+    try {
+      engineThrowIfAborted(signal);
+      if (this.activeFile !== envelope) {
+        this.activeFile = null;
+      }
+      this.activeFile = envelope;
+      this.syncCurrentPageToDocument(envelope.document);
+      await this.deps.persistence.save({ path: this.activeFilePath, envelope });
+      this.emitPreview();
+      return {
+        success: true,
+        touchedNodeIds: options?.touchedNodeIds ?? [],
+        warnings: options?.warnings ?? [],
+      };
+    } catch (e) {
+      if (e instanceof ValidationErr) {
+        return {
+          success: false,
+          errorCode: e.code,
+          message: e.message,
+        };
+      }
+      if (signal?.aborted) {
+        const msg = e instanceof Error ? e.message : 'Tool run aborted';
+        return { success: false, errorCode: 'VALIDATION_ERROR', message: msg };
+      }
+      throw e;
+    }
   }
 
   /** Append detached node snapshots to issues.hfc.json beside the active design file. */

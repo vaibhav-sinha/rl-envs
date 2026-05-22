@@ -21,7 +21,9 @@
     "fonts:metrics": "node scripts/generate-inter-metrics.mjs",
     "pretest": "npx playwright install chromium",
     "test": "vitest run",
-    "test:layer-a": "node --test tests/document-model.phase1.test.mjs tests/document-model.phase2.test.mjs tests/document-model.phase3.test.mjs tests/document-model.phase4.test.mjs tests/document-model.phase5.test.mjs tests/document-model.phase7.test.mjs tests/document-model.phase8.test.mjs tests/document-model.phase9.test.mjs"
+    "test:layer-a": "node --test tests/document-model.phase1.test.mjs tests/document-model.phase2.test.mjs tests/document-model.phase3.test.mjs tests/document-model.phase4.test.mjs tests/document-model.phase5.test.mjs tests/document-model.phase7.test.mjs tests/document-model.phase8.test.mjs tests/document-model.phase9.test.mjs",
+    "benchmark:i1538": "node --expose-gc scripts/profile-i1538-clone.mjs",
+    "benchmark:i1538-512": "node --max-old-space-size=512 --expose-gc scripts/profile-i1538-clone-512.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

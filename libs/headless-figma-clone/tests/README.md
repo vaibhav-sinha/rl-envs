@@ -14,3 +14,16 @@ node --test libs/headless-figma-clone/tests/document-model.phase1.test.mjs
 - `document-model.phase1.test.mjs` — structural validation only; does not start servers.
 
 TypeScript integration tests are specified in [design-doc/implementation-plan-phases.md](../docs/design-doc/implementation-plan-phases.md) and land with `package.json`.
+
+## Memory benchmarks (oker I1538 clone)
+
+Requires `npm run build` and the oker task fixture at `envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json`.
+
+```bash
+cd libs/headless-figma-clone
+npm run build
+npm run benchmark:i1538        # peak heap profile (expose-gc recommended)
+npm run benchmark:i1538-512    # must complete without OOM at 512MB heap
+```
+
+Vitest: `tests/integration/oker-i1538-clone.test.ts` asserts `commitEnvelope` on the same clone script.

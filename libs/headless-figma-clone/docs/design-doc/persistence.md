@@ -14,14 +14,32 @@ export interface PersistenceService {
 
 ## Atomic write algorithm (normative)
 
+Default: **streamed JSON** to a temp file (no single in-memory serialization buffer for the full envelope), then `fsync` + `rename`.
+
 ```text
 function save(path, envelope):
   dir = dirname(path)
   tmp = join(dir, basename(path) + ".tmp-" + randomSuffix())
-  bytes = JSON.stringify(envelope, null, 2)   // UTF-8
+  stream = createWriteStream(tmp, { encoding: 'utf8' })
+  writeJsonEnvelope(stream, envelope)   // incremental; compact JSON
+  stream.end()
+  fsync(tmp)
+  rename(tmp, path)
+```
+
+### Environment flags
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `HFC_STREAM_SAVE` | enabled | Set to `0` or `false` to use buffered `JSON.stringify` + atomic UTF-8 write instead of streaming |
+| `HFC_JSON_PRETTY` | off | Set to `1` or `true` for pretty-printed JSON (`null, 2`); forces buffered save path |
+
+Buffered fallback (when streaming is disabled or pretty mode is on):
+
+```text
+  bytes = JSON.stringify(envelope)            // compact default
+  // or JSON.stringify(envelope, null, 2) when HFC_JSON_PRETTY=1
   writeFileSync(tmp, bytes, { encoding: 'utf8' })
-  fsync(tmp)                                   // Must fsync before rename (Node: open fd fsync)
-  rename(tmp, path)                            // atomic on same volume
 ```
 
 If `rename` fails, **must** attempt `unlink(tmp)` best-effort and surface original error.

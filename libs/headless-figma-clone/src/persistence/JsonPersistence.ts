@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { FileEnvelope } from '../model/types.js';
 import { PersistenceError } from '../util/errors.js';
 import { normalizeComponentEnvelope } from './componentGraphNormalize.js';
-import { atomicWriteFileUtf8 } from './atomicWriteFile.js';
+import { atomicWriteJsonEnvelope } from './streamJsonEnvelope.js';
 
 export interface PersistenceService {
   save(params: { path: string; envelope: FileEnvelope }): Promise<void>;
@@ -11,8 +11,7 @@ export interface PersistenceService {
 
 export class JsonPersistence implements PersistenceService {
   async save(params: { path: string; envelope: FileEnvelope }): Promise<void> {
-    const bytes = `${JSON.stringify(params.envelope, null, 2)}\n`;
-    await atomicWriteFileUtf8(params.path, bytes);
+    await atomicWriteJsonEnvelope(params.path, params.envelope);
   }
 
   async load(params: { path: string }): Promise<FileEnvelope> {
