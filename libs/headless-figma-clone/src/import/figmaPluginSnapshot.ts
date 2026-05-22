@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { ulid } from 'ulid';
 import { COMPONENT_MASTERS_PAGE_NAME } from '../persistence/componentGraphNormalize.js';
 import type {
+  ComponentNode,
   ComponentPropertyValue,
+  ComponentSetNode,
   DocumentNode,
   FileEnvelope,
   FrameNode,
@@ -27,24 +29,30 @@ import {
   mapBlendOpacity,
   mapCornerRadii,
   mapEffects,
+  mapEffectsPreservingEmpty,
   mapLayoutSelf,
   mapPaints,
   mapStrokeExtras,
   optNum,
   optStr,
+  optStyleId,
   prop,
   str,
 } from './propertyMappers.js';
+import { buildNodeIdMapByComponentId } from './componentNodeIdMap.js';
 import {
   mapArcData,
   mapBoundVariables,
   mapComponentProperties,
+  mapComponentPropertyDefinitions,
+  mapComponentPropertyReferences,
   mapExplicitVariableModes,
   mapFrameLayout,
   mapIndividualStrokes,
   mapInstanceOverrides,
   mapLayoutExtras,
   mapPaintsExtended,
+  mapPaintsPreservingEmpty,
   mapTypography,
   reportUnmappedProperties,
 } from './importNodeMappers.js';
@@ -84,6 +92,8 @@ interface ImportContext {
   report: ImportReport;
   /** COMPONENT master frames keyed by component HFC id */
   componentRootFrames: Map<string, FrameNode>;
+  /** COMPONENT scene wrappers for masters page lookup (variants under sets, etc.). */
+  componentSceneNodes: Map<string, ComponentNode>;
   /** Figma `key` → HFC component id */
   componentByKey: Map<string, string>;
   /** Variant display name (e.g. `Property 1=Coffee, Property 2=6`) → HFC component id */
@@ -176,6 +186,7 @@ export function importFigmaPluginSnapshot(
     iconExportRemap,
     report,
     componentRootFrames: new Map(),
+    componentSceneNodes: new Map(),
     componentByKey: new Map(),
     componentByVariantName: new Map(),
     deferredInstances: [],
@@ -210,7 +221,7 @@ export function importFigmaPluginSnapshot(
 
   linkDeferredInstanceMainComponents(ctx);
 
-  attachComponentMasterRoots(document, ctx.componentRootFrames, idMap);
+  attachComponentMasterRoots(document, ctx.componentRootFrames, ctx.componentSceneNodes, idMap);
 
   const envelope: FileEnvelope = {
     schemaVersion: 1,
@@ -288,9 +299,10 @@ function normalizeGroupChildrenToFrameSpace(g: GroupNode): void {
 function attachComponentMasterRoots(
   document: DocumentNode,
   componentRootFrames: Map<string, FrameNode>,
+  componentSceneNodes: Map<string, ComponentNode>,
   idMap: FigmaIdMap
 ): void {
-  if (componentRootFrames.size === 0) return;
+  if (componentRootFrames.size === 0 && componentSceneNodes.size === 0) return;
 
   let mastersPage = document.children.find((p) => p.name === COMPONENT_MASTERS_PAGE_NAME);
   if (!mastersPage) {
@@ -307,6 +319,9 @@ function attachComponentMasterRoots(
     document.children.push(mastersPage);
   }
 
+  for (const comp of componentSceneNodes.values()) {
+    mastersPage.children.push(comp);
+  }
   for (const root of componentRootFrames.values()) {
     mastersPage.children.push(root);
   }
@@ -435,7 +450,8 @@ function importSceneNode(
       ctx.componentRootFrames.set(compId, rootFrame);
       registerComponentLookup(ctx, compId, node.name, p);
       const componentKey = optStr(prop(p, 'componentKey')) ?? optStr(prop(p, 'key'));
-      return {
+      const defs = mapComponentPropertyDefinitions(prop(p, 'componentPropertyDefinitions'));
+      const componentNode: ComponentNode = {
         ...base,
         type: 'COMPONENT',
         x: b.x,
@@ -444,7 +460,87 @@ function importSceneNode(
         height: b.height,
         rootFrameId,
         ...(componentKey ? { componentKey } : {}),
-      } as SceneNode;
+        ...(defs ? { componentPropertyDefinitions: defs } : {}),
+      };
+      ctx.componentSceneNodes.set(compId, componentNode);
+      return componentNode as SceneNode;
+    }
+    if (node.type === 'COMPONENT_SET') {
+      const componentIds: string[] = [];
+      const variantOptions: string[] = [];
+      for (const c of node.children ?? []) {
+        if (c.type !== 'COMPONENT') continue;
+        const childProps = c.properties;
+        const compId = idMap.get(c.id) ?? idMap.allocate(c.id);
+        componentIds.push(compId);
+        registerComponentLookup(ctx, compId, c.name, childProps);
+        const rootFrameId = idMap.allocate(`${c.id}:root`);
+        const childBounds = boundsFromProps(childProps, nodePageOrigin);
+        const childKids: SceneNode[] = [];
+        const variantPageOrigin = childPageOrigin(nodePageOrigin, childBounds);
+        for (const gc of c.children ?? []) {
+          const n = importSceneNode(gc, ctx, variantPageOrigin, false);
+          if (n) childKids.push(n);
+        }
+        const rootFrame = buildFrameFromSerialized(c, rootFrameId, ctx, childKids, {
+          x: 0,
+          y: 0,
+          width: childBounds.width,
+          height: childBounds.height,
+        });
+        ctx.componentRootFrames.set(compId, rootFrame);
+        ctx.componentSceneNodes.set(compId, {
+          id: compId,
+          type: 'COMPONENT',
+          name: c.name,
+          sourceFigmaId: c.id,
+          x: 0,
+          y: 0,
+          width: childBounds.width,
+          height: childBounds.height,
+          rootFrameId,
+          ...(optStr(prop(childProps, 'componentKey')) ?? optStr(prop(childProps, 'key'))
+            ? { componentKey: optStr(prop(childProps, 'componentKey')) ?? optStr(prop(childProps, 'key')) }
+            : {}),
+        });
+        variantOptions.push(c.name);
+      }
+      const defs = mapComponentPropertyDefinitions(prop(p, 'componentPropertyDefinitions'));
+      let variantPropertyKey: string | undefined;
+      if (defs) {
+        for (const [key, def] of Object.entries(defs)) {
+          if (def.type === 'VARIANT') {
+            variantPropertyKey = key;
+            if (def.variantOptions.length > 0) {
+              variantOptions.length = 0;
+              variantOptions.push(...def.variantOptions);
+            }
+            break;
+          }
+        }
+      }
+      const baseComponentId = componentIds[0];
+      const nodeIdMapByComponentId = buildNodeIdMapByComponentId(
+        ctx.componentRootFrames,
+        componentIds,
+        baseComponentId
+      );
+      return {
+        ...base,
+        type: 'COMPONENT_SET',
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        componentIds,
+        variantPropertyKey,
+        variantOptions: variantOptions.length > 0 ? variantOptions : undefined,
+        baseComponentId,
+        ...(nodeIdMapByComponentId ? { nodeIdMapByComponentId } : {}),
+        ...(optStr(prop(p, 'componentKey')) ?? optStr(prop(p, 'key'))
+          ? { componentKey: optStr(prop(p, 'componentKey')) ?? optStr(prop(p, 'key')) }
+          : {}),
+      } as ComponentSetNode;
     }
     report.skippedNodes.push({
       figmaId: node.id,
@@ -479,6 +575,9 @@ function importSceneNode(
     ...mapIconExportFromSnapshot(p, ctx.iconExportRemap),
     ...(mapBoundVariables(p, idMap) ? { boundVariables: mapBoundVariables(p, idMap) } : {}),
     ...(mapExplicitVariableModes(p, idMap) ? { explicitVariableModes: mapExplicitVariableModes(p, idMap) } : {}),
+    ...(mapComponentPropertyReferences(prop(p, 'componentPropertyReferences'))
+      ? { componentPropertyReferences: mapComponentPropertyReferences(prop(p, 'componentPropertyReferences')) }
+      : {}),
   };
   const b = boundsFromProps(p, parentPageOrigin);
   const nodePageOrigin = childPageOrigin(parentPageOrigin, b);
@@ -677,7 +776,7 @@ function importSceneNode(
       } as SceneNode;
     }
     case 'INSTANCE': {
-      const componentProperties = mapComponentProperties(prop(p, 'componentProperties'));
+      const componentProperties = mapComponentProperties(prop(p, 'componentProperties'), idMap);
       const mainHints = extractInstanceMainComponentHints(p);
       const mainComponentId = resolveMainComponentIdFromHints(ctx, {
         ...mainHints,
@@ -685,6 +784,36 @@ function importSceneNode(
       });
       if (!mainComponentId && importStrict()) {
         throw new Error(`HFC_IMPORT_STRICT: INSTANCE ${node.id} missing mainComponent`);
+      }
+      const instanceAppearance: Partial<InstanceNode> = {};
+      if (Object.prototype.hasOwnProperty.call(p, 'fills')) {
+        instanceAppearance.fills = mapPaintsPreservingEmpty(prop(p, 'fills'), imageRemap, idMap);
+      }
+      if (Object.prototype.hasOwnProperty.call(p, 'strokes')) {
+        instanceAppearance.strokes = mapPaintsPreservingEmpty(prop(p, 'strokes'), imageRemap, idMap);
+      }
+      if (Object.prototype.hasOwnProperty.call(p, 'backgrounds')) {
+        instanceAppearance.backgrounds = mapPaintsPreservingEmpty(prop(p, 'backgrounds'), imageRemap, idMap);
+      }
+      if (Object.prototype.hasOwnProperty.call(p, 'effects')) {
+        instanceAppearance.effects = mapEffectsPreservingEmpty(prop(p, 'effects'));
+      }
+      if (Object.prototype.hasOwnProperty.call(p, 'fillStyleId')) {
+        instanceAppearance.fillStyleId = optStyleId(prop(p, 'fillStyleId'));
+      }
+      if (Object.prototype.hasOwnProperty.call(p, 'strokeStyleId')) {
+        instanceAppearance.strokeStyleId = optStyleId(prop(p, 'strokeStyleId'));
+      }
+      if (Object.prototype.hasOwnProperty.call(p, 'effectStyleId')) {
+        instanceAppearance.effectStyleId = optStyleId(prop(p, 'effectStyleId'));
+      }
+      if (Object.prototype.hasOwnProperty.call(p, 'boundVariables')) {
+        instanceAppearance.boundVariables = mapBoundVariables(p, idMap) ?? {};
+      }
+      if (prop(p, 'clipsContent') === true) {
+        instanceAppearance.clipsContent = true;
+      } else if (Object.prototype.hasOwnProperty.call(p, 'clipsContent')) {
+        instanceAppearance.clipsContent = false;
       }
       const inst = {
         ...base,
@@ -694,15 +823,13 @@ function importSceneNode(
         width: b.width,
         height: b.height,
         children: importChildren(),
-        fills,
-        strokes,
-        effects,
+        ...instanceAppearance,
         ...strokeExtras,
         ...corners,
         mainComponentId: mainComponentId ?? UNRESOLVED_MAIN_COMPONENT_ID,
         componentProperties,
         overrides: mapInstanceOverrides(prop(p, 'overrides'), idMap, imageRemap),
-        effectStyleId: optStr(prop(p, 'effectStyleId')),
+        ...(optNum(prop(p, 'scaleFactor')) !== undefined ? { scaleFactor: optNum(prop(p, 'scaleFactor')) } : {}),
       } as InstanceNode;
       if (!mainComponentId) {
         if (importVerbose()) {

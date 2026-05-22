@@ -1,6 +1,6 @@
 import type { FontName, TextNode, FileEnvelope, DocumentNode } from '../model/types.js';
 import { listLocalFontFaces } from './localFontRegistry.js';
-import { listFontsUsed } from './collectDocumentFonts.js';
+import { collectTextNodeFonts, listFontsUsed } from './collectDocumentFonts.js';
 import { getFontAvailability, resolveRenderingFontName } from './fontSubstitution.js';
 import { DEFAULT_FONT } from './fontTypes.js';
 
@@ -38,8 +38,13 @@ export async function loadFontAsync(fontName: FontName): Promise<void> {
   loadedFonts.add(fontKey(fontName));
 }
 
+/** Figma preloads Inter in the plugin sandbox. */
+export function isPreloadedFont(fontName: FontName): boolean {
+  return fontName.family === 'Inter';
+}
+
 export function isFontLoaded(fontName: FontName): boolean {
-  return loadedFonts.has(fontKey(fontName));
+  return isPreloadedFont(fontName) || loadedFonts.has(fontKey(fontName));
 }
 
 export function resetLoadedFontsForTests(): void {
@@ -67,8 +72,9 @@ export function hasMissingFont(envelope: FileEnvelope): boolean {
   const texts: TextNode[] = [];
   walkTextNodes(envelope.document, texts);
   for (const t of texts) {
-    const fn = t.fontName ?? DEFAULT_FONT;
-    if (!isFontLoaded(fn)) return true;
+    for (const fn of collectTextNodeFonts(t)) {
+      if (!isFontLoaded(fn)) return true;
+    }
   }
   return false;
 }

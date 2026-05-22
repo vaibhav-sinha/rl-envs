@@ -279,12 +279,6 @@ TaskConfig(path="envs/figma-design/tasks/hello-frame")
 
 Single-container tasks work with standard Docker environments (including many cloud sandboxes). Rebuild `metaphi/figma-design-base:latest` when the HFC library changes; per-task images stay fast.
 
-## Example tasks
-
-| Task | Description |
-|------|-------------|
-| `hello-frame` | Add a `Hello` frame via Figma MCP |
-| `with-metadata` | Rename `Board` → `MainBoard`; graded via `tests/eval-spec.json` |
 
 ## Pitfalls
 

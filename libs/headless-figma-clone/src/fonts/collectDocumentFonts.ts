@@ -10,6 +10,18 @@ function fontKey(fn: FontName): string {
   return `${fn.family}\0${fn.style}`;
 }
 
+/** Fonts used by a TEXT node (node-level + styled segments in optional character range). */
+export function collectTextNodeFonts(t: TextNode, start = 0, end?: number): FontName[] {
+  const endIdx = end ?? t.characters.length;
+  const map = new Map<string, FontName>();
+  addFont(map, t.fontName);
+  for (const seg of t.styledSegments ?? []) {
+    if (seg.end <= start || seg.start >= endIdx) continue;
+    if (seg.style.fontName) addFont(map, seg.style.fontName);
+  }
+  return [...map.values()];
+}
+
 function walkScene(nodes: SceneNode[], out: Map<string, FontName>): void {
   for (const n of nodes) {
     if (n.type === 'TEXT') {

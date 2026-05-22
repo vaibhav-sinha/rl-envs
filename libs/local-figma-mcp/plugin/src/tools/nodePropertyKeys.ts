@@ -17,6 +17,8 @@ const COMMON: readonly string[] = [
   'layoutGrow',
   'explicitVariableModes',
   'boundVariables',
+  /** Wired on component / instance sublayers (TEXT, FRAME, nested INSTANCE, …). */
+  'componentPropertyReferences',
   'isMask',
   'maskType',
   'expanded',
@@ -143,7 +145,6 @@ export const PROPERTY_KEYS_BY_TYPE: Record<string, readonly string[]> = {
     ...GEOMETRY,
     'mainComponent',
     'componentProperties',
-    'componentPropertyReferences',
     'overrides',
     'scaleFactor',
     'clipsContent',

@@ -1,6 +1,7 @@
 import type {
   BlendMode,
   ComponentOverrideFields,
+  ComponentPropertyDefinition,
   ComponentPropertyValue,
   FrameNode,
   LayoutConstraints,
@@ -25,6 +26,7 @@ import {
 import type { ImportReport } from './importReport.js';
 import {
   bool,
+  mapEffectsPreservingEmpty,
   mapPaints,
   optNum,
   optStr,
@@ -145,7 +147,10 @@ export const HANDLED_SNAPSHOT_KEYS = new Set([
   'mainComponentId',
   'componentKey',
   'componentProperties',
+  'componentPropertyReferences',
+  'componentPropertyDefinitions',
   'overrides',
+  'scaleFactor',
   'exportSettings',
   'reactions',
   'relativeTransform',
@@ -407,6 +412,18 @@ export function mapPaintsExtended(
   return out.length > 0 ? out : undefined;
 }
 
+/** Preserves `[]` when Figma explicitly clears paints on an instance (tri-state import). */
+export function mapPaintsPreservingEmpty(
+  raw: unknown,
+  imageHashRemap: (figmaHash: string) => string | undefined,
+  idMap: FigmaIdMap
+): Paint[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) return mapPaints(raw, imageHashRemap);
+  if (raw.length === 0) return [];
+  return mapPaintsExtended(raw, imageHashRemap, idMap) ?? [];
+}
+
 export function mapInstanceOverrides(
   raw: unknown,
   idMap: FigmaIdMap,
@@ -424,14 +441,72 @@ export function mapInstanceOverrides(
     if (fs !== undefined) entry.fontSize = fs;
     const fw = optNum(o.fontWeight);
     if (fw !== undefined) entry.fontWeight = fw;
-    const fills = mapPaintsExtended(o.fills, imageHashRemap, idMap);
-    if (fills) entry.fills = fills;
+    if ('fills' in o) {
+      entry.fills = mapPaintsPreservingEmpty(o.fills, imageHashRemap, idMap) ?? [];
+    }
+    if ('strokes' in o) {
+      entry.strokes = mapPaintsPreservingEmpty(o.strokes, imageHashRemap, idMap) ?? [];
+    }
+    if ('effects' in o) {
+      entry.effects = mapEffectsPreservingEmpty(o.effects) ?? [];
+    }
     if (Object.keys(entry).length > 0) out[hfcId] = entry;
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-export function mapComponentProperties(raw: unknown): Record<string, ComponentPropertyValue> | undefined {
+const COMPONENT_PROPERTY_REFERENCE_FIELDS = new Set(['visible', 'characters', 'mainComponent']);
+
+export function mapComponentPropertyReferences(
+  raw: unknown
+): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const [field, propName] of Object.entries(raw as Record<string, unknown>)) {
+    if (!COMPONENT_PROPERTY_REFERENCE_FIELDS.has(field)) continue;
+    if (typeof propName !== 'string' || propName.length === 0) continue;
+    out[field] = propName;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+export function mapComponentPropertyDefinitions(
+  raw: unknown
+): Record<string, ComponentPropertyDefinition> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, ComponentPropertyDefinition> = {};
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!val || typeof val !== 'object') continue;
+    const v = val as Record<string, unknown>;
+    const t = v.type;
+    if (t === 'BOOLEAN' && typeof v.defaultValue === 'boolean') {
+      out[key] = { type: 'BOOLEAN', defaultValue: v.defaultValue };
+    } else if (t === 'TEXT' && typeof v.defaultValue === 'string') {
+      out[key] = { type: 'TEXT', defaultValue: v.defaultValue };
+    } else if (t === 'VARIANT') {
+      const opts = v.variantOptions;
+      out[key] = {
+        type: 'VARIANT',
+        defaultValue: typeof v.defaultValue === 'string' ? v.defaultValue : '',
+        variantOptions: Array.isArray(opts) ? opts.filter((o): o is string => typeof o === 'string') : [],
+      };
+    } else if (t === 'INSTANCE_SWAP') {
+      const pv = v.preferredValues;
+      out[key] = {
+        type: 'INSTANCE_SWAP',
+        ...(Array.isArray(pv)
+          ? { preferredValues: pv.filter((o): o is string => typeof o === 'string') }
+          : {}),
+      };
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+export function mapComponentProperties(
+  raw: unknown,
+  idMap?: FigmaIdMap
+): Record<string, ComponentPropertyValue> | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const out: Record<string, ComponentPropertyValue> = {};
   for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
@@ -445,7 +520,9 @@ export function mapComponentProperties(raw: unknown): Record<string, ComponentPr
     } else if (t === 'VARIANT' && typeof v.value === 'string') {
       out[key] = { type: 'VARIANT', value: v.value };
     } else if (t === 'INSTANCE_SWAP' && typeof v.value === 'string') {
-      out[key] = { type: 'INSTANCE_SWAP', value: v.value };
+      const figmaComponentId = v.value;
+      const hfcId = idMap ? (idMap.get(figmaComponentId) ?? idMap.allocate(figmaComponentId)) : figmaComponentId;
+      out[key] = { type: 'INSTANCE_SWAP', value: hfcId };
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;

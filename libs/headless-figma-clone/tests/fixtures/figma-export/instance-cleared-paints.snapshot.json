@@ -1,0 +1,89 @@
+{
+  "snapshotVersion": 1,
+  "exportedAt": "2026-05-22T00:00:00.000Z",
+  "figmaFileKey": "test-instance-cleared",
+  "figmaFileName": "Instance Cleared Paints",
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "properties": {},
+    "children": [
+      {
+        "id": "0:1",
+        "type": "PAGE",
+        "name": "Page",
+        "properties": {
+          "absoluteBoundingBox": { "x": 0, "y": 0, "width": 400, "height": 200 }
+        },
+        "children": [
+          {
+            "id": "1:2",
+            "type": "FRAME",
+            "name": "Screen",
+            "properties": {
+              "absoluteBoundingBox": { "x": 0, "y": 0, "width": 328, "height": 100 }
+            },
+            "children": [
+              {
+                "id": "1:3",
+                "type": "INSTANCE",
+                "name": "ClearedBtn",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 0, "y": 0, "width": 328, "height": 44 },
+                  "fills": [],
+                  "strokes": [],
+                  "effects": [],
+                  "mainComponentId": "1:4"
+                },
+                "children": []
+              },
+              {
+                "id": "1:4",
+                "type": "COMPONENT",
+                "name": "Secondary",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 400, "y": 0, "width": 328, "height": 44 }
+                },
+                "children": [
+                  {
+                    "id": "1:5",
+                    "type": "FRAME",
+                    "name": "Root",
+                    "properties": {
+                      "absoluteBoundingBox": { "x": 0, "y": 0, "width": 328, "height": 44 },
+                      "fills": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 }, "visible": true }],
+                      "strokes": [{ "type": "SOLID", "color": { "r": 0.88, "g": 0.88, "b": 0.88 }, "visible": true }],
+                      "strokeWeight": 1,
+                      "cornerRadius": 8
+                    },
+                    "children": [
+                      {
+                        "id": "1:6",
+                        "type": "TEXT",
+                        "name": "Label",
+                        "properties": {
+                          "absoluteBoundingBox": { "x": 0, "y": 12, "width": 328, "height": 20 },
+                          "characters": "Resend",
+                          "fontSize": 16,
+                          "fontWeight": 600,
+                          "fills": [{ "type": "SOLID", "color": { "r": 0.13, "g": 0.13, "b": 0.13 }, "visible": true }]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "variableCollections": [],
+  "paintStyles": [],
+  "textStyles": [],
+  "effectStyles": [],
+  "gridStyles": [],
+  "assets": []
+}

@@ -34,6 +34,11 @@ import {
   paragraphTypographyCss,
 } from './typographyCss.js';
 import { injectFontFacesIntoHtml } from '../fonts/injectFonts.js';
+import {
+  applyInstanceAppearanceToRoot,
+  applyTriStateOverridePaints,
+  type InstanceAppearanceFields,
+} from './instanceAppearance.js';
 import { computeStrokeBorder, rgbaFromSolid as strokeRgbaFromSolid } from './strokeRender.js';
 import { svgViewportForPathData, svgViewportForVectorPaths } from './vectorPathBounds.js';
 import {
@@ -2101,6 +2106,10 @@ function mergeFrameFromDetached(master: FrameNode, detached: FrameNode): void {
   copySceneBoundsFromDetached(master, detached);
   copyCornerRadiiFromDetached(master, detached);
   if (detached.fills !== undefined) master.fills = structuredClone(detached.fills);
+  if (detached.strokes !== undefined) master.strokes = structuredClone(detached.strokes);
+  if (detached.effects !== undefined) master.effects = structuredClone(detached.effects);
+  if (detached.strokeWeight !== undefined) master.strokeWeight = detached.strokeWeight;
+  if (detached.strokeAlign !== undefined) master.strokeAlign = detached.strokeAlign;
   if (detached.clipsContent !== undefined) master.clipsContent = detached.clipsContent;
   mergeDetachedChildrenIntoRoot(master, detached.children);
 }
@@ -2155,6 +2164,25 @@ function componentPropertyLabel(key: string): string {
   return (i >= 0 ? key.slice(0, i) : key).trim();
 }
 
+/** Resolve VARIANT value from instance properties (Figma uses suffixed keys like `Size#0:1`). */
+function resolveVariantPropertyValue(
+  componentProperties: Record<string, ComponentPropertyValue> | undefined,
+  set: ComponentSetNode
+): string | undefined {
+  const key = set.variantPropertyKey ?? 'variant';
+  const direct = componentProperties?.[key];
+  if (direct?.type === 'VARIANT') return direct.value;
+  for (const [k, val] of Object.entries(componentProperties ?? {})) {
+    if (val.type === 'VARIANT' && (k === key || componentPropertyLabel(k) === componentPropertyLabel(key))) {
+      return val.value;
+    }
+  }
+  for (const val of Object.values(componentProperties ?? {})) {
+    if (val.type === 'VARIANT') return val.value;
+  }
+  return set.variantOptions?.[0];
+}
+
 function collectSceneNodes(root: SceneNode): SceneNode[] {
   const out: SceneNode[] = [];
   const stack: SceneNode[] = [root];
@@ -2196,7 +2224,8 @@ function applyComponentPropertyToNodeField(
     node.characters = val.value;
     return;
   }
-  if (val.type === 'VARIANT' && field === 'mainComponent') {
+  if (val.type === 'INSTANCE_SWAP' && field === 'mainComponent' && node.type === 'INSTANCE') {
+    node.mainComponentId = val.value;
     return;
   }
 }
@@ -2290,22 +2319,15 @@ function emitInstancePaintShell(
 
 function prepareInstanceComponentRoot(
   root: FrameNode,
-  inst: Pick<
-    InstanceNode,
-    'width' | 'height' | 'children' | 'componentProperties' | 'fills' | 'effects'
-  >,
+  inst: InstanceAppearanceFields &
+    Pick<InstanceNode, 'width' | 'height' | 'children' | 'componentProperties'>,
   env: FileEnvelope,
   overrides?: ComponentInstanceNode['overrides']
 ): void {
   applyComponentOverrides(root, overrides);
   applyComponentProperties(root, inst.componentProperties);
-  if (inst.fills?.length) {
-    root.fills = structuredClone(inst.fills);
-  }
-  if (inst.effects?.length) {
-    root.effects = structuredClone(inst.effects);
-  }
-  const detached = instanceDetachedChildren(inst as InstanceNode);
+  applyInstanceAppearanceToRoot(root, inst);
+  const detached = instanceDetachedChildren(inst);
   if (detached) {
     mergeDetachedChildrenIntoRoot(root, detached);
   }
@@ -2330,9 +2352,17 @@ function applyComponentOverrides(root: FrameNode, overrides: ComponentInstanceNo
         if (o.characters !== undefined) node.characters = o.characters;
         if (o.fontSize !== undefined) node.fontSize = o.fontSize;
         if (o.fontWeight !== undefined) node.fontWeight = o.fontWeight;
-        if (o.fills !== undefined) node.fills = o.fills;
-      } else if ('fills' in node && o.fills !== undefined) {
-        (node as { fills?: Paint[] }).fills = o.fills;
+        applyTriStateOverridePaints(node, o, 'fills');
+        applyTriStateOverridePaints(node, o, 'strokes');
+        applyTriStateOverridePaints(node, o, 'effects');
+      } else if ('fills' in node) {
+        applyTriStateOverridePaints(node as { fills?: Paint[]; strokes?: Paint[]; effects?: Effect[] }, o, 'fills');
+        if ('strokes' in node) {
+          applyTriStateOverridePaints(node as { fills?: Paint[]; strokes?: Paint[]; effects?: Effect[] }, o, 'strokes');
+        }
+        if ('effects' in node) {
+          applyTriStateOverridePaints(node as { fills?: Paint[]; strokes?: Paint[]; effects?: Effect[] }, o, 'effects');
+        }
       }
     }
     if (node.type === 'FRAME' || node.type === 'TRANSFORM_GROUP') {
@@ -2530,16 +2560,26 @@ function remapOverridesForVariant(
 ): InstanceNode['overrides'] {
   if (!overrides) return overrides;
   if (!nodeIdMap) return overrides;
-  const out: NonNullable<InstanceNode['overrides']> = {};
-  for (const [stableId, ov] of Object.entries(overrides)) {
-    const variantId = nodeIdMap[stableId];
-    if (variantId) out[variantId] = ov;
+  const variantToBase: Record<string, string> = {};
+  for (const [baseId, variantId] of Object.entries(nodeIdMap)) {
+    variantToBase[variantId] = baseId;
   }
-  return out;
+  const out: NonNullable<InstanceNode['overrides']> = {};
+  for (const [key, ov] of Object.entries(overrides)) {
+    const variantId = nodeIdMap[key];
+    if (variantId) {
+      out[variantId] = ov;
+    } else if (variantToBase[key]) {
+      out[key] = ov;
+    } else {
+      out[key] = ov;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Figma plugin exports often include a detached subtree while `mainComponent` fails to remap. */
-function instanceDetachedChildren(inst: InstanceNode): SceneNode[] | undefined {
+function instanceDetachedChildren(inst: Pick<InstanceNode, 'children'>): SceneNode[] | undefined {
   const ch = inst.children;
   return ch?.length ? ch : undefined;
 }
@@ -2766,8 +2806,7 @@ function emitInstance(
     root = cloneComponentRootForInstance(rootNode as FrameNode);
   } else {
     const set = target as ComponentSetNode;
-    const key = set.variantPropertyKey ?? 'variant';
-    const selectedValue = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
+    const selectedValue = resolveVariantPropertyValue(inst.componentProperties, set);
     const options = set.variantOptions ?? set.componentIds;
     const idx = options.indexOf(String(selectedValue));
     const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];

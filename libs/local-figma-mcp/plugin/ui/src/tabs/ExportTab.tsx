@@ -6,6 +6,7 @@ import {
   exportSnapshotStreaming,
   finishExportStreamSession,
   listReadyExportSessions,
+  pickNodeId,
   replayFinishExportStreamSession,
   type PendingExportSession,
 } from '../lib/plugin-bridge';
@@ -31,6 +32,8 @@ export function ExportTab({
   const [outcome, setOutcome] = useState<ExportOutcome | null>(null);
   const [pendingExportId, setPendingExportId] = useState<string | null>(null);
   const [readySessions, setReadySessions] = useState<PendingExportSession[]>([]);
+  const [pickedNodeId, setPickedNodeId] = useState<string | null>(null);
+  const [nodeIdError, setNodeIdError] = useState<string | null>(null);
   const filePages = useFilePages();
 
   const reportProgress = (snapshot: Parameters<typeof applyExportProgressSnapshot>[1]) => {
@@ -109,6 +112,25 @@ export function ExportTab({
       void refreshReadySessions();
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleGetNodeId = async () => {
+    setNodeIdError(null);
+    setPickedNodeId(null);
+    try {
+      const nodeId = await pickNodeId();
+      setPickedNodeId(nodeId);
+      try {
+        await navigator.clipboard.writeText(nodeId);
+        onLog(`Node ID: ${nodeId} (copied to clipboard)`);
+      } catch {
+        onLog(`Node ID: ${nodeId}`);
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setNodeIdError(message);
+      onLog(message, true);
     }
   };
 
@@ -198,6 +220,27 @@ export function ExportTab({
       >
         {busy ? 'Exporting…' : 'Export File'}
       </Button>
+
+      <hr className="border-0 border-t border-border my-1" />
+
+      <div className="flex flex-col gap-2">
+        <p className="text-[10px] text-muted m-0 font-medium">Node ID</p>
+        <p className="text-[11px] text-muted m-0">
+          Select exactly one layer in Figma, then copy its node ID for use in eval specs or scripts.
+        </p>
+        {pickedNodeId ? (
+          <div className="flex flex-col gap-1 p-2 border border-border rounded">
+            <span className="text-[10px] text-muted">Selected node ID</span>
+            <span className="text-[10px] font-mono text-foreground break-all">{pickedNodeId}</span>
+          </div>
+        ) : null}
+        {nodeIdError ? (
+          <p className="text-[10px] text-destructive m-0">{nodeIdError}</p>
+        ) : null}
+        <Button variant="default" disabled={busy} onClick={() => void handleGetNodeId()}>
+          Get Node ID
+        </Button>
+      </div>
     </div>
   );
 }

@@ -818,8 +818,11 @@ export interface TableNode extends NodeBase, LayoutSelfFields {
   cells: TableCell[];
 }
 
+/** Per-layer instance overrides. Paint arrays use tri-state: key absent = inherit; [] = cleared. */
 export type ComponentOverrideFields = {
   fills?: Paint[];
+  strokes?: Paint[];
+  effects?: Effect[];
   characters?: string;
   fontSize?: number;
   fontWeight?: number;
@@ -909,6 +912,10 @@ export interface ComponentSetNode extends NodeBase, LayoutSelfFields {
   baseComponentId?: string;
 }
 
+/**
+ * Instance on canvas. Root-level `fills` / `strokes` / `effects` / `backgrounds` use tri-state:
+ * key absent = inherit component master; `[]` = explicitly cleared; non-empty = override.
+ */
 export interface InstanceNode extends NodeBase, LayoutSelfFields {
   type: 'INSTANCE';
   x: number;
@@ -919,9 +926,27 @@ export interface InstanceNode extends NodeBase, LayoutSelfFields {
   opacity?: number;
   blendMode?: BlendMode;
   fills?: Paint[];
+  backgrounds?: Paint[];
   strokes?: Paint[];
+  strokeWeight?: number;
+  strokeAlign?: 'INSIDE' | 'OUTSIDE' | 'CENTER';
+  strokeCap?: StrokeCap;
+  strokeJoin?: StrokeJoin;
+  miterLimit?: number;
+  dashPattern?: number[];
+  individualStrokeWeights?: Partial<IndividualStrokeWeights>;
   effects?: Effect[];
   cornerRadius?: number;
+  topLeftRadius?: number;
+  topRightRadius?: number;
+  bottomRightRadius?: number;
+  bottomLeftRadius?: number;
+  cornerSmoothing?: number;
+  fillStyleId?: string | null;
+  strokeStyleId?: string | null;
+  effectStyleId?: string | null;
+  boundVariables?: FrameVariableBindings;
+  clipsContent?: boolean;
   mainComponentId: string;
   /** Exported SVG icon for this instance (plugin snapshot). */
   iconSvgAssetHash?: string;
@@ -937,6 +962,11 @@ export interface InstanceNode extends NodeBase, LayoutSelfFields {
    * Compile-time remapping may occur for the selected variant.
    */
   overrides?: Record<string, ComponentOverrideFields>;
+  /**
+   * Uniform scale from Figma's scale tool (K). Usually `1` when resized via handles only.
+   * Applied at compile as CSS `scale()` on the instance wrapper (geometry pre-fit uses `width/scaleFactor`).
+   */
+  scaleFactor?: number;
 }
 
 export type SceneNode =

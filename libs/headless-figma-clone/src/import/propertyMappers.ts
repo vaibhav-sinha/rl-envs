@@ -29,6 +29,21 @@ export function optStr(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
+/** Style id tri-state: undefined = inherit, null = detached/cleared, string = explicit. */
+export function optStyleId(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  return typeof v === 'string' ? v : undefined;
+}
+
+/** Like mapEffects but preserves explicit empty arrays from Figma resets. */
+export function mapEffectsPreservingEmpty(raw: unknown): Effect[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) return undefined;
+  if (raw.length === 0) return [];
+  return mapEffects(raw);
+}
+
 export function bool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined;
 }

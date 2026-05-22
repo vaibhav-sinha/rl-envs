@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "fileKey": "instclr",
+  "fileName": "Instance cleared paints",
+  "nextInternalId": 30,
+  "document": {
+    "id": "I1",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "I2",
+        "type": "PAGE",
+        "name": "Page",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 200,
+        "children": [
+          {
+            "id": "I3",
+            "type": "FRAME",
+            "name": "Screen",
+            "x": 0,
+            "y": 0,
+            "width": 328,
+            "height": 120,
+            "fills": [{ "type": "SOLID", "color": { "r": 0.96, "g": 0.97, "b": 0.98 } }],
+            "children": [
+              {
+                "id": "I10",
+                "type": "INSTANCE",
+                "name": "ClearedButton",
+                "x": 0,
+                "y": 0,
+                "width": 328,
+                "height": 44,
+                "fills": [],
+                "strokes": [],
+                "mainComponentId": "COMP1"
+              },
+              {
+                "id": "I11",
+                "type": "INSTANCE",
+                "name": "InheritedButton",
+                "x": 0,
+                "y": 52,
+                "width": 328,
+                "height": 44,
+                "mainComponentId": "COMP1"
+              },
+              {
+                "id": "COMP1",
+                "type": "COMPONENT",
+                "name": "SecondaryButton",
+                "x": 400,
+                "y": 0,
+                "width": 328,
+                "height": 44,
+                "rootFrameId": "I20"
+              },
+              {
+                "id": "I20",
+                "type": "FRAME",
+                "name": "SecondaryButtonRoot",
+                "x": 400,
+                "y": 0,
+                "width": 328,
+                "height": 44,
+                "cornerRadius": 8,
+                "fills": [
+                  {
+                    "type": "SOLID",
+                    "color": { "r": 1, "g": 1, "b": 1 },
+                    "visible": true,
+                    "opacity": 1,
+                    "blendMode": "NORMAL"
+                  }
+                ],
+                "strokes": [
+                  {
+                    "type": "SOLID",
+                    "color": { "r": 0.8841349482536316, "g": 0.8841349482536316, "b": 0.8841349482536316 },
+                    "visible": true,
+                    "opacity": 1,
+                    "blendMode": "NORMAL"
+                  }
+                ],
+                "strokeWeight": 1,
+                "children": [
+                  {
+                    "id": "I21",
+                    "type": "TEXT",
+                    "name": "Label",
+                    "x": 0,
+                    "y": 12,
+                    "width": 328,
+                    "height": 20,
+                    "characters": "Resend code in 1:00",
+                    "fontSize": 16,
+                    "fontWeight": 600,
+                    "fills": [
+                      {
+                        "type": "SOLID",
+                        "color": { "r": 0.13, "g": 0.13, "b": 0.13 },
+                        "visible": true,
+                        "opacity": 1,
+                        "blendMode": "NORMAL"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

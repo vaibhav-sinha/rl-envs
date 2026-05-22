@@ -77,6 +77,19 @@ describe('OTP render parity', () => {
     expect(styles).toMatch(/\.hfc-node-I1640 \.hfc-node-I73588\{[^}]*width:328px/);
   });
 
+  it('secondary resend button clears component chrome when instance paints are empty', () => {
+    const env = loadOtpEnvelope();
+    const inst = findNode(env, 'I1647');
+    expect(inst?.type).toBe('INSTANCE');
+    if (inst?.type === 'INSTANCE') {
+      expect(inst.fills).toEqual([]);
+      expect(inst.strokes).toEqual([]);
+    }
+    const styles = styleBlob(compileOtpRoot(env));
+    expect(styles).not.toMatch(/\.hfc-node-I1647 \.hfc-node-I73600\{[^}]*rgba\(255,\s*255,\s*255/);
+    expect(styles).not.toMatch(/\.hfc-node-I1647 \.hfc-node-I73600\{[^}]*border:[^;]*rgba\(225/);
+  });
+
   it('primary button label uses design font size not instance stretch scale', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));

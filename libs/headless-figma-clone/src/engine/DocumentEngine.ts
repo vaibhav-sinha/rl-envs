@@ -80,6 +80,10 @@ import {
   sanitizeFrameLayoutFields,
   sanitizeTextTruncationFields,
 } from './frameLayoutFields.js';
+import {
+  assertTextFontsLoadedForNewText,
+  assertTextFontsLoadedForPatch,
+} from '../fonts/textFontLoading.js';
 
 export type { EngineErrorCode } from '../util/errors.js';
 
@@ -820,6 +824,7 @@ function normalizeNewText(spec: Extract<NewNodeSpec, { type: 'TEXT' }>, id: stri
   }
   applyLayoutSelfFromSpec(text, spec as Record<string, unknown>);
   sanitizeTextTruncationFields(text);
+  assertTextFontsLoadedForNewText(text, spec as Record<string, unknown>);
   return text;
 }
 
@@ -1454,8 +1459,20 @@ function normalizeNewInstance(
         if (typeof (ov as Record<string, unknown>).fontWeight !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontWeight must be number');
         entry.fontWeight = (ov as Record<string, unknown>).fontWeight as number;
       }
-      if ('fills' in ov && (ov as Record<string, unknown>).fills !== undefined) {
-        entry.fills = validatePaintArray((ov as Record<string, unknown>).fills, `overrides.${nodeId}.fills`, env);
+      if ('fills' in ov) {
+        const rawFills = (ov as Record<string, unknown>).fills;
+        entry.fills =
+          rawFills === undefined ? [] : validatePaintArray(rawFills, `overrides.${nodeId}.fills`, env) ?? [];
+      }
+      if ('strokes' in ov) {
+        const rawStrokes = (ov as Record<string, unknown>).strokes;
+        entry.strokes =
+          rawStrokes === undefined ? [] : validatePaintArray(rawStrokes, `overrides.${nodeId}.strokes`, env) ?? [];
+      }
+      if ('effects' in ov) {
+        const rawEffects = (ov as Record<string, unknown>).effects;
+        entry.effects =
+          rawEffects === undefined ? [] : validateEffects(rawEffects, `overrides.${nodeId}.effects`) ?? [];
       }
       overrides[nodeId] = entry;
     }
@@ -2020,6 +2037,9 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
         throw new ValidationErr('UNSUPPORTED_PROPERTY', `Unsupported patch key: ${k}`);
       }
       patch[k] = v;
+    }
+    if (node.type === 'TEXT') {
+      assertTextFontsLoadedForPatch(node, patch);
     }
     applyPatch(working, node, patch);
     if ((sceneShapeTypes as readonly string[]).includes(node.type)) {
@@ -3804,8 +3824,19 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
             if (typeof r.fontWeight !== 'number') throw new ValidationErr('VALIDATION_ERROR', 'override.fontWeight must be number');
             entry.fontWeight = r.fontWeight;
           }
-          if ('fills' in r && r.fills !== undefined) {
-            entry.fills = validatePaintArray(r.fills as unknown, `overrides.${nodeId}.fills`, env);
+          if ('fills' in r) {
+            entry.fills =
+              r.fills === undefined ? [] : validatePaintArray(r.fills as unknown, `overrides.${nodeId}.fills`, env) ?? [];
+          }
+          if ('strokes' in r) {
+            entry.strokes =
+              r.strokes === undefined
+                ? []
+                : validatePaintArray(r.strokes as unknown, `overrides.${nodeId}.strokes`, env) ?? [];
+          }
+          if ('effects' in r) {
+            entry.effects =
+              r.effects === undefined ? [] : validateEffects(r.effects as unknown, `overrides.${nodeId}.effects`) ?? [];
           }
           next[nodeId] = entry;
         }
@@ -3842,6 +3873,41 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     if ('blendMode' in patch) {
       validateBlendMode(patch.blendMode, 'INSTANCE.blendMode');
       inst.blendMode = patch.blendMode as import('../model/types.js').InstanceNode['blendMode'];
+    }
+    if ('fills' in patch) {
+      inst.fills =
+        patch.fills === undefined ? [] : validatePaintArray(patch.fills, 'INSTANCE.fills', env) ?? [];
+    }
+    if ('backgrounds' in patch) {
+      inst.backgrounds =
+        patch.backgrounds === undefined ? [] : validatePaintArray(patch.backgrounds, 'INSTANCE.backgrounds', env) ?? [];
+    }
+    if ('strokes' in patch) {
+      inst.strokes =
+        patch.strokes === undefined ? [] : validatePaintArray(patch.strokes, 'INSTANCE.strokes', env) ?? [];
+    }
+    if ('effects' in patch) {
+      inst.effects =
+        patch.effects === undefined ? [] : validateEffects(patch.effects, 'INSTANCE.effects') ?? [];
+    }
+    if ('fillStyleId' in patch) {
+      const sid = patch.fillStyleId;
+      if (sid === null || sid === '') delete inst.fillStyleId;
+      else if (typeof sid === 'string') inst.fillStyleId = sid;
+    }
+    if ('strokeStyleId' in patch) {
+      const sid = patch.strokeStyleId;
+      if (sid === null || sid === '') delete inst.strokeStyleId;
+      else if (typeof sid === 'string') inst.strokeStyleId = sid;
+    }
+    if ('effectStyleId' in patch) {
+      const sid = patch.effectStyleId;
+      if (sid === null || sid === '') delete inst.effectStyleId;
+      else if (typeof sid === 'string') inst.effectStyleId = sid;
+    }
+    if ('clipsContent' in patch) {
+      if (typeof patch.clipsContent !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'clipsContent must be boolean');
+      inst.clipsContent = patch.clipsContent;
     }
     return;
   }
