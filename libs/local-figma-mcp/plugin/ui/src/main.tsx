@@ -6,10 +6,12 @@ import './index.css';
 
 window.addEventListener('unhandledrejection', (event) => {
   logExportError('ui/unhandledRejection', event.reason);
+  event.preventDefault();
 });
 
 window.addEventListener('error', (event) => {
   logExportError('ui/uncaughtError', event.error ?? event.message);
+  event.preventDefault();
 });
 
 createRoot(document.getElementById('root')!).render(

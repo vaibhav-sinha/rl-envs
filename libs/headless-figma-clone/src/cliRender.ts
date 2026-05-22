@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { setFontsDir } from './fonts/localFontRegistry.js';
 import { getDefaultFontsDir } from './fonts/packageRoot.js';
 import type { FileEnvelope } from './model/types.js';
+import { resolveHfcNodeIdBySourceFigmaId } from './resolveNodeRef.js';
 import { renderNodeToFile } from './render/renderNodeToFile.js';
 import { closeSharedBrowser } from './screenshot/PlaywrightScreenshotService.js';
 
@@ -23,11 +24,12 @@ function loadEnvelopeFromPath(path: string): FileEnvelope {
 export async function handleRenderCli(argv: string[]): Promise<void> {
   const file = parseFlag(argv, '--file');
   const node = parseFlag(argv, '--node');
+  const figmaNode = parseFlag(argv, '--figma-node');
   const out = parseFlag(argv, '--out');
-  if (!file || !node || !out) {
+  if (!file || !out || (!node && !figmaNode) || (node && figmaNode)) {
     // eslint-disable-next-line no-console
     console.error(`Usage:
-  hfc render --file <path.hfc.json> --node <id> --out <png>
+  hfc render --file <path.hfc.json> (--node <hfc-id> | --figma-node <sourceFigmaId>) --out <png>
     [--scale N] [--background white|transparent] [--padding N]
 `);
     process.exit(1);
@@ -44,10 +46,21 @@ export async function handleRenderCli(argv: string[]): Promise<void> {
 
   try {
     const envelope = loadEnvelopeFromPath(file);
+    let nodeId = node;
+    if (figmaNode) {
+      nodeId = resolveHfcNodeIdBySourceFigmaId(envelope, figmaNode) ?? undefined;
+      if (!nodeId) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `No node with sourceFigmaId "${figmaNode}" in ${file}`
+        );
+        process.exit(1);
+      }
+    }
     await renderNodeToFile({
       envelope,
       envelopePath: file,
-      nodeId: node,
+      nodeId: nodeId!,
       outPath: out,
       scale: Number.isFinite(scale) ? scale : 1,
       background: bgRaw,

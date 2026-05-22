@@ -73,12 +73,27 @@ export type PluginReply =
   | { type: 'selection_screenshot'; ok: boolean; data?: string; mimeType?: string; error?: string }
   | { type: 'tool_response'; id: string; ok: boolean; content?: unknown[]; error?: { message: string } };
 
+/** Best-effort UI → main postMessage; returns false when Figma bridge throws. */
+function safeParentPostMessage(payload: { pluginMessage: unknown }): boolean {
+  try {
+    parent.postMessage(payload, '*');
+    return true;
+  } catch (e) {
+    logExportError('ui/parentPostMessage', e, 'warn');
+    return false;
+  }
+}
+
 export function postToPlugin(msg: PluginMessage): void {
-  parent.postMessage({ pluginMessage: msg }, '*');
+  if (!safeParentPostMessage({ pluginMessage: msg })) {
+    throw new Error('Unable to post message to Figma plugin main thread');
+  }
 }
 
 function postStreamAck(seq: number): void {
-  parent.postMessage({ pluginMessage: { type: 'export_stream_ack', seq } }, '*');
+  if (!safeParentPostMessage({ pluginMessage: { type: 'export_stream_ack', seq } })) {
+    throw new Error('Unable to ack stream part to Figma plugin main thread');
+  }
 }
 
 async function tbPostPartBodyOnce(exportId: string, body: string): Promise<{ seq: number }> {
@@ -288,17 +303,14 @@ export async function exportSnapshotStreaming(
 
       const failUpload = (seq: number, error: unknown): void => {
         const message = logExportError(`ui/uploadPart seq=${seq}`, error);
-        parent.postMessage(
-          {
-            pluginMessage: {
-              type: 'export_stream_upload_failed',
-              exportId,
-              seq,
-              error: message,
-            },
+        safeParentPostMessage({
+          pluginMessage: {
+            type: 'export_stream_upload_failed',
+            exportId,
+            seq,
+            error: message,
           },
-          '*'
-        );
+        });
         clearTimeout(timer);
         window.removeEventListener('message', handler);
         reject(new Error(message));

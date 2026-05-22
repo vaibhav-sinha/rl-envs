@@ -345,17 +345,6 @@ export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions)
 
   progress.onSerializeComplete(serializeCurrent);
 
-  const rasterHashes = [...getImageHashesSet()];
-  const rasterPipeline =
-    rasterTotal > 0
-      ? new RasterExportPipeline(rasterHashes, gate, metrics, (p) => {
-          progress.onImagesProgress(p.fetched, p.uploaded);
-        })
-      : null;
-  if (rasterTotal === 0) {
-    progress.onImagesProgress(0, 0);
-  }
-
   metrics.setPhase('icons');
   const iconRegistry = new IconExportRegistry();
   const registryLock = createRegistryLock();
@@ -419,10 +408,16 @@ export async function runFigmaStreamExport(options: RunFigmaStreamExportOptions)
   progress.onIconPhaseComplete(iconUploadStats);
 
   metrics.setPhase('images');
-  if (rasterPipeline) {
+  if (rasterTotal > 0) {
+    const rasterHashes = [...getImageHashesSet()];
+    const rasterPipeline = new RasterExportPipeline(rasterHashes, gate, metrics, (p) => {
+      progress.onImagesProgress(p.fetched, p.uploaded);
+    });
     await rasterPipeline.drain();
     const p = rasterPipeline.progress;
     progress.onImagesProgress(p.fetched, p.uploaded);
+  } else {
+    progress.onImagesProgress(0, 0);
   }
 
   await gate.postLine(streamPartToLine({ kind: 'session_end', exportId }));

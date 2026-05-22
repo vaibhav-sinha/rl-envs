@@ -142,7 +142,7 @@ Full per-subcheck breakdown: `/logs/verifier/eval-report-details.json`.
 **Metadata checks** (LLM, no screenshots): e.g. `diff` under `metadata_checks`.
 
 ```bash
-node /opt/hfc/dist/cli.js render --file <path.hfc.json> --node <id> --out <png>
+node /opt/hfc/dist/cli.js render --file <path.hfc.json> (--node <hfc-id> | --figma-node <sourceFigmaId>) --out <png>
 ```
 
 Local debugging:

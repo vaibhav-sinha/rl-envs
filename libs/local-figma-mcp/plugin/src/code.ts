@@ -126,6 +126,15 @@ function postUiMessage(msg: MainToUi): void {
   throw wrapped;
 }
 
+/** Best-effort post for teardown paths — must not throw (bridge may already be dead). */
+function safePostUiMessage(msg: MainToUi): void {
+  try {
+    postUiMessage(msg);
+  } catch (e) {
+    logExportError(`main/safePostUiMessage/${msg.type}`, e, 'warn');
+  }
+}
+
 async function dispatchTool(
   tool: string,
   args: Record<string, unknown>
@@ -213,13 +222,17 @@ async function runExportFile(
     figma.notify('Export streamed — finalizing…');
   } catch (e) {
     const message = logExportError('main/runExportFile', e);
-    progressReporter.emit(true);
-    postUiMessage({
+    try {
+      progressReporter.emit(true);
+    } catch (emitErr) {
+      logExportError('main/runExportFile/emitProgress', emitErr, 'warn');
+    }
+    safePostUiMessage({
       type: 'export_stream_done',
       ok: false,
       error: message,
     } satisfies MainToUi);
-    postUiMessage({
+    safePostUiMessage({
       type: 'log',
       line: `✗ [main/runExportFile] ${message}`,
     } satisfies MainToUi);
@@ -272,7 +285,9 @@ figma.ui.onmessage = async (msg: UiToMain) => {
       msg.hfcFileName,
       msg.excludeNodeIds,
       msg.includePageIds
-    );
+    ).catch((e) => {
+      logExportError('main/runExportFile/unhandled', e);
+    });
     return;
   }
 

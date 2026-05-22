@@ -60,14 +60,14 @@ async function fetchRasterBytes(img: Image, hash: string): Promise<Uint8Array> {
   }
 }
 
-/** Pipelined raster fetch + upload (can run concurrently with icon export). */
+/** Serial raster fetch + upload — started only after the icon phase completes (see streamExport). */
 export class RasterExportPipeline {
   private readonly seenContentKeys = new Set<string>();
   private fetched = 0;
   private uploaded = 0;
-  private readonly runPromise: Promise<void>;
+  private runPromise: Promise<void> | null = null;
   private drainResolve: (() => void) | null = null;
-  private drainPromise: Promise<void>;
+  private readonly drainPromise: Promise<void>;
 
   constructor(
     private readonly hashes: readonly string[],
@@ -78,7 +78,6 @@ export class RasterExportPipeline {
     this.drainPromise = new Promise<void>((resolve) => {
       this.drainResolve = resolve;
     });
-    this.runPromise = this.run();
   }
 
   get total(): number {
@@ -141,8 +140,11 @@ export class RasterExportPipeline {
     }
   }
 
-  /** Wait until all raster hashes are fetched and unique assets uploaded. */
+  /** Start fetch/upload (if not already) and wait until all raster assets are done. */
   async drain(): Promise<void> {
+    if (!this.runPromise) {
+      this.runPromise = this.run();
+    }
     await this.runPromise;
     await this.drainPromise;
   }

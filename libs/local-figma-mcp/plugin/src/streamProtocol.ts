@@ -30,7 +30,7 @@ export const EXPORT_ASSET_MAX_INFLIGHT = 3;
 export const ICON_EXPORT_CONCURRENCY = 2;
 
 /** Parallel `getBytesAsync` calls for raster image fills (keep low to avoid Figma CDN / UI bridge timeouts). */
-export const RASTER_IMAGE_CONCURRENCY = 4;
+export const RASTER_IMAGE_CONCURRENCY = 2;
 
 /** Max concurrent HTTP uploads for asset parts in the plugin UI (keep in sync with plugin-bridge). */
 export const EXPORT_UI_ASSET_UPLOAD_CONCURRENCY = 2;

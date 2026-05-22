@@ -30,6 +30,38 @@ describe('hfc render CLI', () => {
     }
   });
 
+  it('writes a PNG when --figma-node matches sourceFigmaId', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hfc-render-figma-node-'));
+    const out = join(dir, 'frame.png');
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [cliPath, 'render', '--file', fixture, '--figma-node', '1:3', '--out', out],
+        { encoding: 'utf8', cwd: pkgRoot, timeout: 60_000 }
+      );
+      expect(result.status, `${result.stderr}\n${result.stdout}`).toBe(0);
+      expect(statSync(out).size).toBeGreaterThan(100);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('exits non-zero when --figma-node is unknown', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hfc-render-figma-miss-'));
+    const out = join(dir, 'frame.png');
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [cliPath, 'render', '--file', fixture, '--figma-node', 'missing:1', '--out', out],
+        { encoding: 'utf8', cwd: pkgRoot, timeout: 60_000 }
+      );
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('sourceFigmaId');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('exits promptly after rendering (Playwright browser is closed)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'hfc-render-exit-'));
     const out = join(dir, 'frame.png');
