@@ -1,5 +1,22 @@
 import type { PageNode } from '../model/types.js';
+import { ValidationErr } from '../util/errors.js';
+import { runNodeMatches, runNodeQuery, type ScriptQueryDeps, type ScriptQueryResult } from './scriptQuery.js';
 import { createTraversalMethods, type ScriptTraversalContext } from './scriptTraversal.js';
+
+function queryDeps(ctx: ScriptTraversalContext): ScriptQueryDeps {
+  if (!ctx.queueUpdate) {
+    throw new ValidationErr('VALIDATION_ERROR', 'query requires write context');
+  }
+  return {
+    working: ctx.working,
+    deletedIds: ctx.deletedIds,
+    nodeIndex: ctx.nodeIndex,
+    graphIndexes: ctx.graphIndexes,
+    signal: ctx.signal,
+    createHandle: ctx.createHandle,
+    queueUpdate: ctx.queueUpdate,
+  };
+}
 
 export function createDocumentTraversalMethods(
   makeTraversalCtx: () => ScriptTraversalContext
@@ -45,6 +62,22 @@ export function createDocumentTraversalMethods(
         out.push(...createTraversalMethods(ctx, page.id).findAllWithCriteria(criteria));
       }
       return out;
+    },
+
+    query(selector: unknown): ScriptQueryResult {
+      if (typeof selector !== 'string') {
+        throw new ValidationErr('VALIDATION_ERROR', 'query requires a selector string');
+      }
+      const ctx = makeTraversalCtx();
+      return runNodeQuery(queryDeps(ctx), ctx.working.document, selector);
+    },
+
+    matches(selector: unknown): boolean {
+      if (typeof selector !== 'string') {
+        throw new ValidationErr('VALIDATION_ERROR', 'matches requires a selector string');
+      }
+      const ctx = makeTraversalCtx();
+      return runNodeMatches(queryDeps(ctx), ctx.working.document, selector);
     },
   };
 }

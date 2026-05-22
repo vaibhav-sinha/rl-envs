@@ -61,8 +61,12 @@ export function applyNodeSetProps(
   }
 
   if (hasWidth || hasHeight) {
-    const w = hasWidth ? (props.width as number) : (live.width ?? 100);
-    const h = hasHeight ? (props.height as number) : (live.height ?? 100);
+    const w = hasWidth
+      ? (props.width as number)
+      : ('width' in live && typeof live.width === 'number' ? live.width : 100);
+    const h = hasHeight
+      ? (props.height as number)
+      : ('height' in live && typeof live.height === 'number' ? live.height : 100);
     const resizePatch: Record<string, unknown> = { width: w, height: h };
     if (live.type === 'FRAME') {
       const frame = live as { layoutMode?: string };

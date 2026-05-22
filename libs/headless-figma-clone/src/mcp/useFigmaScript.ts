@@ -2587,6 +2587,8 @@ export async function runUseFigmaScript(
       createHandle: (nid: string) => createHandleProxy(ctx, nid),
       signal: ctx.signal,
       nodeIndex: getNodeIndex(ctx),
+      graphIndexes: getGraphIndexes(ctx),
+      queueUpdate: (nodeId, patch) => queueUpdate(ctx, nodeId, patch),
     }));
 
   const figma = {
