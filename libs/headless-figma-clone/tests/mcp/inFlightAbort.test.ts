@@ -7,10 +7,11 @@ import {
 } from '../../src/mcp/inFlightAbort.js';
 
 describe('inFlightAbort', () => {
-  it('aborts the previous signal when a new tool run begins', () => {
+  it('does not abort the previous signal when a new tool run begins (queue serializes)', () => {
     const s1 = beginInFlightToolRun();
+    endInFlightToolRun();
     const s2 = beginInFlightToolRun();
-    expect(s1.aborted).toBe(true);
+    expect(s1.aborted).toBe(false);
     expect(s2.aborted).toBe(false);
     endInFlightToolRun();
   });

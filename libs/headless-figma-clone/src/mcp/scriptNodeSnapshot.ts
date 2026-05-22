@@ -1,5 +1,6 @@
 import { ENGINE_MATRIX } from '../engine/phase-matrix.js';
-import { findEnvelopeNode, findParentNode } from '../engine/DocumentEngine.js';
+import { findEnvelopeNode } from '../engine/DocumentEngine.js';
+import { buildGraphIndexes, resolveParentNode, type GraphIndexes } from '../engine/nodeIndex.js';
 import type { AnyTreeNode, FileEnvelope } from '../model/types.js';
 import { getImmediateSceneChildren } from '../traversal/findNodes.js';
 
@@ -14,6 +15,11 @@ export const HFC_RUNTIME_PAGE_MARKER = Symbol.for('hfc.runtimePage');
 export interface SnapshotContext {
   working: FileEnvelope;
   deletedIds: Set<string>;
+  graphIndexes?: GraphIndexes;
+}
+
+function snapshotGraphIndexes(ctx: SnapshotContext): GraphIndexes {
+  return ctx.graphIndexes ?? buildGraphIndexes(ctx.working);
 }
 
 export interface SnapshotOptions {
@@ -110,7 +116,7 @@ function envelopeFieldsForType(node: AnyTreeNode): Record<string, unknown> {
 }
 
 function snapshotParent(ctx: SnapshotContext, nodeId: string): Record<string, unknown> | null {
-  const parent = findParentNode(ctx.working.document, nodeId);
+  const parent = resolveParentNode(snapshotGraphIndexes(ctx), nodeId);
   if (!parent) return null;
   return { id: parent.id, type: parent.type, name: parent.name };
 }

@@ -42,12 +42,14 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       },
     },
     async (args) => {
-      const name = args.name ?? 'Untitled';
-      const r = await engine.createEmptyFile({
-        fileName: name,
-        directory: args.directory ? resolve(process.cwd(), args.directory) : undefined,
+      return runMcpToolWithCancellation(async () => {
+        const name = args.name ?? 'Untitled';
+        const r = await engine.createEmptyFile({
+          fileName: name,
+          directory: args.directory ? resolve(process.cwd(), args.directory) : undefined,
+        });
+        return { content: [{ type: 'text' as const, text: toolJson(r) }] };
       });
-      return { content: [{ type: 'text' as const, text: toolJson(r) }] };
     }
   );
 
@@ -61,43 +63,45 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       },
     },
     async (args) => {
-      const abs = resolve(process.cwd(), args.path);
-      if (!abs.toLowerCase().endsWith('.hfc.json')) {
+      return runMcpToolWithCancellation(async () => {
+        const abs = resolve(process.cwd(), args.path);
+        if (!abs.toLowerCase().endsWith('.hfc.json')) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: toolErrorJson('VALIDATION_ERROR', 'open_file path must end with .hfc.json'),
+              },
+            ],
+            isError: true,
+          };
+        }
+        try {
+          await engine.loadFromDisk({ absolutePath: abs });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', msg) }],
+            isError: true,
+          };
+        }
+        const f = engine.getActiveFile();
+        const fp = engine.getActiveFilePath();
+        if (!f || !fp) {
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file after load') }],
+            isError: true,
+          };
+        }
         return {
           content: [
             {
               type: 'text' as const,
-              text: toolErrorJson('VALIDATION_ERROR', 'open_file path must end with .hfc.json'),
+              text: toolJson({ fileKey: f.fileKey, filePath: fp }),
             },
           ],
-          isError: true,
         };
-      }
-      try {
-        await engine.loadFromDisk({ absolutePath: abs });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return {
-          content: [{ type: 'text' as const, text: toolErrorJson('VALIDATION_ERROR', msg) }],
-          isError: true,
-        };
-      }
-      const f = engine.getActiveFile();
-      const fp = engine.getActiveFilePath();
-      if (!f || !fp) {
-        return {
-          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file after load') }],
-          isError: true,
-        };
-      }
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: toolJson({ fileKey: f.fileKey, filePath: fp }),
-          },
-        ],
-      };
+      });
     }
   );
 
@@ -116,9 +120,26 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
         }),
     },
     async (args) => {
-      if (args.filePath) {
-        const abs = resolve(process.cwd(), args.filePath);
-        const r = await engine.uploadAssetFromFile({ absolutePath: abs });
+      return runMcpToolWithCancellation(async () => {
+        if (args.filePath) {
+          const abs = resolve(process.cwd(), args.filePath);
+          const r = await engine.uploadAssetFromFile({ absolutePath: abs });
+          if (!r.ok) {
+            return {
+              content: [{ type: 'text' as const, text: toolErrorJson(r.errorCode, r.message) }],
+              isError: true,
+            };
+          }
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: toolJson({ assetId: r.assetId, sha256: r.sha256, mimeType: r.mimeType }),
+              },
+            ],
+          };
+        }
+        const r = await engine.uploadAssetFromDataUrl({ dataUrl: args.dataUrl! });
         if (!r.ok) {
           return {
             content: [{ type: 'text' as const, text: toolErrorJson(r.errorCode, r.message) }],
@@ -133,22 +154,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             },
           ],
         };
-      }
-      const r = await engine.uploadAssetFromDataUrl({ dataUrl: args.dataUrl! });
-      if (!r.ok) {
-        return {
-          content: [{ type: 'text' as const, text: toolErrorJson(r.errorCode, r.message) }],
-          isError: true,
-        };
-      }
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: toolJson({ assetId: r.assetId, sha256: r.sha256, mimeType: r.mimeType }),
-          },
-        ],
-      };
+      });
     }
   );
 
@@ -162,15 +168,17 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       },
     },
     async () => {
-      const file = engine.getActiveFile();
-      if (!file) {
-        return {
-          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
-          isError: true,
-        };
-      }
-      const payload = buildVariableDefsPayload(file);
-      return { content: [{ type: 'text' as const, text: toolJson(payload) }] };
+      return runMcpToolWithCancellation(async () => {
+        const file = engine.getActiveFile();
+        if (!file) {
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
+            isError: true,
+          };
+        }
+        const payload = buildVariableDefsPayload(file);
+        return { content: [{ type: 'text' as const, text: toolJson(payload) }] };
+      });
     }
   );
 
@@ -187,15 +195,17 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       },
     },
     async (args) => {
-      const file = engine.getActiveFile();
-      if (!file) {
-        return {
-          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
-          isError: true,
-        };
-      }
-      const hits = searchDesignSystem(file, args.query ?? '', args.limit ?? 20);
-      return { content: [{ type: 'text' as const, text: toolJson({ hits }) }] };
+      return runMcpToolWithCancellation(async () => {
+        const file = engine.getActiveFile();
+        if (!file) {
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
+            isError: true,
+          };
+        }
+        const hits = searchDesignSystem(file, args.query ?? '', args.limit ?? 20);
+        return { content: [{ type: 'text' as const, text: toolJson({ hits }) }] };
+      });
     }
   );
 
@@ -245,7 +255,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           };
         }
         try {
-          const root = collectMetadataTree(node, { maxDepth: args.maxDepth, signal });
+          const root = collectMetadataTree(node, { maxDepth: args.maxDepth, signal, working: file });
           const payload = {
             metadataFormatVersion: 1 as const,
             childStacking: 'later-children-on-top' as const,
@@ -327,47 +337,49 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
       },
     },
     async (args) => {
-      const file = engine.getActiveFile();
-      if (!file) {
-        return {
-          content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
-          isError: true,
-        };
-      }
-      const compiled = await compileSubtreeForScreenshot({
-        envelope: file,
-        rootNodeId: args.nodeId,
-        options: {
-          viewportPaddingPx: 0,
-          includeCss: true,
-          inlineCss: true,
-          fontBaseUrl: getLocalFontsFileBaseUrl(),
-          imageDataUrlByHash: imageDataUrlMapForActiveFile(),
-        },
-        screenshot: playwrightScreenshotService,
-        screenshotTimeoutMs: deps.screenshotTimeoutMs,
-      });
-      const dpr = args.deviceScaleFactor ?? args.scale * deps.screenshotDefaultDeviceScaleFactor;
-      const bg = args.background ?? deps.screenshotDefaultBackground;
-      const shot = await playwrightScreenshotService.capture({
-        compiled,
-        clipRect: compiled.rootClip,
-        format: args.format,
-        scale: args.scale,
-        deviceScaleFactor: dpr,
-        background: bg,
-        timeoutMs: deps.screenshotTimeoutMs,
-      });
-      return {
-        content: [
-          {
-            type: 'image' as const,
-            data: shot.bytes.toString('base64'),
-            mimeType: shot.mimeType,
-            _meta: { width: shot.width, height: shot.height },
+      return runMcpToolWithCancellation(async () => {
+        const file = engine.getActiveFile();
+        if (!file) {
+          return {
+            content: [{ type: 'text' as const, text: toolErrorJson('NO_ACTIVE_FILE', 'No active file') }],
+            isError: true,
+          };
+        }
+        const compiled = await compileSubtreeForScreenshot({
+          envelope: file,
+          rootNodeId: args.nodeId,
+          options: {
+            viewportPaddingPx: 0,
+            includeCss: true,
+            inlineCss: true,
+            fontBaseUrl: getLocalFontsFileBaseUrl(),
+            imageDataUrlByHash: imageDataUrlMapForActiveFile(),
           },
-        ],
-      };
+          screenshot: playwrightScreenshotService,
+          screenshotTimeoutMs: deps.screenshotTimeoutMs,
+        });
+        const dpr = args.deviceScaleFactor ?? args.scale * deps.screenshotDefaultDeviceScaleFactor;
+        const bg = args.background ?? deps.screenshotDefaultBackground;
+        const shot = await playwrightScreenshotService.capture({
+          compiled,
+          clipRect: compiled.rootClip,
+          format: args.format,
+          scale: args.scale,
+          deviceScaleFactor: dpr,
+          background: bg,
+          timeoutMs: deps.screenshotTimeoutMs,
+        });
+        return {
+          content: [
+            {
+              type: 'image' as const,
+              data: shot.bytes.toString('base64'),
+              mimeType: shot.mimeType,
+              _meta: { width: shot.width, height: shot.height },
+            },
+          ],
+        };
+      });
     }
   );
 
@@ -407,7 +419,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           let touchedNodeIds: string[] = [];
           let txWarnings: string[] = [];
           if (run.operations.length > 0) {
-            const r = await engine.applyTransaction(run.operations);
+            const r = await engine.applyTransaction(run.operations, { signal });
             if (!r.success) {
               commandErrorCode = r.errorCode;
               commandMessage = r.message;

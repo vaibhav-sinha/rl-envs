@@ -1737,7 +1737,12 @@ function allocNodeId(working: FileEnvelope): string {
   return id;
 }
 
-export function cloneSceneSubtreeWithNewIds(working: FileEnvelope, node: SceneNode): SceneNode {
+export function cloneSceneSubtreeWithNewIds(
+  working: FileEnvelope,
+  node: SceneNode,
+  signal?: AbortSignal
+): SceneNode {
+  engineThrowIfAborted(signal);
   const cloned = structuredClone(node) as SceneNode;
   cloned.id = allocNodeId(working);
   if (
@@ -1746,18 +1751,24 @@ export function cloneSceneSubtreeWithNewIds(working: FileEnvelope, node: SceneNo
     cloned.type === 'GROUP' ||
     cloned.type === 'SECTION'
   ) {
-    cloned.children = cloned.children.map((c) => cloneSceneSubtreeWithNewIds(working, c));
+    cloned.children = cloned.children.map((c) => cloneSceneSubtreeWithNewIds(working, c, signal));
   } else if (cloned.type === 'BOOLEAN_OPERATION') {
     const b = cloned;
-    b.children = b.children.map((c) => cloneSceneSubtreeWithNewIds(working, c as SceneNode) as (typeof b.children)[number]);
+    b.children = b.children.map(
+      (c) => cloneSceneSubtreeWithNewIds(working, c as SceneNode, signal) as (typeof b.children)[number]
+    );
   } else if (cloned.type === 'INSTANCE' && cloned.children?.length) {
-    cloned.children = cloned.children.map((c) => cloneSceneSubtreeWithNewIds(working, c));
+    cloned.children = cloned.children.map((c) => cloneSceneSubtreeWithNewIds(working, c, signal));
   }
   return cloned;
 }
 
 /** Duplicate a scene node as a sibling (Figma `clone` / `duplicate`). */
-export function duplicateNodeInEnvelope(working: FileEnvelope, nodeId: string): string {
+export function duplicateNodeInEnvelope(
+  working: FileEnvelope,
+  nodeId: string,
+  signal?: AbortSignal
+): string {
   const node = findNode(working.document, nodeId);
   if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') {
     throw new ValidationErr('VALIDATION_ERROR', 'duplicate: node must be a scene node');
@@ -1769,7 +1780,7 @@ export function duplicateNodeInEnvelope(working: FileEnvelope, nodeId: string): 
   const list = mutableChildList(parent);
   const idx = list.findIndex((c) => c.id === nodeId);
   if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
-  const cloned = cloneSceneSubtreeWithNewIds(working, node as SceneNode);
+  const cloned = cloneSceneSubtreeWithNewIds(working, node as SceneNode, signal);
   list.splice(idx + 1, 0, cloned);
   return cloned.id;
 }
@@ -2014,7 +2025,18 @@ export function findEnvelopeNode(
  * Applies one validated engine operation to a working envelope (mutates).
  * Used by {@link DocumentEngine.applyTransaction} and the `use_figma` script sandbox for in-memory consistency.
  */
-export function applyEngineOp(working: FileEnvelope, op: EngineOperation): string | undefined {
+function engineThrowIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const reason = signal.reason;
+  if (reason instanceof Error) throw reason;
+  throw new Error(typeof reason === 'string' ? reason : 'Tool run aborted');
+}
+
+export function applyEngineOp(
+  working: FileEnvelope,
+  op: EngineOperation,
+  signal?: AbortSignal
+): string | undefined {
   if (isEnvelopeOperation(op)) {
     applyEnvelopeOperation(working, op);
     return undefined;
@@ -2153,7 +2175,7 @@ export function applyEngineOp(working: FileEnvelope, op: EngineOperation): strin
     return detachInstanceInEnvelope(working, op.nodeId);
   }
   if (op.op === 'duplicateNode') {
-    return duplicateNodeInEnvelope(working, op.nodeId);
+    return duplicateNodeInEnvelope(working, op.nodeId, signal);
   }
   if (op.op === 'moveNode') {
     const subtree = detachSubtree(working.document, op.nodeId);
@@ -2556,16 +2578,25 @@ export class DocumentEngine {
     return this.commitRasterAssetBuffer({ buf, mime });
   }
 
-  async applyTransaction(ops: EngineOperation[]): Promise<TransactionResult | TransactionFailure> {
+  async applyTransaction(
+    ops: EngineOperation[],
+    options?: { signal?: AbortSignal }
+  ): Promise<TransactionResult | TransactionFailure> {
     if (!this.activeFile || !this.activeFilePath) {
       return { success: false, errorCode: 'NO_ACTIVE_FILE', message: 'No active file' };
     }
-    const working = deepClone(this.activeFile);
+    const signal = options?.signal;
     const touched = new Set<string>();
     const warnings: string[] = [];
+    let opSteps = 0;
+    let working: FileEnvelope;
 
     try {
+      engineThrowIfAborted(signal);
+      working = deepClone(this.activeFile);
       for (const op of ops) {
+        opSteps += 1;
+        if (opSteps % 32 === 0) engineThrowIfAborted(signal);
         if (isAssetRegisterOperation(op)) {
           const buf = Buffer.from(op.dataBase64, 'base64');
           if (buf.length === 0) {
@@ -2584,7 +2615,7 @@ export class DocumentEngine {
           continue;
         }
         if (isSceneGraphOperation(op)) {
-          const id = applyEngineOp(working, op);
+          const id = applyEngineOp(working, op, signal);
           if (op.op === 'createNode' && id) touched.add(id);
           else if (op.op === 'duplicateNode' && id) touched.add(id);
           else if (op.op === 'detachInstance' && id) touched.add(id);
@@ -2603,6 +2634,10 @@ export class DocumentEngine {
           errorCode: e.code,
           message: e.message,
         };
+      }
+      if (signal?.aborted) {
+        const msg = e instanceof Error ? e.message : 'Tool run aborted';
+        return { success: false, errorCode: 'VALIDATION_ERROR', message: msg };
       }
       throw e;
     }

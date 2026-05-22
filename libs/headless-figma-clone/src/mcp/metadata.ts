@@ -1,9 +1,13 @@
 import type { AnyTreeNode } from '../engine/DocumentEngine.js';
+import { buildNodeIndex, type NodeIndex } from '../engine/nodeIndex.js';
 import { throwIfAborted } from './inFlightAbort.js';
 import type {
   BooleanOperationNode,
+  ComponentNode,
+  ComponentSetNode,
   DocumentNode,
   Effect,
+  FileEnvelope,
   FrameNode,
   GroupNode,
   PageNode,
@@ -70,7 +74,7 @@ function applyShapeBoxMetadata(
 }
 
 /** Scene-graph children to include in metadata (one level per walk step). */
-function metadataChildNodes(node: AnyTreeNode): AnyTreeNode[] | undefined {
+function metadataChildNodes(node: AnyTreeNode, nodeIndex?: NodeIndex): AnyTreeNode[] | undefined {
   if (node.type === 'DOCUMENT' || node.type === 'PAGE') {
     return node.children;
   }
@@ -85,15 +89,31 @@ function metadataChildNodes(node: AnyTreeNode): AnyTreeNode[] | undefined {
   if (node.type === 'BOOLEAN_OPERATION') {
     return (node as BooleanOperationNode).children as SceneNode[];
   }
+  if (node.type === 'COMPONENT') {
+    const comp = node as ComponentNode;
+    const frame = nodeIndex?.get(comp.rootFrameId);
+    return frame ? [frame] : undefined;
+  }
+  if (node.type === 'COMPONENT_SET') {
+    const set = node as ComponentSetNode;
+    if (!nodeIndex) return undefined;
+    const variants: AnyTreeNode[] = [];
+    for (const cid of set.componentIds) {
+      const comp = nodeIndex.get(cid);
+      if (comp) variants.push(comp);
+    }
+    return variants.length > 0 ? variants : undefined;
+  }
   return undefined;
 }
 
 export function collectMetadataTree(
   root: AnyTreeNode,
-  options: { maxDepth?: number; signal?: AbortSignal } = {}
+  options: { maxDepth?: number; signal?: AbortSignal; working?: FileEnvelope; nodeIndex?: NodeIndex } = {}
 ): MetadataNodeDTO {
   const max = options.maxDepth ?? 1_000_000;
   const signal = options.signal;
+  const nodeIndex = options.nodeIndex ?? (options.working ? buildNodeIndex(options.working) : undefined);
   let metaSteps = 0;
 
   function walk(node: AnyTreeNode, depth: number): MetadataNodeDTO {
@@ -199,7 +219,7 @@ export function collectMetadataTree(
     if (inst.blendMode !== undefined) dto.blendMode = inst.blendMode;
   }
     if (depth >= max) return dto;
-    const kids = metadataChildNodes(node);
+    const kids = metadataChildNodes(node, nodeIndex);
     if (kids !== undefined) {
       dto.children = kids.map((c) => walk(c, depth + 1));
     }

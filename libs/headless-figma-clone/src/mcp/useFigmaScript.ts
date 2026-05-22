@@ -5,7 +5,6 @@ import {
   detachSceneNodeById,
   findComponentIdByKey,
   findEnvelopeNode,
-  findParentNode,
   registerAssetBytesInEnvelope,
   validateTransformModifiers,
   type EngineOperation,
@@ -79,7 +78,13 @@ import {
 import { assertGridChildLayoutField, GRID_CHILD_LAYOUT_FIELDS } from '../engine/gridChildValidate.js';
 import { assertFigmaObjectAssignable } from '../engine/pluginObjectAssign.js';
 import { writeSideStrokeWeight, type SideStrokeWeightTarget } from '../engine/sideStrokeWeights.js';
-import { buildNodeIndex, type NodeIndex } from '../engine/nodeIndex.js';
+import {
+  buildGraphIndexes,
+  findComponentSetForComponent,
+  resolveParentNode,
+  type GraphIndexes,
+  type NodeIndex,
+} from '../engine/nodeIndex.js';
 import { throwIfAborted } from './inFlightAbort.js';
 import { ValidationErr } from '../util/errors.js';
 
@@ -96,7 +101,7 @@ interface ScriptContext {
   working: FileEnvelope;
   /** False until first mutating op — read-only scripts share `engine.getActiveFile()` without cloning. */
   ownsWorking: boolean;
-  nodeIndex: NodeIndex;
+  graphIndexes: GraphIndexes;
   indexStale: boolean;
   ops: EngineOperation[];
   deletedIds: Set<string>;
@@ -117,12 +122,48 @@ function isRuntimeSceneNode(v: unknown): v is RuntimeSceneNode {
   );
 }
 
+function rebuildGraphIndexes(ctx: ScriptContext): GraphIndexes {
+  ctx.graphIndexes = buildGraphIndexes(ctx.working);
+  ctx.indexStale = false;
+  return ctx.graphIndexes;
+}
+
+function getGraphIndexes(ctx: ScriptContext): GraphIndexes {
+  if (ctx.indexStale) rebuildGraphIndexes(ctx);
+  return ctx.graphIndexes;
+}
+
 function getNodeIndex(ctx: ScriptContext): NodeIndex {
-  if (ctx.indexStale) {
-    ctx.nodeIndex = buildNodeIndex(ctx.working);
-    ctx.indexStale = false;
+  return getGraphIndexes(ctx).nodes;
+}
+
+function readVariantProperties(
+  ctx: ScriptContext,
+  inst: import('../model/types.js').InstanceNode | import('../model/types.js').ComponentInstanceNode
+): Record<string, string> | null {
+  if (inst.type !== 'INSTANCE') return null;
+  const main = scriptLookup(ctx, inst.mainComponentId);
+  if (!main) return null;
+  let set: import('../model/types.js').ComponentSetNode | null = null;
+  if (main.type === 'COMPONENT_SET') {
+    set = main;
+  } else if (main.type === 'COMPONENT') {
+    set = findComponentSetForComponent(getGraphIndexes(ctx), main.id);
   }
-  return ctx.nodeIndex;
+  if (!set) return null;
+  const key = set.variantPropertyKey ?? 'variant';
+  const value = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0] ?? null;
+  if (value === null || value === undefined) return null;
+  return { [key]: String(value) };
+}
+
+function scriptParentHandle(ctx: ScriptContext, nodeId: string): unknown | null {
+  const par = resolveParentNode(getGraphIndexes(ctx), nodeId);
+  if (!par) return null;
+  if (par.type === 'DOCUMENT') {
+    return { id: par.id, type: par.type, name: par.name };
+  }
+  return createHandleProxy(ctx, par.id);
 }
 
 function ensureWorkingCopy(ctx: ScriptContext): void {
@@ -130,13 +171,12 @@ function ensureWorkingCopy(ctx: ScriptContext): void {
   throwIfAborted(ctx.signal);
   ctx.working = deepClone(ctx.working);
   ctx.ownsWorking = true;
-  ctx.nodeIndex = buildNodeIndex(ctx.working);
-  ctx.indexStale = false;
+  rebuildGraphIndexes(ctx);
 }
 
 function applyScriptEngineOp(ctx: ScriptContext, op: EngineOperation): string | undefined {
   ensureWorkingCopy(ctx);
-  const result = applyEngineOp(ctx.working, op);
+  const result = applyEngineOp(ctx.working, op, ctx.signal);
   ctx.indexStale = true;
   return result;
 }
@@ -430,12 +470,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
         return (traversal() as Record<string, unknown>)[prop as string];
       }
       if (prop === 'parent') {
-        const par = findParentNode(ctx.working.document, id);
-        if (!par) return null;
-        if (par.type === 'DOCUMENT') {
-          return { id: par.id, type: par.type, name: par.name };
-        }
-        return createHandleProxy(ctx, par.id);
+        return scriptParentHandle(ctx, id);
       }
       if (prop === 'remove') {
         return (): void => {
@@ -523,13 +558,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (prop === 'variantProperties') {
         const live = scriptLookup(ctx, id);
         if (!live || ctx.deletedIds.has(id) || live.type !== 'INSTANCE') return null;
-        const inst = live as import('../model/types.js').InstanceNode;
-        const main = scriptLookup(ctx, inst.mainComponentId);
-        if (!main || main.type !== 'COMPONENT_SET') return null;
-        const set = main as import('../model/types.js').ComponentSetNode;
-        const key = set.variantPropertyKey ?? 'variant';
-        const value = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0] ?? null;
-        return value === null ? null : { [key]: value };
+        return readVariantProperties(ctx, live as import('../model/types.js').InstanceNode);
       }
       if (prop === 'swapComponent') {
         return (componentNode: { id: string }): void => {
@@ -697,7 +726,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (!live || ctx.deletedIds.has(id)) return false;
       if (live.type === 'TEXT' && TEXT_HANDLE_METHOD_KEYS.has(p)) return true;
       if (p === 'children') return nodeExposesChildren(live);
-      if (p === 'parent') return findParentNode(ctx.working.document, id) !== null;
+      if (p === 'parent') return resolveParentNode(getGraphIndexes(ctx), id) !== null;
       if (p === 'mainComponent') return live.type === 'INSTANCE' || live.type === 'COMPONENT_INSTANCE';
       if (p === 'componentProperties') return live.type === 'INSTANCE' || live.type === 'COMPONENT_INSTANCE';
       if (p === 'variantProperties') return live.type === 'INSTANCE';
@@ -806,12 +835,7 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
       }
       if (p === 'parent') {
         if (!target.attached || nid === null) return null;
-        const par = findParentNode(ctx.working.document, nid);
-        if (!par) return null;
-        if (par.type === 'DOCUMENT') {
-          return { id: par.id, type: par.type, name: par.name };
-        }
-        return createHandleProxy(ctx, par.id);
+        return scriptParentHandle(ctx, nid);
       }
       if (p === 'children') {
         if (!target.attached && runtimeSupportsDetachedTraversal(target.type)) {
@@ -2060,11 +2084,6 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
   componentProperties?: Record<string, ComponentPropertyValue>;
   overrides?: Record<string, { fills?: Paint[]; characters?: string; fontSize?: number; fontWeight?: number }>;
 
-  private getCurrentComponentSet(): import('../model/types.js').ComponentSetNode | null {
-    const main = scriptLookup(this.ctx, this.mainComponentId);
-    return main && main.type === 'COMPONENT_SET' ? (main as import('../model/types.js').ComponentSetNode) : null;
-  }
-
   private getSelectedComponentIdFromSet(set: import('../model/types.js').ComponentSetNode): string {
     const key = set.variantPropertyKey ?? 'variant';
     const raw = this.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
@@ -2085,12 +2104,11 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
   }
 
   get variantProperties(): unknown | null {
-    const set = this.getCurrentComponentSet();
-    if (!set) return null;
-    const key = set.variantPropertyKey ?? 'variant';
-    const value = this.componentProperties?.[key]?.value ?? set.variantOptions?.[0] ?? null;
-    if (value === null) return null;
-    return { [key]: value };
+    const nid = this.getAttachedIdOrNull();
+    if (nid === null) return null;
+    const live = scriptLookup(this.ctx, nid);
+    if (!live || live.type !== 'INSTANCE') return null;
+    return readVariantProperties(this.ctx, live as import('../model/types.js').InstanceNode);
   }
 
   async getMainComponentAsync(): Promise<unknown> {
@@ -2440,7 +2458,7 @@ export async function runUseFigmaScript(
   const ctx: ScriptContext = {
     working: file,
     ownsWorking: false,
-    nodeIndex: buildNodeIndex(file),
+    graphIndexes: buildGraphIndexes(file),
     indexStale: false,
     ops: [],
     deletedIds: new Set(),
@@ -2976,6 +2994,7 @@ export async function runUseFigmaScript(
     const snap = snapshotForReturn(rawResult, {
       working: ctx.working,
       deletedIds: ctx.deletedIds,
+      graphIndexes: getGraphIndexes(ctx),
     });
     result = snap.value;
     snapshotWarnings = snap.warnings;

@@ -145,4 +145,64 @@ describe('collectMetadataTree', () => {
     const meta = collectMetadataTree(node, {});
     expect(meta.mainComponentId).toBe(comp);
   });
+
+  it('descends into COMPONENT rootFrame and COMPONENT_SET variants', () => {
+    const env = emptyEnvelope();
+    const pid = pageId(env);
+    const rootA = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'FRAME', name: 'RootA', x: 0, y: 0, width: 120, height: 40, children: [] },
+    });
+    applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: rootA,
+      node: { type: 'TEXT', name: 'Label', x: 0, y: 0, width: 80, height: 20, characters: 'Hi' },
+    });
+    const compA = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'COMPONENT', name: 'A', x: 0, y: 0, width: 120, height: 40, rootFrameId: rootA },
+    });
+    const rootB = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'FRAME', name: 'RootB', x: 0, y: 0, width: 120, height: 40, children: [] },
+    });
+    applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: rootB,
+      node: { type: 'TEXT', name: 'LabelB', x: 0, y: 0, width: 80, height: 20, characters: 'Bye' },
+    });
+    const compB = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'COMPONENT', name: 'B', x: 0, y: 0, width: 120, height: 40, rootFrameId: rootB },
+    });
+    const setId = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: {
+        type: 'COMPONENT_SET',
+        name: 'Set',
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 40,
+        componentIds: [compA, compB],
+        variantPropertyKey: 'State',
+        variantOptions: ['A', 'B'],
+      },
+    });
+    const compNode = env.document.children[0]!.children.find((c) => c.id === compA)!;
+    const compMeta = collectMetadataTree(compNode, { maxDepth: 2, working: env });
+    expect(compMeta.children?.[0]?.type).toBe('FRAME');
+    expect(compMeta.children?.[0]?.children?.[0]?.name).toBe('Label');
+
+    const setNode = env.document.children[0]!.children.find((c) => c.id === setId)!;
+    const setMeta = collectMetadataTree(setNode, { maxDepth: 3, working: env });
+    expect(setMeta.children?.map((c) => c.name).sort()).toEqual(['A', 'B']);
+    const innerA = setMeta.children?.find((c) => c.name === 'A');
+    expect(innerA?.children?.[0]?.children?.[0]?.name).toBe('Label');
+  });
 });

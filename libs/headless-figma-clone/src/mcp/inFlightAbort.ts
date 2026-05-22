@@ -1,4 +1,4 @@
-/** Single in-flight MCP tool run; superseded runs and timeouts abort the active signal. */
+/** Abort signal for the single MCP tool run currently executing (timeout / client cancel). */
 
 let active: AbortController | null = null;
 
@@ -16,11 +16,8 @@ export function throwIfAborted(signal?: AbortSignal): void {
   throw new Error(typeof reason === 'string' ? reason : 'Tool run aborted');
 }
 
-/** Abort any previous tool run and return a fresh signal for the new one. */
+/** Fresh signal for the current queued tool run (does not abort a prior run — queue serializes). */
 export function beginInFlightToolRun(): AbortSignal {
-  if (active) {
-    active.abort(new Error('Superseded by a new MCP tool request'));
-  }
   active = new AbortController();
   return active.signal;
 }
