@@ -913,7 +913,13 @@ export interface InstanceNode extends NodeBase, LayoutSelfFields {
   rotation?: number;
   opacity?: number;
   blendMode?: BlendMode;
+  fills?: Paint[];
+  strokes?: Paint[];
+  effects?: Effect[];
+  cornerRadius?: number;
   mainComponentId: string;
+  /** Exported SVG icon for this instance (plugin snapshot). */
+  iconSvgAssetHash?: string;
   /** Detached instance subtree from Figma plugin export when `mainComponent` is unresolved. */
   children?: SceneNode[];
   /**

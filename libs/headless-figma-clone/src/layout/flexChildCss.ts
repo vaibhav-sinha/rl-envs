@@ -1,4 +1,4 @@
-import type { FrameNode, LayoutSelfFields, SceneNode } from '../model/types.js';
+import type { FrameNode, LayoutSelfFields, SceneNode, TextNode } from '../model/types.js';
 import { gridChildPlacementCss } from './gridLayout.js';
 
 /** Auto-layout frames use an out-of-flow absolutely positioned flex shell; `width/height:auto` cross-axis would collapse. */
@@ -136,7 +136,7 @@ export function flexChildLayoutCss(
   if ((isAutoLayoutFrameNode(node) || isTextNode(node)) && mainSizing === 'HUG') {
     basisMain = `${String(Math.round(mainSize))}px`;
   }
-  const alignSelf =
+  let alignSelf =
     crossSizing === 'FILL' || n.layoutAlign === 'STRETCH'
       ? 'align-self:stretch;'
       : n.layoutAlign === 'CENTER'
@@ -144,6 +144,33 @@ export function flexChildLayoutCss(
         : n.layoutAlign === 'MAX'
           ? 'align-self:flex-end;'
           : '';
+  if (
+    !alignSelf &&
+    isTextNode(node) &&
+    parentFrame?.layoutMode === 'HORIZONTAL' &&
+    (node as TextNode).textAlignHorizontal === 'CENTER'
+  ) {
+    const parentH = parentFrame.height ?? 0;
+    const textH = node.height ?? 0;
+    const insetY = Math.round(node.y ?? 0);
+    const centeredY = Math.round((parentH - textH) / 2);
+    if (parentH > 0 && textH > 0 && Math.abs(insetY - centeredY) <= 2) {
+      alignSelf = 'align-self:center;';
+    }
+  }
+  if (
+    !alignSelf &&
+    isTextNode(node) &&
+    parentFrame &&
+    (node as TextNode).textAlignVertical === 'CENTER'
+  ) {
+    const isRow = parentFrame.layoutMode !== 'VERTICAL';
+    const parentCross = isRow ? (parentFrame.height ?? 0) : (parentFrame.width ?? 0);
+    const textCross = isRow ? (node.height ?? 0) : (node.width ?? 0);
+    if (parentCross > 0 && textCross > 0 && parentCross >= textCross) {
+      alignSelf = 'align-self:center;';
+    }
+  }
   const crossDim =
     crossSizing === 'HUG' && !isAutoLayoutFrameNode(node)
       ? isRow

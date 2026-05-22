@@ -49,6 +49,7 @@ import type {
   BooleanOperationNode,
   ComponentInstanceNode,
   ComponentNode,
+  ComponentPropertyValue,
   ComponentSetNode,
   InstanceNode,
   Effect,
@@ -434,7 +435,7 @@ function textInnerHorizontalCss(t: TextNode): string {
 /** Figma: `HEIGHT` auto-resize wraps; a single-line hug box clips horizontally instead of wrapping. */
 function textIsSingleLineBox(t: TextNode, env: FileEnvelope): boolean {
   if (t.textOnPath) return false;
-  if (t.characters.includes('\n')) return false;
+  if (effectiveTextCharacters(t, env).includes('\n')) return false;
   if (t.textTruncation === 'DISABLED') return false;
   if (t.textAutoResize === 'HEIGHT') return false;
   if (t.textTruncation === 'ENDING' && t.maxLines != null && t.maxLines > 1) return false;
@@ -462,11 +463,15 @@ function textFlowCss(t: TextNode, env: FileEnvelope): string {
   return 'white-space:pre-wrap;word-break:break-word;';
 }
 
+/** Figma line/paragraph separators (U+2028/U+2029) are intentional breaks; browsers do not wrap on them. */
+function normalizeFigmaText(s: string): string {
+  return s.replace(/\u2028/g, '\n').replace(/\u2029/g, '\n');
+}
+
 function effectiveTextCharacters(t: TextNode, env: FileEnvelope): string {
   const vid = t.boundVariables?.characters;
-  if (!vid) return t.characters;
-  const s = resolveVariableToStringValue(env, vid);
-  return s ?? t.characters;
+  const raw = !vid ? t.characters : (resolveVariableToStringValue(env, vid) ?? t.characters);
+  return normalizeFigmaText(raw);
 }
 
 function effectiveRectFills(r: RectangleNode, env: FileEnvelope): Paint[] {
@@ -775,7 +780,9 @@ function fillBackgroundStyles(
     if (fill.scaleMode === 'FIT') size = 'contain';
     if (fill.scaleMode === 'STRETCH') size = '100% 100%';
     if (fill.scaleMode === 'TILE') size = 'auto';
-    return `background-image:url("${escapeAttr(url)}");background-size:${size};background-repeat:${fill.scaleMode === 'TILE' ? 'repeat' : 'no-repeat'};background-position:center;background-color:transparent;`;
+    const opacity =
+      fill.opacity !== undefined && fill.opacity < 1 ? `opacity:${String(fill.opacity)};` : '';
+    return `background-image:url("${escapeAttr(url)}");background-size:${size};background-repeat:${fill.scaleMode === 'TILE' ? 'repeat' : 'no-repeat'};background-position:center;background-color:transparent;${opacity}`;
   }
   if (fill.type === 'PATTERN') {
     return patternPaintCss(fill, env, patternTiles, warnings, label);
@@ -2142,18 +2149,146 @@ function mergeDetachedChildrenIntoRoot(root: FrameNode, detached: SceneNode[]): 
   }
 }
 
+function componentPropertyLabel(key: string): string {
+  const i = key.indexOf('#');
+  return (i >= 0 ? key.slice(0, i) : key).trim();
+}
+
+function collectSceneNodes(root: SceneNode): SceneNode[] {
+  const out: SceneNode[] = [];
+  const stack: SceneNode[] = [root];
+  while (stack.length) {
+    const n = stack.pop()!;
+    out.push(n);
+    if (n.type === 'FRAME' || n.type === 'GROUP' || n.type === 'TRANSFORM_GROUP' || n.type === 'SECTION') {
+      for (const ch of n.children) stack.push(ch);
+    } else if (n.type === 'BOOLEAN_OPERATION') {
+      for (const ch of n.children as unknown as SceneNode[]) stack.push(ch);
+    } else if (n.type === 'INSTANCE' && n.children?.length) {
+      for (const ch of n.children) stack.push(ch);
+    }
+  }
+  return out;
+}
+
+/** Apply Figma instance `componentProperties` to a cloned component root before emit. */
+function applyComponentProperties(root: FrameNode, props?: Record<string, ComponentPropertyValue>): void {
+  if (!props) return;
+  const nodes = collectSceneNodes(root);
+
+  const boolByLabel = new Map<string, boolean>();
+  for (const [key, val] of Object.entries(props)) {
+    if (val.type !== 'BOOLEAN') continue;
+    boolByLabel.set(componentPropertyLabel(key), val.value);
+  }
+  const leftIcon = boolByLabel.get('Left Icon');
+  const rightIcon = boolByLabel.get('Right Icon');
+  if (leftIcon === false && rightIcon === false) {
+    for (const n of nodes) {
+      if (n.name === 'Icon') n.visible = false;
+    }
+  }
+
+  for (const [key, val] of Object.entries(props)) {
+    const label = componentPropertyLabel(key);
+    if (val.type === 'TEXT') {
+      for (const n of nodes) {
+        if (n.type === 'TEXT' && (label === 'Text' || n.name === 'Button')) {
+          n.characters = val.value;
+        }
+      }
+    }
+    if (val.type === 'VARIANT' && label === 'Level' && val.value === 'Secondary') {
+      if (root.fills?.length) {
+        root.fills = root.fills.map((f) => ({ ...f, visible: false }));
+      }
+    }
+  }
+}
+
+function instanceHasDropShadow(effects: Effect[] | undefined): boolean {
+  return effects?.some((e) => e.visible !== false && e.type === 'DROP_SHADOW') ?? false;
+}
+
+function instanceOverflowCss(effects: Effect[] | undefined): string {
+  return instanceHasDropShadow(effects) ? 'overflow:visible;' : 'overflow:hidden;';
+}
+
+function instancePaintShellCss(
+  inst: InstanceNode,
+  env: FileEnvelope,
+  imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  frameCornerRadiusCss: (f: FrameNode) => string
+): string {
+  const asFrame = inst as unknown as FrameNode;
+  const fills = effectiveFrameFills(asFrame, env);
+  const fillCss = stackedFillsCss(fills, imgMap, patternTiles, warnings, `instance_shell:${inst.id}`, env);
+  const shadow = nodeEffectsCss(effectiveFrameEffects(asFrame, env), env, inst, warnings, 'instance');
+  const radiusCss = frameCornerRadiusCss(asFrame);
+  return `${fillCss}${shadow}${radiusCss}`;
+}
+
+/** Render instance bounds with local fills/effects when the component master is missing. */
+function emitInstancePaintShell(
+  inst: InstanceNode,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  insideFlex: boolean,
+  env: FileEnvelope,
+  imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  parentFrame?: FrameNode
+): boolean {
+  const asFrame = inst as unknown as FrameNode;
+  const fills = effectiveFrameFills(asFrame, env);
+  const effects = effectiveFrameEffects(asFrame, env);
+  if (!fills.some((f) => f.visible !== false) && !effects?.some((e) => e.visible !== false)) {
+    return false;
+  }
+  const fillCss = instancePaintShellCss(inst, env, imgMap, patternTiles, warnings, frameCornerRadiusCss);
+  const pos = insideFlex
+    ? sceneChildPos(inst, insideFlex, absX, absY, parentFrame)
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
+  htmlParts.push(`<div class="hfc-node-${inst.id} hfc-instance-shell" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}"></div>`);
+  cssParts.push(
+    `${hfcNodeCssSel(inst.id)}{${pos}box-sizing:border-box;${fillCss}${instanceOverflowCss(effects)}${opRot}}`
+  );
+  return true;
+}
+
 function prepareInstanceComponentRoot(
   root: FrameNode,
-  inst: Pick<InstanceNode, 'width' | 'height' | 'children'>,
+  inst: Pick<
+    InstanceNode,
+    'width' | 'height' | 'children' | 'componentProperties' | 'fills' | 'effects'
+  >,
   env: FileEnvelope,
   overrides?: ComponentInstanceNode['overrides']
 ): void {
   applyComponentOverrides(root, overrides);
+  applyComponentProperties(root, inst.componentProperties);
+  if (inst.fills?.length) {
+    root.fills = structuredClone(inst.fills);
+  }
+  if (inst.effects?.length) {
+    root.effects = structuredClone(inst.effects);
+  }
   const detached = instanceDetachedChildren(inst as InstanceNode);
   if (detached) {
     mergeDetachedChildrenIntoRoot(root, detached);
   } else {
     scaleComponentRootToInstance(root, inst.width, inst.height);
+    root.width = inst.width;
+    root.height = inst.height;
+    root.layoutSizingHorizontal = 'FIXED';
+    root.layoutSizingVertical = 'FIXED';
   }
   prepareClonedComponentSubtreeForEmit(root, env);
 }
@@ -2444,7 +2579,8 @@ function emitInstanceDetachedSubtree(
   htmlParts.push(
     `<div class="hfc-node-${inst.id} hfc-component-instance hfc-instance-detached" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
   );
-  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
+  const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
+  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceOverflowCss(instEffects)}${opRot}}`);
   withInstanceCssScope(inst.id, () => {
     emitScene(
       root,
@@ -2519,10 +2655,13 @@ function emitInstance(
         : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(
             inst.width
           )}px;height:${String(inst.height)}px;`;
+      const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
       htmlParts.push(
         `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
       );
-      cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
+      cssParts.push(
+        `.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceOverflowCss(instEffects)}${opRot}}`
+      );
       withInstanceCssScope(inst.id, () => {
         emitScene(
           root,
@@ -2568,6 +2707,24 @@ function emitInstance(
         originY,
         shiftX,
         shiftY
+      )
+    ) {
+      return;
+    }
+    if (
+      emitInstancePaintShell(
+        inst,
+        absX,
+        absY,
+        zIndex,
+        opRot,
+        htmlParts,
+        cssParts,
+        insideFlex,
+        env,
+        imgMap,
+        patternTiles,
+        warnings
       )
     ) {
       return;
@@ -2624,10 +2781,11 @@ function emitInstance(
         inst.height
       )}px;`;
 
+  const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
   htmlParts.push(
     `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
   );
-  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
+  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceOverflowCss(instEffects)}${opRot}}`);
   withInstanceCssScope(inst.id, () => {
     emitScene(
       root,

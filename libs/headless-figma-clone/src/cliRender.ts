@@ -1,8 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { setFontsDir } from './fonts/localFontRegistry.js';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { getLocalFontsFileBaseUrl, setFontsDir } from './fonts/localFontRegistry.js';
 import { getDefaultFontsDir } from './fonts/packageRoot.js';
 import type { FileEnvelope } from './model/types.js';
 import { resolveHfcNodeIdBySourceFigmaId } from './resolveNodeRef.js';
+import { designCompiler } from './render/DesignCompiler.js';
+import { buildImageDataUrlByHash } from './render/imageDataUrls.js';
 import { renderNodeToFile } from './render/renderNodeToFile.js';
 import { closeSharedBrowser } from './screenshot/PlaywrightScreenshotService.js';
 
@@ -26,11 +28,12 @@ export async function handleRenderCli(argv: string[]): Promise<void> {
   const node = parseFlag(argv, '--node');
   const figmaNode = parseFlag(argv, '--figma-node');
   const out = parseFlag(argv, '--out');
+  const dumpHtml = parseFlag(argv, '--dump-html');
   if (!file || !out || (!node && !figmaNode) || (node && figmaNode)) {
     // eslint-disable-next-line no-console
     console.error(`Usage:
   hfc render --file <path.hfc.json> (--node <hfc-id> | --figma-node <sourceFigmaId>) --out <png>
-    [--scale N] [--background white|transparent] [--padding N]
+    [--scale N] [--background white|transparent] [--padding N] [--dump-html <path.html>]
 `);
     process.exit(1);
   }
@@ -57,6 +60,25 @@ export async function handleRenderCli(argv: string[]): Promise<void> {
         process.exit(1);
       }
     }
+    if (dumpHtml) {
+      const compiled = designCompiler.compileSubtree({
+        envelope,
+        rootNodeId: nodeId!,
+        options: {
+          viewportPaddingPx: Number.isFinite(padding) ? padding : 0,
+          includeCss: true,
+          inlineCss: true,
+          fontBaseUrl: getLocalFontsFileBaseUrl(),
+          imageDataUrlByHash: buildImageDataUrlByHash(envelope, file),
+        },
+      });
+      writeFileSync(dumpHtml, compiled.html, 'utf8');
+      if (compiled.warnings.length) {
+        // eslint-disable-next-line no-console
+        console.error(compiled.warnings.join('\n'));
+      }
+    }
+
     await renderNodeToFile({
       envelope,
       envelopePath: file,
