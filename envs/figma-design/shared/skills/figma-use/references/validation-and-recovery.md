@@ -20,8 +20,8 @@ After each `use_figma` call, validate results using the right tool for the job. 
 - **Structure & hierarchy**: correct parent-child relationships, component nesting, section contents
 - **Node counts**: expected number of variants created, children present
 - **Naming**: variant property names follow the `property=value` convention
-- **Positioning & alignment**: x/y coordinates, width/height values match expectations
-- **Layout properties**: auto-layout direction, sizing mode, padding, spacing
+- **Layout properties**: auto-layout direction, sizing mode (`layoutSizing*`, `primaryAxisSizingMode`, `counterAxisSizingMode`), padding, spacing, child order
+- **Positioning (non-auto-layout only)**: for frames with `layoutMode === 'NONE'`, x/y and width/height in metadata are meaningful. For auto-layout children (`layoutPositioning` `AUTO`), **do not** use metadata x/y to detect overlap — they are often all zero. For hug-sized auto-layout frames, metadata width/height may be stale; do not treat a small fetched height as proof the layout failed
 - **Component set membership**: all expected variants are inside the ComponentSet
 
 ```
@@ -32,7 +32,7 @@ ComponentSet node to verify all 120 children exist with correct names, sizes, an
 
 **When to use `get_metadata`:**
 - After creating/modifying nodes — to verify structure, counts, and names
-- After layout operations — to verify positions and dimensions
+- After layout operations — to verify `layoutMode`, spacing, and sizing modes (not child x/y or hug frame dimensions for auto-layout; see [gotchas.md](gotchas.md#auto-layout-runtime-geometry-is-unreliable))
 - After combining variants — to confirm all components are in the ComponentSet
 - After binding variables — to verify node properties (use use_figma to read bound variables if needed)
 - Between multi-step workflows — to confirm step N succeeded before starting step N+1
@@ -50,7 +50,7 @@ ComponentSet node to verify all 120 children exist with correct names, sizes, an
 
 **What to look for in screenshots** — these are the most commonly missed issues:
 - **Cropped/clipped text** — line heights or frame sizing cutting off descenders, ascenders, or entire lines
-- **Overlapping content** — elements stacking on top of each other due to incorrect sizing or missing auto-layout
+- **Overlapping content** — elements stacking on top of each other due to incorrect sizing or missing auto-layout (judge from the screenshot, not from `get_metadata` reporting the same `y` on auto-layout children)
 - **Placeholder text** still showing ("Title", "Heading", "Button") instead of actual content
 
 ## Error Recovery After Failed `use_figma`

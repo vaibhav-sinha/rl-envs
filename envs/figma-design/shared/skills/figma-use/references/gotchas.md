@@ -7,7 +7,7 @@
 - Component properties and variant creation pitfalls
 - Paint, color, and variable binding pitfalls
 - Page context and plugin lifecycle pitfalls
-- Auto Layout and sizing order pitfalls (including HUG/FILL interactions)
+- Auto Layout and sizing order pitfalls (including HUG/FILL interactions and unreliable runtime geometry)
 - Variant layout and geometry pitfalls
 - Canonical text-edit recipe + font loading and text/typography pitfalls
 - Variable scopes and mode pitfalls
@@ -369,6 +369,55 @@ const colorVar = figma.variables.createVariable("bg", collection, "COLOR")
 colorVar.setValueForMode(modeId, { r: 1, g: 0, b: 0, a: 1 })  // opaque red
 colorVar.setValueForMode(modeId, { r: 0, g: 0, b: 0, a: 0 })  // fully transparent
 ```
+
+## Auto-layout: runtime geometry is unreliable
+
+In auto-layout, the layout engine positions and sizes nodes when the frame is laid out (at render time in headless environments). **Do not use values read back in `use_figma` or `get_metadata` to decide whether auto-layout is working.**
+
+### Child `x` and `y`
+
+For children with `layoutPositioning === 'AUTO'` inside a frame where `layoutMode` is `HORIZONTAL` or `VERTICAL`, `node.x` and `node.y` are **not** reliable indicators of on-screen position. Many children report `x: 0, y: 0` even when they are stacked correctly with spacing. **Identical `y` values do not mean visual overlap.**
+
+```js
+// WRONG — treating metadata / plugin reads as ground truth
+const frame = figma.getNodeById(buttonsFrameId)
+const kids = frame.children.map(c => ({ name: c.name, y: c.y, h: c.height }))
+// [{ y: 0 }, { y: 0 }, { y: 0 }] → false alarm: "everything overlaps"
+
+// CORRECT — trust layout properties + screenshot
+return {
+  layoutMode: frame.layoutMode,
+  itemSpacing: frame.itemSpacing,
+  childOrder: frame.children.map(c => c.name),
+  childSizing: frame.children.map(c => ({
+    name: c.name,
+    layoutSizingHorizontal: c.layoutSizingHorizontal,
+    layoutSizingVertical: c.layoutSizingVertical,
+  })),
+}
+// Then call get_screenshot on the parent frame to verify visual stacking
+```
+
+Use `layoutPositioning = 'ABSOLUTE'` only when you intentionally need manual coordinates inside an auto-layout frame; otherwise prefer `itemSpacing`, child order, and sizing modes.
+
+### Hug frame `width` and `height`
+
+When a frame hugs content (`layoutSizingHorizontal` / `layoutSizingVertical` is `HUG`, or `primaryAxisSizingMode` / `counterAxisSizingMode` is `AUTO`), `node.width` and `node.height` read during or immediately after `use_figma` may still reflect an old fixed size (e.g. height `96` while three stacked children need ~160px). **Do not remove auto-layout or switch to manual `y` placement solely because fetched dimensions look too small.**
+
+```js
+// WRONG — frame.height looks too small → assume layout is broken
+if (buttonsFrame.height < 120) {
+  buttonsFrame.layoutMode = 'NONE'
+  resendBtn.y = 52  // manual fix based on bad height read
+}
+
+// CORRECT — verify visually; fix sizing modes if needed
+buttonsFrame.primaryAxisSizingMode = 'AUTO'  // hug along primary axis
+buttonsFrame.counterAxisSizingMode = 'AUTO'  // when appropriate
+// get_screenshot(buttonsFrame) to confirm; adjust itemSpacing / layoutSizing*, not x/y
+```
+
+**Validation rule:** structural checks → `layoutMode`, `itemSpacing`, padding, child order, `layoutSizing*`. Visual checks → `get_screenshot`. Never infer overlap or broken hug sizing from `x`, `y`, `width`, or `height` alone on auto-layout nodes.
 
 ## `layoutSizingVertical`/`layoutSizingHorizontal` = `'FILL'` requires auto-layout parent FIRST
 

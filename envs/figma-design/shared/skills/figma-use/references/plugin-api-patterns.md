@@ -206,6 +206,15 @@ frame.counterAxisSizingMode = "FIXED";      // Fixed cross axis
 
 **CRITICAL ORDERING:** Always call `resize()` BEFORE setting sizing modes. The `resize()` method silently resets both sizing modes to FIXED, so calling it after setting `primaryAxisSizingMode = "AUTO"` will override your HUG settings and lock the frame to the exact pixel dimensions you passed (even throwaway values like `1`). This causes the common "1px dimension" bug.
 
+### Runtime reads vs layout (headless / `use_figma`)
+
+Auto-layout resolves child positions and hug frame dimensions when the frame is laid out (at render time), not necessarily in the JSON returned by `use_figma` or `get_metadata`:
+
+- **Children** with `layoutPositioning` `AUTO`: `node.x` / `node.y` are not reliable — many report `0` even when stacked correctly. Do not treat matching coordinates as overlap.
+- **Hug frames** (`HUG` / `primaryAxisSizingMode` / `counterAxisSizingMode` `AUTO`): `node.width` / `node.height` fetched in a script may be stale. Use `get_screenshot` for visual verification.
+
+See [Auto-layout: runtime geometry is unreliable](gotchas.md#auto-layout-runtime-geometry-is-unreliable).
+
 ### Alignment
 
 ```javascript

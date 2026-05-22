@@ -34,6 +34,7 @@ IMPORTANT: Whenever you work with design systems, start with [working-with-desig
 11. `createVariable` accepts collection **object or ID string** (object preferred)
 12. **`layoutSizingHorizontal/Vertical = 'FILL'` MUST be set AFTER `parent.appendChild(child)`** — setting before append throws. Same applies to `'HUG'` on non-auto-layout nodes.
 12a. **Use auto-layout for containers that hold related children.** When children have a structural relationship — stacked, side-by-side, aligned, gapped, hugged — wrap them in `figma.createAutoLayout()`, not `figma.createFrame()` with absolute `x`/`y`. Absolute coordinates govern where a container sits on the canvas; auto-layout governs how its children relate inside it. Skipping the container leaves no protection against text reflow, content changes, or overlap.
+12b. **Do not trust runtime `x`/`y` or hug dimensions for auto-layout.** Children of an auto-layout frame (`layoutMode` is `HORIZONTAL` or `VERTICAL`) with `layoutPositioning` `AUTO` have positions computed at layout/render time — `node.x`, `node.y`, and `get_metadata` bounds often stay at defaults (e.g. all `y: 0`) and do **not** prove overlap. Likewise, a frame with `layoutSizingHorizontal`/`layoutSizingVertical` or `primaryAxisSizingMode`/`counterAxisSizingMode` set to hug (`HUG` / `AUTO`) has width/height resolved dynamically — `node.width`, `node.height`, and metadata sizes can be stale or too small until render. Use `get_screenshot` for visual layout checks; use `layoutMode`, `layoutSizing*`, `itemSpacing`, and child order for structure — not fetched coordinates or hug frame dimensions. See [Auto-layout: runtime geometry is unreliable](references/gotchas.md#auto-layout-runtime-geometry-is-unreliable).
 13. **Position new top-level nodes away from (0,0).** Nodes appended directly to the page default to (0,0). Scan `figma.currentPage.children` to find a clear position (e.g., to the right of the rightmost node). This only applies to page-level nodes — nodes nested inside other frames or auto-layout containers are positioned by their parent. See [Gotchas](references/gotchas.md).
 14. **On `use_figma` error, STOP. Do NOT immediately retry.** Failed scripts are **atomic** — if a script errors, it is not executed at all and no changes are made to the file. Read the error message carefully, fix the script, then retry. See [Error Recovery](#6-error-recovery--self-correction).
 15. **MUST `return` ALL created/mutated node IDs.** Whenever a script creates new nodes or mutates existing ones on the canvas, collect every affected node ID and return them in a structured object (e.g. `return { createdNodeIds: [...], mutatedNodeIds: [...] }`). This is essential for subsequent calls to reference, validate, or clean up those nodes.
@@ -289,7 +290,7 @@ Step 5: Final verification
 | Creating variables | Collection count, variable count, mode names | — |
 | Creating components | Child count, variant names, property definitions | Variants visible, not collapsed, grid readable |
 | Binding variables | Node properties reflect bindings | Colors/tokens resolved correctly |
-| Composing layouts | Instance nodes have mainComponent, hierarchy correct | No cropped/clipped text, no overlapping elements, correct spacing |
+| Composing layouts | Instance nodes have mainComponent, hierarchy correct, `layoutMode` / `layoutSizing*` / spacing (not child `x`/`y` for auto-layout) | No cropped/clipped text, no overlapping elements, correct spacing — use screenshot; do not infer overlap from metadata `y: 0` on auto-layout children |
 
 ## 7. Error Recovery & Self-Correction
 
@@ -317,8 +318,8 @@ Step 5: Final verification
 
 ### When the script succeeds but the result looks wrong
 
-1. Call `get_metadata` to check structural correctness (hierarchy, counts, positions).
-2. Call `get_screenshot` to check visual correctness. Look closely for cropped/clipped text (line heights cutting off content) and overlapping elements — these are common and easy to miss.
+1. Call `get_metadata` to check structural correctness (hierarchy, counts, names, layout modes). Do **not** use child `x`/`y` or hug frame `width`/`height` from metadata to judge auto-layout — those values are often misleading (see Rule 12b).
+2. Call `get_screenshot` to check visual correctness. Look closely for cropped/clipped text (line heights cutting off content) and overlapping elements — these are common and easy to miss. Screenshots are the source of truth for whether auto-layout children overlap.
 3. Identify the discrepancy — is it structural (wrong hierarchy, missing nodes) or visual (wrong colors, broken layout, clipped content)?
 4. Write a targeted fix script that modifies only the broken parts — don't recreate everything.
 
@@ -346,6 +347,7 @@ Before submitting ANY `use_figma` call, verify:
 - [ ] For multi-step workflows: IDs from previous calls are passed as string literals (not variables)
 - [ ] New top-level nodes are positioned away from (0,0) to avoid overlapping existing content
 - [ ] Containers with structurally-related children use `figma.createAutoLayout()`, not absolute x/y (see Rule 12a)
+- [ ] Layout validation for auto-layout does not rely on `node.x`/`node.y` or hug frame `width`/`height` from `use_figma` or `get_metadata` (see Rule 12b)
 - [ ] ALL created/mutated node IDs are collected and included in the `return` value
 - [ ] Every async call (`loadFontAsync`, `setCurrentPageAsync`, `importComponentByKeyAsync`, etc.) is `await`ed — no fire-and-forget Promises
 
