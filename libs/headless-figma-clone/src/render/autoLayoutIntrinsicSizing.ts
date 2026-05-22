@@ -14,7 +14,6 @@ function axisSizingToLayoutSizing(mode: AxisSizingMode): LayoutSizing {
   return mode === 'AUTO' ? 'HUG' : 'FIXED';
 }
 import { effectiveTextMaxFontSizePx } from './typographyCss.js';
-import { resolveVariableToStringValue } from '../variables/resolution.js';
 import { measureTextWidthPx, metricsLineHeightPx, averageCharWidthPx } from '../fonts/textMetrics.js';
 
 /** Matches Figma default dimensions for `createFrame` / `createAutoLayout` before explicit resize. */
@@ -55,18 +54,15 @@ function hugTextIntrinsicWidthPx(t: TextNode, env: FileEnvelope | undefined): nu
   return approx;
 }
 
-/** Figma line/paragraph separators (U+2028/U+2029) are intentional breaks for wrap metrics. */
-function normalizeFigmaTextForSizing(s: string): string {
-  return s.replace(/\u2028/g, '\n').replace(/\u2029/g, '\n');
-}
+import {
+  figmaParagraphCount,
+  normalizeFigmaText,
+  rawTextCharacters,
+} from './figmaTextParagraphs.js';
 
 export function textCharactersForIntrinsicSizing(t: TextNode, env: FileEnvelope | undefined): string {
-  const vid = t.boundVariables?.characters;
-  if (env && vid) {
-    const s = resolveVariableToStringValue(env, vid);
-    if (s !== null) return normalizeFigmaTextForSizing(s);
-  }
-  return normalizeFigmaTextForSizing(t.characters ?? '');
+  if (!env) return normalizeFigmaText(t.characters ?? '');
+  return normalizeFigmaText(rawTextCharacters(t, env));
 }
 
 function textIntrinsicWidthForAutoLayout(t: TextNode, env: FileEnvelope | undefined): number {
@@ -134,7 +130,8 @@ function approximateWrappedTextHeightPx(t: TextNode, env: FileEnvelope | undefin
   const chars = textCharactersForIntrinsicSizing(t, env);
   const boxW = boxWidthForWrappedIntrinsicHeight(t, env);
   const lineCount = approximateWrappedLineCount(t, chars, boxW, fs);
-  const paraCount = Math.max(1, chars.split('\n').length);
+  const raw = env ? rawTextCharacters(t, env) : (t.characters ?? '');
+  const paraCount = figmaParagraphCount(raw);
   const paraGap = (t.paragraphSpacing ?? 0) * Math.max(0, paraCount - 1);
   return Math.ceil(lineCount * lineH + paraGap);
 }

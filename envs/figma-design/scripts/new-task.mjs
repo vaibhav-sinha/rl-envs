@@ -150,8 +150,6 @@ writeFileSync(
 
 # ${taskId}
 
-A design file is already open in **Figma**. Interact with it using the **Figma** MCP server and only that.
-
 ## Goal
 
 <!-- Describe the design change the agent should make. -->

@@ -28,6 +28,8 @@ describe('INSTANCE cleared paints import', () => {
     expect(inst.fills).toEqual([]);
     expect(Object.prototype.hasOwnProperty.call(inst, 'strokes')).toBe(true);
     expect(inst.strokes).toEqual([]);
+    expect(Object.prototype.hasOwnProperty.call(inst, 'backgrounds')).toBe(true);
+    expect(inst.backgrounds).toEqual([]);
     expect(Object.prototype.hasOwnProperty.call(inst, 'effects')).toBe(true);
     expect(inst.effects).toEqual([]);
   });

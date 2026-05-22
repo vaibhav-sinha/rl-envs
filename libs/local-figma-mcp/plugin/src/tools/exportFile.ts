@@ -42,6 +42,32 @@ export function clearImageHashesForExport(): void {
   IMAGE_HASHES.clear();
 }
 
+const INSTANCE_TRI_STATE_PAINT_FIELDS = ['fills', 'strokes', 'backgrounds', 'effects'] as const;
+const INSTANCE_TRI_STATE_STYLE_ID_FIELDS = ['fillStyleId', 'strokeStyleId', 'effectStyleId'] as const;
+
+/**
+ * Instance shell uses tri-state semantics on import: key absent = inherit master, [] = cleared.
+ * Ensure cleared paints and detached style ids are always written to the snapshot.
+ */
+export function enrichInstanceNodeExport(inst: InstanceNode, props: Record<string, unknown>): void {
+  for (const field of INSTANCE_TRI_STATE_PAINT_FIELDS) {
+    const paints = inst[field];
+    if (Array.isArray(paints) && paints.length === 0) {
+      props[field] = [];
+    }
+  }
+  for (const field of INSTANCE_TRI_STATE_STYLE_ID_FIELDS) {
+    try {
+      const styleId = inst[field];
+      if (styleId === '' || styleId === null) {
+        props[field] = null;
+      }
+    } catch {
+      /* skip unreadable */
+    }
+  }
+}
+
 function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Record<string, unknown> {
   const visited = new WeakSet<object>();
   const props: Record<string, unknown> = {};
@@ -71,10 +97,12 @@ function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Reco
 
   if (node.type === 'INSTANCE') {
     try {
-      const mc = (node as InstanceNode).mainComponent;
+      const inst = node as InstanceNode;
+      const mc = inst.mainComponent;
       if (mc && typeof mc.id === 'string') {
         props.mainComponentId = mc.id;
       }
+      enrichInstanceNodeExport(inst, props);
     } catch {
       /* detached or unreadable */
     }

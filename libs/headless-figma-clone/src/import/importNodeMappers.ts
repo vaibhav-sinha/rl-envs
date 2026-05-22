@@ -409,7 +409,7 @@ export function mapPaintsExtended(
     const single = mapPaints([item], imageHashRemap);
     if (single?.[0]) out.push(single[0]);
   }
-  return out.length > 0 ? out : undefined;
+  return out.length > 0 ? out : [];
 }
 
 /** Preserves `[]` when Figma explicitly clears paints on an instance (tri-state import). */

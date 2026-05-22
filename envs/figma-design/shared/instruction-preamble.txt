@@ -1,0 +1,6 @@
+A design file is already open in **Figma**. Interact with it using the **Figma** MCP server and only that.
+
+You must not read these files directly (no Read tool, `cat`, or other file access):
+
+- `/data/workspace/issues.hfc.json`
+- `/data/workspace/design.hfc.json`

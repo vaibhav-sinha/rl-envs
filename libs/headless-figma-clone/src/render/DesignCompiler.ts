@@ -34,6 +34,7 @@ import {
   paragraphTypographyCss,
 } from './typographyCss.js';
 import { injectFontFacesIntoHtml } from '../fonts/injectFonts.js';
+import { normalizeFigmaText, rawTextCharacters, splitFigmaParagraphRanges } from './figmaTextParagraphs.js';
 import {
   applyInstanceAppearanceToRoot,
   type InstanceAppearanceFields,
@@ -51,7 +52,6 @@ import {
   findVariableDefinition,
   resolveVariableToFloat,
   resolveVariableToRgb,
-  resolveVariableToStringValue,
 } from '../variables/resolution.js';
 import type {
   BlendMode,
@@ -458,6 +458,20 @@ function textIsSingleLineBox(t: TextNode, env: FileEnvelope): boolean {
   return t.height > 0 && t.height <= cap + heightSlack;
 }
 
+/** Figma `paragraphSpacing` is emitted between `.hfc-para` / list items, never as block trailing margin. */
+function shouldOmitBlockParagraphSpacing(): boolean {
+  return true;
+}
+
+function paragraphIndentBlockCss(t: TextNode, env: FileEnvelope): string {
+  if (t.paragraphIndent === undefined || t.paragraphIndent === 0) return '';
+  const indent =
+    t.boundVariables?.paragraphIndent && env
+      ? boundFloatCss(env, t.boundVariables.paragraphIndent, t.paragraphIndent)
+      : `${String(t.paragraphIndent)}px`;
+  return `text-indent:${indent};`;
+}
+
 function textFlowCss(t: TextNode, env: FileEnvelope): string {
   if (textIsSingleLineBox(t, env)) {
     const wantsEllipsis =
@@ -472,15 +486,8 @@ function textFlowCss(t: TextNode, env: FileEnvelope): string {
   return 'white-space:pre-wrap;word-break:break-word;';
 }
 
-/** Figma line/paragraph separators (U+2028/U+2029) are intentional breaks; browsers do not wrap on them. */
-function normalizeFigmaText(s: string): string {
-  return s.replace(/\u2028/g, '\n').replace(/\u2029/g, '\n');
-}
-
 function effectiveTextCharacters(t: TextNode, env: FileEnvelope): string {
-  const vid = t.boundVariables?.characters;
-  const raw = !vid ? t.characters : (resolveVariableToStringValue(env, vid) ?? t.characters);
-  return normalizeFigmaText(raw);
+  return normalizeFigmaText(rawTextCharacters(t, env));
 }
 
 function effectiveRectFills(r: RectangleNode, env: FileEnvelope): Paint[] {
@@ -878,7 +885,7 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[], s
   const defaultColor = paintColorCss(base.fills?.[0], env, 'rgba(0,0,0,1)', warnings, 'text_default');
   const defaultFsCss = base.fontSizeCss;
   const defaultFw = base.fontWeight;
-  const omitParagraphSpacing = text.includes('\n') || singleLine || t.textAlignVertical === 'CENTER';
+  const omitParagraphSpacing = shouldOmitBlockParagraphSpacing();
 
   function spanStyle(style: StyledSegment['style'], excludeListLayout = false): string {
     const fs = style.fontSize ?? base.fontSize;
@@ -962,6 +969,20 @@ function emitTextInnerHtml(t: TextNode, env: FileEnvelope, warnings: string[], s
     }
     const tag = listType === 'ORDERED' ? 'ol' : 'ul';
     return `<${tag} class="hfc-text-list" style="${listCss}">${items.join('')}</${tag}>`;
+  }
+
+  const paraRanges = splitFigmaParagraphRanges(rawTextCharacters(t, env));
+  if (!singleLine && paraRanges.length > 1) {
+    const gapPx = t.paragraphSpacing ?? 0;
+    const indentCss = paragraphIndentBlockCss(t, env);
+    const paras = paraRanges.map(
+      ({ start, end }) =>
+        `<p class="hfc-para" style="margin:0;${indentCss}">${emitSpanRange(start, end)}</p>`
+    );
+    if (gapPx > 0) {
+      return `<div class="hfc-text-paras" style="display:flex;flex-direction:column;gap:${String(gapPx)}px;margin:0;">${paras.join('')}</div>`;
+    }
+    return paras.join('');
   }
 
   return emitSpanRange(0, len);
@@ -1725,8 +1746,10 @@ function emitScene(
       ? sceneChildPos(t, insideFlex, absX, absY, parentFrame)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
     const singleLine = textIsSingleLineBox(t, env);
+    const textChars = effectiveTextCharacters(t, env);
+    const omitParagraphSpacing = shouldOmitBlockParagraphSpacing();
     const compactCentered =
-      t.textAlignVertical === 'CENTER' && !effectiveTextCharacters(t, env).includes('\n') && !t.textOnPath;
+      t.textAlignVertical === 'CENTER' && !textChars.includes('\n') && !t.textOnPath;
     const flexOuterAlign = textFlexContainerCss(t, singleLine);
     const baseTypo = effectiveTextBase(t, env);
     const lhPx = hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t, env), t.lineHeight, t.fontName);
@@ -1734,7 +1757,9 @@ function emitScene(
     const flexTextMetrics =
       singleLine || compactCentered
         ? `line-height:${String(lhPx)}px;${leadingTrimCss(t.leadingTrim)}`
-        : paragraphTypographyCss(mergeTypographyFromText(t), baseTypo.fontSize, env);
+        : paragraphTypographyCss(mergeTypographyFromText(t), baseTypo.fontSize, env, {
+            omitParagraphSpacing,
+          });
     const innerRule = `${textInnerHorizontalCss(t)}${
       singleLine ? 'min-width:0;width:100%;display:block;box-sizing:border-box;' : ''
     }${compactCentered ? 'display:flex;align-items:center;height:100%;min-height:0;box-sizing:border-box;' : ''}`;

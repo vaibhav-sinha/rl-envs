@@ -50,15 +50,16 @@
         "The background should exactly be the same",
         "The keyboard should be present and look exactly the same",
         "Any buttons should look the same. However, in disabled state the color can be different",
+        "The error message block should look visually similar to the \"OTP expired\" block",
         "The padding, spacing, etc should match"
       ]
     }
   ],
   "category_importance": {
     "commands": 0.15,
-    "checks": 0.35,
+    "checks": 0.2,
     "design_system": 0.2,
-    "visual": 0.35,
+    "visual": 0.5,
     "metadata": 0.1,
     "heuristics": 0.1
   }
