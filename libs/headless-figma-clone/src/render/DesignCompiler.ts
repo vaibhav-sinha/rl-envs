@@ -36,9 +36,13 @@ import {
 import { injectFontFacesIntoHtml } from '../fonts/injectFonts.js';
 import {
   applyInstanceAppearanceToRoot,
-  applyTriStateOverridePaints,
   type InstanceAppearanceFields,
 } from './instanceAppearance.js';
+import { applyComponentOverridesToTree } from './instanceOverrideApply.js';
+import {
+  mergeDetachedChildrenIntoRoot,
+  type InstanceMergeContext,
+} from './instanceMerge.js';
 import { computeStrokeBorder, rgbaFromSolid as strokeRgbaFromSolid } from './strokeRender.js';
 import { svgViewportForPathData, svgViewportForVectorPaths } from './vectorPathBounds.js';
 import {
@@ -1967,198 +1971,6 @@ function cloneComponentRootForInstance(root: FrameNode): FrameNode {
   return cloned;
 }
 
-function scaleCornerRadii(
-  n: {
-    cornerRadius?: number;
-    topLeftRadius?: number;
-    topRightRadius?: number;
-    bottomRightRadius?: number;
-    bottomLeftRadius?: number;
-  },
-  scale: number
-): void {
-  if (n.cornerRadius !== undefined) n.cornerRadius *= scale;
-  if (n.topLeftRadius !== undefined) n.topLeftRadius *= scale;
-  if (n.topRightRadius !== undefined) n.topRightRadius *= scale;
-  if (n.bottomRightRadius !== undefined) n.bottomRightRadius *= scale;
-  if (n.bottomLeftRadius !== undefined) n.bottomLeftRadius *= scale;
-}
-
-/** Scale cloned master geometry to match instance bounds (Figma stretches scaled instances). */
-function scaleSceneNodeGeometry(n: SceneNode, sx: number, sy: number): void {
-  n.x *= sx;
-  n.y *= sy;
-  const avg = (sx + sy) / 2;
-
-  if (
-    n.type === 'FRAME' ||
-    n.type === 'RECTANGLE' ||
-    n.type === 'ELLIPSE' ||
-    n.type === 'LINE' ||
-    n.type === 'POLYGON' ||
-    n.type === 'STAR' ||
-    n.type === 'VECTOR' ||
-    n.type === 'BOOLEAN_OPERATION' ||
-    n.type === 'TRANSFORM_GROUP' ||
-    n.type === 'GROUP' ||
-    n.type === 'SECTION' ||
-    n.type === 'SLICE' ||
-    n.type === 'TABLE'
-  ) {
-    n.width *= sx;
-    n.height *= sy;
-  }
-
-  if (n.type === 'TEXT') {
-    n.width *= sx;
-    n.height *= sy;
-  }
-
-  if (n.type === 'RECTANGLE' || n.type === 'FRAME') {
-    scaleCornerRadii(n, avg);
-  }
-
-  if (
-    (n.type === 'RECTANGLE' ||
-      n.type === 'FRAME' ||
-      n.type === 'ELLIPSE' ||
-      n.type === 'LINE' ||
-      n.type === 'POLYGON' ||
-      n.type === 'STAR' ||
-      n.type === 'VECTOR' ||
-      n.type === 'TEXT') &&
-    n.strokeWeight !== undefined
-  ) {
-    n.strokeWeight *= avg;
-  }
-
-  if (n.type === 'FRAME' || n.type === 'GROUP' || n.type === 'TRANSFORM_GROUP' || n.type === 'SECTION') {
-    for (const ch of n.children) scaleSceneNodeGeometry(ch, sx, sy);
-  } else if (n.type === 'BOOLEAN_OPERATION') {
-    for (const ch of n.children) scaleSceneNodeGeometry(ch as SceneNode, sx, sy);
-  }
-}
-
-function scaleComponentRootToInstance(root: FrameNode, targetWidth: number, targetHeight: number): void {
-  if (root.width <= 0 || root.height <= 0 || targetWidth <= 0 || targetHeight <= 0) return;
-  const sx = targetWidth / root.width;
-  const sy = targetHeight / root.height;
-  if (Math.abs(sx - 1) < 1e-6 && Math.abs(sy - 1) < 1e-6) return;
-  scaleSceneNodeGeometry(root, sx, sy);
-}
-
-type CornerRadiiFields = Pick<
-  RectangleNode,
-  'cornerRadius' | 'topLeftRadius' | 'topRightRadius' | 'bottomRightRadius' | 'bottomLeftRadius' | 'cornerSmoothing'
->;
-
-function copyCornerRadiiFromDetached(master: CornerRadiiFields, detached: CornerRadiiFields): void {
-  if (detached.cornerRadius !== undefined) master.cornerRadius = detached.cornerRadius;
-  if (detached.topLeftRadius !== undefined) master.topLeftRadius = detached.topLeftRadius;
-  if (detached.topRightRadius !== undefined) master.topRightRadius = detached.topRightRadius;
-  if (detached.bottomRightRadius !== undefined) master.bottomRightRadius = detached.bottomRightRadius;
-  if (detached.bottomLeftRadius !== undefined) master.bottomLeftRadius = detached.bottomLeftRadius;
-  if (detached.cornerSmoothing !== undefined) master.cornerSmoothing = detached.cornerSmoothing;
-}
-
-function copySceneBoundsFromDetached(master: SceneNode, detached: SceneNode): void {
-  master.x = detached.x;
-  master.y = detached.y;
-  if (
-    master.type === 'FRAME' ||
-    master.type === 'RECTANGLE' ||
-    master.type === 'ELLIPSE' ||
-    master.type === 'LINE' ||
-    master.type === 'POLYGON' ||
-    master.type === 'STAR' ||
-    master.type === 'VECTOR' ||
-    master.type === 'TEXT'
-  ) {
-    master.width = detached.width;
-    master.height = detached.height;
-  }
-  if (detached.constraints) master.constraints = { ...detached.constraints };
-}
-
-function mergeRectangleFromDetached(master: RectangleNode, detached: RectangleNode): void {
-  copySceneBoundsFromDetached(master, detached);
-  copyCornerRadiiFromDetached(master, detached);
-  if (detached.fills !== undefined) master.fills = structuredClone(detached.fills);
-  if (detached.strokes !== undefined) master.strokes = structuredClone(detached.strokes);
-  if (detached.effects !== undefined) master.effects = structuredClone(detached.effects);
-  if (detached.strokeWeight !== undefined) master.strokeWeight = detached.strokeWeight;
-  if (detached.strokeAlign !== undefined) master.strokeAlign = detached.strokeAlign;
-  if (detached.visible !== undefined) master.visible = detached.visible;
-  if (detached.opacity !== undefined) master.opacity = detached.opacity;
-}
-
-function mergeTextFromDetached(master: TextNode, detached: TextNode): void {
-  copySceneBoundsFromDetached(master, detached);
-  if (detached.characters !== undefined) master.characters = detached.characters;
-  if (detached.fontSize !== undefined) master.fontSize = detached.fontSize;
-  if (detached.fontWeight !== undefined) master.fontWeight = detached.fontWeight;
-  if (detached.fills !== undefined) master.fills = structuredClone(detached.fills);
-  if (detached.visible !== undefined) master.visible = detached.visible;
-  if (detached.opacity !== undefined) master.opacity = detached.opacity;
-}
-
-function mergeFrameFromDetached(master: FrameNode, detached: FrameNode): void {
-  copySceneBoundsFromDetached(master, detached);
-  copyCornerRadiiFromDetached(master, detached);
-  if (detached.fills !== undefined) master.fills = structuredClone(detached.fills);
-  if (detached.strokes !== undefined) master.strokes = structuredClone(detached.strokes);
-  if (detached.effects !== undefined) master.effects = structuredClone(detached.effects);
-  if (detached.strokeWeight !== undefined) master.strokeWeight = detached.strokeWeight;
-  if (detached.strokeAlign !== undefined) master.strokeAlign = detached.strokeAlign;
-  if (detached.clipsContent !== undefined) master.clipsContent = detached.clipsContent;
-  mergeDetachedChildrenIntoRoot(master, detached.children);
-}
-
-/** Align exported instance subtrees onto cloned masters (same structure, instance-local ids and geometry). */
-function mergeNodePairFromDetached(master: SceneNode, detached: SceneNode): void {
-  if (master.type === 'RECTANGLE' && detached.type === 'RECTANGLE') {
-    mergeRectangleFromDetached(master, detached);
-    return;
-  }
-  if (master.type === 'TEXT' && detached.type === 'TEXT') {
-    mergeTextFromDetached(master, detached);
-    return;
-  }
-  if (master.type === 'FRAME' && detached.type === 'FRAME') {
-    mergeFrameFromDetached(master, detached);
-    return;
-  }
-  if (master.type === 'FRAME' && master.children.length === 1) {
-    mergeNodePairFromDetached(master.children[0]!, detached);
-    return;
-  }
-  if (detached.type === 'FRAME' && detached.children.length === 1 && master.type !== 'FRAME') {
-    mergeNodePairFromDetached(master, detached.children[0]!);
-  }
-}
-
-function mergeDetachedChildrenIntoRoot(root: FrameNode, detached: SceneNode[]): void {
-  if (!detached.length) return;
-  const masterKids = root.children;
-  if (
-    masterKids.length === 1 &&
-    masterKids[0]!.type === 'FRAME' &&
-    detached.length === 1 &&
-    detached[0]!.type !== 'FRAME'
-  ) {
-    mergeNodePairFromDetached(masterKids[0]!, detached[0]!);
-    return;
-  }
-  if (detached.length === 1 && detached[0]!.type === 'FRAME' && masterKids.length > 0) {
-    mergeDetachedChildrenIntoRoot(root, (detached[0] as FrameNode).children);
-    return;
-  }
-  const n = Math.min(masterKids.length, detached.length);
-  for (let i = 0; i < n; i++) {
-    mergeNodePairFromDetached(masterKids[i]!, detached[i]!);
-  }
-}
-
 function componentPropertyLabel(key: string): string {
   const i = key.indexOf('#');
   return (i >= 0 ? key.slice(0, i) : key).trim();
@@ -2220,9 +2032,23 @@ function applyComponentPropertyToNodeField(
     node.visible = val.value;
     return;
   }
-  if (val.type === 'TEXT' && field === 'characters' && node.type === 'TEXT') {
-    node.characters = val.value;
-    return;
+  if (val.type === 'TEXT' && node.type === 'TEXT') {
+    if (field === 'characters') {
+      node.characters = val.value;
+      return;
+    }
+    if (field === 'fontSize') {
+      const n = Number(val.value);
+      if (!Number.isNaN(n)) node.fontSize = n;
+      return;
+    }
+    if (field === 'textAlignHorizontal') {
+      const v = val.value;
+      if (v === 'LEFT' || v === 'CENTER' || v === 'RIGHT' || v === 'JUSTIFIED') {
+        node.textAlignHorizontal = v;
+      }
+      return;
+    }
   }
   if (val.type === 'INSTANCE_SWAP' && field === 'mainComponent' && node.type === 'INSTANCE') {
     node.mainComponentId = val.value;
@@ -2247,15 +2073,11 @@ function applyComponentProperties(root: FrameNode, props?: Record<string, Compon
   }
 }
 
-/** Stretch cloned component root box to instance bounds; typography is not scaled. */
+/** Fit cloned component root to instance bounds without scaling child geometry (Figma parity). */
 function normalizeInstanceComponentRootForEmit(
   root: FrameNode,
-  inst: Pick<InstanceNode, 'width' | 'height'>,
-  opts?: { skipGeometryScale?: boolean }
+  inst: Pick<InstanceNode, 'width' | 'height'>
 ): void {
-  if (!opts?.skipGeometryScale) {
-    scaleComponentRootToInstance(root, inst.width, inst.height);
-  }
   root.width = inst.width;
   root.height = inst.height;
 }
@@ -2317,21 +2139,27 @@ function emitInstancePaintShell(
   return true;
 }
 
+/**
+ * Prepare a cloned component master for instance emit.
+ * Plugin exports store per-layer overrides in `instance.children` (detached subtree merge).
+ * The optional `overrides` map is applied when present on the INSTANCE node.
+ */
 function prepareInstanceComponentRoot(
   root: FrameNode,
   inst: InstanceAppearanceFields &
     Pick<InstanceNode, 'width' | 'height' | 'children' | 'componentProperties'>,
   env: FileEnvelope,
-  overrides?: ComponentInstanceNode['overrides']
+  overrides: ComponentInstanceNode['overrides'] | undefined,
+  mergeCtx: InstanceMergeContext
 ): void {
-  applyComponentOverrides(root, overrides);
+  applyComponentOverridesToTree(root, overrides);
   applyComponentProperties(root, inst.componentProperties);
   applyInstanceAppearanceToRoot(root, inst);
   const detached = instanceDetachedChildren(inst);
   if (detached) {
-    mergeDetachedChildrenIntoRoot(root, detached);
+    mergeDetachedChildrenIntoRoot(root, detached, mergeCtx);
   }
-  normalizeInstanceComponentRootForEmit(root, inst, { skipGeometryScale: detached !== undefined });
+  normalizeInstanceComponentRootForEmit(root, inst);
   prepareClonedComponentSubtreeForEmit(root, env);
 }
 
@@ -2339,38 +2167,6 @@ function prepareInstanceComponentRoot(
 function prepareClonedComponentSubtreeForEmit(root: SceneNode, env: FileEnvelope): void {
   applyAutoLayoutIntrinsicSizingDeep(root, env);
   syncHugTextLayoutMetricsDeep(root, env);
-}
-
-function applyComponentOverrides(root: FrameNode, overrides: ComponentInstanceNode['overrides']): void {
-  if (!overrides) return;
-  const stack: SceneNode[] = [...root.children];
-  while (stack.length) {
-    const node = stack.pop()!;
-    const o = overrides[node.id];
-    if (o) {
-      if (node.type === 'TEXT') {
-        if (o.characters !== undefined) node.characters = o.characters;
-        if (o.fontSize !== undefined) node.fontSize = o.fontSize;
-        if (o.fontWeight !== undefined) node.fontWeight = o.fontWeight;
-        applyTriStateOverridePaints(node, o, 'fills');
-        applyTriStateOverridePaints(node, o, 'strokes');
-        applyTriStateOverridePaints(node, o, 'effects');
-      } else if ('fills' in node) {
-        applyTriStateOverridePaints(node as { fills?: Paint[]; strokes?: Paint[]; effects?: Effect[] }, o, 'fills');
-        if ('strokes' in node) {
-          applyTriStateOverridePaints(node as { fills?: Paint[]; strokes?: Paint[]; effects?: Effect[] }, o, 'strokes');
-        }
-        if ('effects' in node) {
-          applyTriStateOverridePaints(node as { fills?: Paint[]; strokes?: Paint[]; effects?: Effect[] }, o, 'effects');
-        }
-      }
-    }
-    if (node.type === 'FRAME' || node.type === 'TRANSFORM_GROUP') {
-      for (const ch of node.children) stack.push(ch);
-    } else if (node.type === 'BOOLEAN_OPERATION') {
-      for (const ch of node.children as unknown as SceneNode[]) stack.push(ch);
-    }
-  }
 }
 
 /** COMPONENT nodes placed on the canvas (common in plugin exports) render like instances. */
@@ -2472,7 +2268,7 @@ function emitComponentInstance(
   if (root.x !== 0 || root.y !== 0) {
     warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
   }
-  prepareInstanceComponentRoot(root, inst, env, inst.overrides);
+  prepareInstanceComponentRoot(root, inst, env, inst.overrides, { warnings });
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(inst.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
@@ -2626,7 +2422,7 @@ function emitInstanceDetachedSubtree(
     layoutGrow: 0,
     constraints: { horizontal: 'MIN', vertical: 'MIN' },
   };
-  applyComponentOverrides(root, inst.overrides as ComponentInstanceNode['overrides']);
+  applyComponentOverridesToTree(root, inst.overrides as ComponentInstanceNode['overrides']);
   prepareClonedComponentSubtreeForEmit(root, env);
 
   const pos = insideFlex
@@ -2707,7 +2503,9 @@ function emitInstance(
     const main = env.components?.find((c) => c.id === inst.mainComponentId);
     if (main) {
       const root = cloneComponentRootForInstance(main.root);
-      prepareInstanceComponentRoot(root, inst, env, inst.overrides as ComponentInstanceNode['overrides']);
+      prepareInstanceComponentRoot(root, inst, env, inst.overrides as ComponentInstanceNode['overrides'], {
+        warnings,
+      });
       const pos = insideFlex
         ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
             inst.layoutGrow ?? 0
@@ -2830,7 +2628,9 @@ function emitInstance(
 
   if (root.x !== 0 || root.y !== 0) warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
 
-  prepareInstanceComponentRoot(root, inst, env, appliedOverrides as ComponentInstanceNode['overrides']);
+  prepareInstanceComponentRoot(root, inst, env, appliedOverrides as ComponentInstanceNode['overrides'], {
+    warnings,
+  });
 
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(

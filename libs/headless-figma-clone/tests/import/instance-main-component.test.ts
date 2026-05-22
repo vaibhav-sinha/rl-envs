@@ -63,7 +63,7 @@ describe('INSTANCE mainComponent import', () => {
     );
   });
 
-  it('scales component master geometry to instance bounds', () => {
+  it('sizes instance root to bounds without stretching inner geometry', () => {
     const inst = findInstanceByName(envelope, 'Visual', 'Scaled Hero');
     expect(inst?.type).toBe('INSTANCE');
     if (inst?.type !== 'INSTANCE') return;
@@ -75,7 +75,7 @@ describe('INSTANCE mainComponent import', () => {
     });
 
     expect(out.html).toContain('width:200px;height:150px');
-    expect(out.html).not.toContain('width:100px;height:80px');
+    expect(out.html).toContain('width:100px;height:80px');
   });
 
   it('links mainComponent when the instance appears before its COMPONENT in the snapshot tree', () => {

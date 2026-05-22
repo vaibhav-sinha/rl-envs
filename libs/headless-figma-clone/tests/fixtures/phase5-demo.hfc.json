@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "fileKey": "phase5demo",
   "fileName": "Phase 5 demo",
-  "nextInternalId": 289,
+  "nextInternalId": 301,
   "variableCollections": [
     {
       "id": "VCOL1",
@@ -1279,6 +1279,158 @@
               },
               {
                 "id": "I288",
+                "type": "TEXT",
+                "name": "label",
+                "x": 8,
+                "y": 4,
+                "width": 80,
+                "height": 20,
+                "characters": "Chip",
+                "textStyleId": "TS1"
+              }
+            ]
+          },
+          {
+            "id": "I289",
+            "type": "INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1",
+            "children": [
+              {
+                "id": "I290",
+                "type": "RECTANGLE",
+                "name": "bg",
+                "x": 0,
+                "y": 0,
+                "width": 96,
+                "height": 28,
+                "fills": [
+                  {
+                    "type": "VARIABLE_COLOR",
+                    "variableId": "VV1"
+                  }
+                ]
+              },
+              {
+                "id": "I291",
+                "type": "TEXT",
+                "name": "label",
+                "x": 8,
+                "y": 4,
+                "width": 80,
+                "height": 20,
+                "characters": "Chip",
+                "textStyleId": "TS1"
+              }
+            ]
+          },
+          {
+            "id": "I292",
+            "type": "INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1",
+            "children": [
+              {
+                "id": "I293",
+                "type": "RECTANGLE",
+                "name": "bg",
+                "x": 0,
+                "y": 0,
+                "width": 96,
+                "height": 28,
+                "fills": [
+                  {
+                    "type": "VARIABLE_COLOR",
+                    "variableId": "VV1"
+                  }
+                ]
+              },
+              {
+                "id": "I294",
+                "type": "TEXT",
+                "name": "label",
+                "x": 8,
+                "y": 4,
+                "width": 80,
+                "height": 20,
+                "characters": "Chip",
+                "textStyleId": "TS1"
+              }
+            ]
+          },
+          {
+            "id": "I295",
+            "type": "INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1",
+            "children": [
+              {
+                "id": "I296",
+                "type": "RECTANGLE",
+                "name": "bg",
+                "x": 0,
+                "y": 0,
+                "width": 96,
+                "height": 28,
+                "fills": [
+                  {
+                    "type": "VARIABLE_COLOR",
+                    "variableId": "VV1"
+                  }
+                ]
+              },
+              {
+                "id": "I297",
+                "type": "TEXT",
+                "name": "label",
+                "x": 8,
+                "y": 4,
+                "width": 80,
+                "height": 20,
+                "characters": "Chip",
+                "textStyleId": "TS1"
+              }
+            ]
+          },
+          {
+            "id": "I298",
+            "type": "INSTANCE",
+            "name": "Instance",
+            "x": 4,
+            "y": 4,
+            "width": 96,
+            "height": 28,
+            "mainComponentId": "COMP1",
+            "children": [
+              {
+                "id": "I299",
+                "type": "RECTANGLE",
+                "name": "bg",
+                "x": 0,
+                "y": 0,
+                "width": 96,
+                "height": 28,
+                "fills": [
+                  {
+                    "type": "VARIABLE_COLOR",
+                    "variableId": "VV1"
+                  }
+                ]
+              },
+              {
+                "id": "I300",
                 "type": "TEXT",
                 "name": "label",
                 "x": 8,

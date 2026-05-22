@@ -129,6 +129,17 @@ The **local-figma-mcp** plugin exports a JSON snapshot (`POST /export/hfc` or **
 - Snapshots include **`x`, `y`, `width`, `height`** (preferred) and **`absoluteBoundingBox`** (page space, used as fallback).
 - Nested **`left` / `top`** in compiled CSS are relative to each positioned parent (frame, group wrapper, instance shell).
 
+### Instance overrides at compile time
+
+When rendering **`INSTANCE`** nodes, the compiler clones the **COMPONENT** master and applies overrides in this order:
+
+1. Formal **`overrides`** map on the instance (when present in `.hfc.json`)
+2. **`componentProperties`** (BOOLEAN visibility, TEXT characters, VARIANT selection, INSTANCE_SWAP)
+3. Instance-root appearance (fills/strokes cleared on the shell, etc.)
+4. **`instance.children`** — detached subtree from plugin export (**canonical path** for per-layer diffs)
+
+Plugin exports usually omit the `overrides` map and store customized layers under **`instance.children`**. The compiler merges those layers onto the cloned master by matching **`sourceFigmaId`** (strip the instance prefix, e.g. `I2176:169422;24:6583` → `24:6583`). Child geometry is **not** scaled to instance bounds; only the root frame is resized to the instance width/height.
+
 ### Supported vs unsupported on import
 
 | Supported (standard UI) | Not imported (by design) |

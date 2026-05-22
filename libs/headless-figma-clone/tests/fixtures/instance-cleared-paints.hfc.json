@@ -50,6 +50,43 @@
                 "mainComponentId": "COMP1"
               },
               {
+                "id": "I12",
+                "type": "INSTANCE",
+                "name": "DetachedClearedButton",
+                "x": 0,
+                "y": 104,
+                "width": 328,
+                "height": 44,
+                "mainComponentId": "COMP1",
+                "children": [
+                  {
+                    "id": "I20d",
+                    "type": "FRAME",
+                    "name": "SecondaryButtonRoot",
+                    "sourceFigmaId": "I20",
+                    "x": 0,
+                    "y": 0,
+                    "width": 328,
+                    "height": 44,
+                    "fills": [],
+                    "strokes": [],
+                    "children": [
+                      {
+                        "id": "I21d",
+                        "type": "TEXT",
+                        "name": "Label",
+                        "sourceFigmaId": "I21",
+                        "x": 0,
+                        "y": 12,
+                        "width": 328,
+                        "height": 20,
+                        "characters": "Resend code in 1:00"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
                 "id": "COMP1",
                 "type": "COMPONENT",
                 "name": "SecondaryButton",
@@ -63,6 +100,7 @@
                 "id": "I20",
                 "type": "FRAME",
                 "name": "SecondaryButtonRoot",
+                "sourceFigmaId": "I20",
                 "x": 400,
                 "y": 0,
                 "width": 328,
@@ -92,6 +130,7 @@
                     "id": "I21",
                     "type": "TEXT",
                     "name": "Label",
+                    "sourceFigmaId": "I21",
                     "x": 0,
                     "y": 12,
                     "width": 328,

@@ -424,6 +424,49 @@ export function mapPaintsPreservingEmpty(
   return mapPaintsExtended(raw, imageHashRemap, idMap) ?? [];
 }
 
+function mapOverrideEntry(
+  o: Record<string, unknown>,
+  imageHashRemap: (figmaHash: string) => string | undefined,
+  idMap: FigmaIdMap
+): ComponentOverrideFields {
+  const entry: ComponentOverrideFields = {};
+  if (typeof o.characters === 'string') entry.characters = o.characters;
+  const fs = optNum(o.fontSize);
+  if (fs !== undefined) entry.fontSize = fs;
+  const fw = optNum(o.fontWeight);
+  if (fw !== undefined) entry.fontWeight = fw;
+  if (typeof o.visible === 'boolean') entry.visible = o.visible;
+  const op = optNum(o.opacity);
+  if (op !== undefined) entry.opacity = op;
+  const ha = optStr(o.textAlignHorizontal);
+  if (ha === 'LEFT' || ha === 'CENTER' || ha === 'RIGHT' || ha === 'JUSTIFIED') {
+    entry.textAlignHorizontal = ha;
+  }
+  const va = optStr(o.textAlignVertical);
+  if (va === 'TOP' || va === 'CENTER' || va === 'BOTTOM') entry.textAlignVertical = va;
+  const tar = optStr(o.textAutoResize);
+  if (tar === 'NONE' || tar === 'WIDTH_AND_HEIGHT' || tar === 'HEIGHT' || tar === 'TRUNCATE') {
+    entry.textAutoResize = tar;
+  }
+  const lm = optStr(o.layoutMode);
+  if (lm === 'NONE' || lm === 'HORIZONTAL' || lm === 'VERTICAL' || lm === 'GRID') entry.layoutMode = lm;
+  const pl = optNum(o.paddingLeft);
+  if (pl !== undefined) entry.paddingLeft = pl;
+  const pr = optNum(o.paddingRight);
+  if (pr !== undefined) entry.paddingRight = pr;
+  const pt = optNum(o.paddingTop);
+  if (pt !== undefined) entry.paddingTop = pt;
+  const pb = optNum(o.paddingBottom);
+  if (pb !== undefined) entry.paddingBottom = pb;
+  const is_ = optNum(o.itemSpacing);
+  if (is_ !== undefined) entry.itemSpacing = is_;
+  if ('fills' in o) entry.fills = mapPaintsPreservingEmpty(o.fills, imageHashRemap, idMap) ?? [];
+  if ('strokes' in o) entry.strokes = mapPaintsPreservingEmpty(o.strokes, imageHashRemap, idMap) ?? [];
+  if ('effects' in o) entry.effects = mapEffectsPreservingEmpty(o.effects) ?? [];
+  if ('backgrounds' in o) entry.backgrounds = mapPaintsPreservingEmpty(o.backgrounds, imageHashRemap, idMap) ?? [];
+  return entry;
+}
+
 export function mapInstanceOverrides(
   raw: unknown,
   idMap: FigmaIdMap,
@@ -433,29 +476,22 @@ export function mapInstanceOverrides(
   const out: Record<string, ComponentOverrideFields> = {};
   for (const [figmaNodeId, val] of Object.entries(raw as Record<string, unknown>)) {
     if (!val || typeof val !== 'object') continue;
-    const o = val as Record<string, unknown>;
-    const hfcId = idMap.get(figmaNodeId) ?? idMap.allocate(figmaNodeId);
-    const entry: ComponentOverrideFields = {};
-    if (typeof o.characters === 'string') entry.characters = o.characters;
-    const fs = optNum(o.fontSize);
-    if (fs !== undefined) entry.fontSize = fs;
-    const fw = optNum(o.fontWeight);
-    if (fw !== undefined) entry.fontWeight = fw;
-    if ('fills' in o) {
-      entry.fills = mapPaintsPreservingEmpty(o.fills, imageHashRemap, idMap) ?? [];
+    const entry = mapOverrideEntry(val as Record<string, unknown>, imageHashRemap, idMap);
+    if (Object.keys(entry).length > 0) {
+      const hfcId = idMap.get(figmaNodeId) ?? idMap.allocate(figmaNodeId);
+      out[hfcId] = entry;
     }
-    if ('strokes' in o) {
-      entry.strokes = mapPaintsPreservingEmpty(o.strokes, imageHashRemap, idMap) ?? [];
-    }
-    if ('effects' in o) {
-      entry.effects = mapEffectsPreservingEmpty(o.effects) ?? [];
-    }
-    if (Object.keys(entry).length > 0) out[hfcId] = entry;
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-const COMPONENT_PROPERTY_REFERENCE_FIELDS = new Set(['visible', 'characters', 'mainComponent']);
+const COMPONENT_PROPERTY_REFERENCE_FIELDS = new Set([
+  'visible',
+  'characters',
+  'mainComponent',
+  'fontSize',
+  'textAlignHorizontal',
+]);
 
 export function mapComponentPropertyReferences(
   raw: unknown

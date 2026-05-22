@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "fileKey": "phase7-layout",
   "fileName": "phase7-layout",
-  "nextInternalId": 224,
+  "nextInternalId": 236,
   "document": {
     "id": "I1",
     "type": "DOCUMENT",
@@ -2949,6 +2949,182 @@
               },
               {
                 "id": "I223",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40,
+                "layoutSizingHorizontal": "HUG"
+              }
+            ],
+            "fills": [
+              {
+                "type": "SOLID",
+                "color": {
+                  "r": 1,
+                  "g": 1,
+                  "b": 1
+                }
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "primaryAxisSizingMode": "FIXED",
+            "counterAxisSizingMode": "FIXED"
+          },
+          {
+            "id": "I224",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I225",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40,
+                "layoutSizingHorizontal": "FILL"
+              },
+              {
+                "id": "I226",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40,
+                "layoutSizingHorizontal": "HUG"
+              }
+            ],
+            "fills": [
+              {
+                "type": "SOLID",
+                "color": {
+                  "r": 1,
+                  "g": 1,
+                  "b": 1
+                }
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "primaryAxisSizingMode": "FIXED",
+            "counterAxisSizingMode": "FIXED"
+          },
+          {
+            "id": "I227",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I228",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40,
+                "layoutSizingHorizontal": "FILL"
+              },
+              {
+                "id": "I229",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40,
+                "layoutSizingHorizontal": "HUG"
+              }
+            ],
+            "fills": [
+              {
+                "type": "SOLID",
+                "color": {
+                  "r": 1,
+                  "g": 1,
+                  "b": 1
+                }
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "primaryAxisSizingMode": "FIXED",
+            "counterAxisSizingMode": "FIXED"
+          },
+          {
+            "id": "I230",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I231",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40,
+                "layoutSizingHorizontal": "FILL"
+              },
+              {
+                "id": "I232",
+                "type": "RECTANGLE",
+                "name": "Hug",
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 40,
+                "layoutSizingHorizontal": "HUG"
+              }
+            ],
+            "fills": [
+              {
+                "type": "SOLID",
+                "color": {
+                  "r": 1,
+                  "g": 1,
+                  "b": 1
+                }
+              }
+            ],
+            "layoutMode": "HORIZONTAL",
+            "primaryAxisSizingMode": "FIXED",
+            "counterAxisSizingMode": "FIXED"
+          },
+          {
+            "id": "I233",
+            "type": "FRAME",
+            "name": "Script Row",
+            "x": 0,
+            "y": 0,
+            "width": 240,
+            "height": 64,
+            "children": [
+              {
+                "id": "I234",
+                "type": "RECTANGLE",
+                "name": "Fill",
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 40,
+                "layoutSizingHorizontal": "FILL"
+              },
+              {
+                "id": "I235",
                 "type": "RECTANGLE",
                 "name": "Hug",
                 "x": 0,

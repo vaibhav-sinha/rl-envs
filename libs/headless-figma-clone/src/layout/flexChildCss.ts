@@ -133,7 +133,7 @@ export function flexChildLayoutCss(
     const px = Math.round(mainSize);
     basisMain = `${String(px)}px`;
   }
-  if (isAutoLayoutFrameNode(node) && mainSizing === 'HUG') {
+  if ((isAutoLayoutFrameNode(node) || isTextNode(node)) && mainSizing === 'HUG') {
     basisMain = `${String(Math.round(mainSize))}px`;
   }
   let alignSelf =

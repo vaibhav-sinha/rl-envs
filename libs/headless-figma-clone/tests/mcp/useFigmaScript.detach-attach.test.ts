@@ -52,7 +52,7 @@ describe('useFigmaScript detached frame attach (Figma parity)', () => {
 const targetPage = figma.root.children.find((p) => p.name === "Final design");
 await figma.setCurrentPageAsync(targetPage);
 
-const source = await figma.getNodeByIdAsync('I1235');
+const source = await figma.getNodeByIdAsync('I1548');
 const section = await figma.getNodeByIdAsync('I27');
 
 const newFrame = figma.createFrame();
@@ -60,7 +60,7 @@ newFrame.name = 'Onboarding/OTP/MaxAttempts';
 newFrame.resize(source.width, source.height);
 newFrame.x = 1313.25;
 newFrame.y = 1533;
-newFrame.fills = JSON.parse(JSON.stringify(source.fills));
+newFrame.fills = source.fills ? JSON.parse(JSON.stringify(source.fills)) : [];
 
 for (const child of source.children) {
   const childClone = child.clone();
@@ -89,7 +89,7 @@ return { createdNodeIds: [newFrame.id], childCount: newFrame.children.length };
       expect(section?.type).toBe('SECTION');
       const frame = section && 'children' in section ? section.children.find((c) => c.id === frameId) : undefined;
       expect(frame?.name).toBe('Onboarding/OTP/MaxAttempts');
-      expect(frame && 'children' in frame ? frame.children.length : 0).toBe(3);
+      expect(frame && 'children' in frame ? frame.children.length : 0).toBe(4);
     });
   });
 
@@ -125,7 +125,7 @@ return { frameId: newFrame.id };
         `
 const targetPage = figma.root.children.find((p) => p.name === "Final design");
 await figma.setCurrentPageAsync(targetPage);
-const source = await figma.getNodeByIdAsync('I1235');
+const source = await figma.getNodeByIdAsync('I1548');
 const dest = await figma.getNodeByIdAsync('${frameId}');
 const clonedIds = [];
 for (const child of source.children) {
@@ -144,7 +144,7 @@ return { clonedIds, destChildCount: dest.children.length };
       expect(tx16.success).toBe(true);
       if (!tx16.success) return;
 
-      expect((step16.result as { destChildCount: number }).destChildCount).toBe(3);
+      expect((step16.result as { destChildCount: number }).destChildCount).toBe(4);
     });
   });
 });

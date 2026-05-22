@@ -20,7 +20,9 @@ describe('component instance CSS scoping', () => {
     const blob = out.css;
     expect(blob).toContain('.hfc-node-I10 .hfc-node-I101{');
     expect(blob).toContain('.hfc-node-I11 .hfc-node-I101{');
-    expect(blob).toMatch(/\.hfc-node-I10 \.hfc-node-I101\{[^}]*width:80px/);
-    expect(blob).toMatch(/\.hfc-node-I11 \.hfc-node-I101\{[^}]*width:200px/);
+    expect(blob).toMatch(/\.hfc-node-I10\{[^}]*width:80px/);
+    expect(blob).toMatch(/\.hfc-node-I11\{[^}]*width:200px/);
+    expect(blob).toMatch(/\.hfc-node-I10 \.hfc-node-I101\{[^}]*width:96px/);
+    expect(blob).toMatch(/\.hfc-node-I11 \.hfc-node-I101\{[^}]*width:96px/);
   });
 });
