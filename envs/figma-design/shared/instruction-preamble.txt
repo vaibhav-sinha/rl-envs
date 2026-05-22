@@ -1,6 +1,8 @@
 A design file is already open in **Figma**. Interact with it using the **Figma** MCP server and only that.
 
-You must not read these files directly (no Read tool, `cat`, or other file access):
+You must not invoke Headless Figma Clone (HFC) APIs directly. Use only the **Figma** MCP tools (`use_figma`, `get_metadata`, `get_screenshot`, and the other tools exposed by that server). Do not call the HFC CLI (`node /opt/hfc/dist/cli.js`, `hfc render`, etc.), curl or HTTP requests to the HFC server (e.g. `http://127.0.0.1:3847/`), or any other path that bypasses the MCP tool surface.
 
-- `/data/workspace/issues.hfc.json`
-- `/data/workspace/design.hfc.json`
+You must not read these paths directly (no Read tool, `cat`, or other file access):
+
+- `/data/workspace/` (the entire workspace directory, including `design.hfc.json`, `issues.hfc.json`, and any other files there)
+- `/tests/` and `/opt/figma-verifier/` (verifier code and grading inputs — use the Figma MCP tools instead)

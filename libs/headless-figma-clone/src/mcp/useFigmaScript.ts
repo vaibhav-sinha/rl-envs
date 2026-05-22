@@ -25,6 +25,7 @@ import { createNodeSpecFromSvg } from '../images/svgImport.js';
 import { fetchBytes, loadNetworkPolicyFromEnv } from '../images/networkPolicy.js';
 import { getImmediateSceneChildren } from '../traversal/findNodes.js';
 import { createTraversalMethods } from './scriptTraversal.js';
+import { applyNodeSetProps, runNodeMatches, type ScriptQueryDeps } from './scriptQuery.js';
 import { createDocumentTraversalMethods } from './scriptDocumentTraversal.js';
 import {
   createDetachedTraversalMethods,
@@ -226,6 +227,18 @@ function scriptLookup(ctx: ScriptContext, nodeId: string): ReturnType<typeof fin
   return findEnvelopeNode(ctx.working, nodeId, getNodeIndex(ctx));
 }
 
+function scriptQueryDeps(ctx: ScriptContext): ScriptQueryDeps {
+  return {
+    working: ctx.working,
+    deletedIds: ctx.deletedIds,
+    nodeIndex: getNodeIndex(ctx),
+    createHandle: (nid) => createHandleProxy(ctx, nid),
+    queueUpdate: (nodeId, patch) => queueUpdate(ctx, nodeId, patch),
+    signal: ctx.signal,
+    graphIndexes: getGraphIndexes(ctx),
+  };
+}
+
 function scriptTraversalMethods(ctx: ScriptContext, containerId: string) {
   return createTraversalMethods(
     {
@@ -234,9 +247,17 @@ function scriptTraversalMethods(ctx: ScriptContext, containerId: string) {
       createHandle: (nid) => createHandleProxy(ctx, nid),
       signal: ctx.signal,
       nodeIndex: getNodeIndex(ctx),
+      graphIndexes: getGraphIndexes(ctx),
+      queueUpdate: (nodeId, patch) => queueUpdate(ctx, nodeId, patch),
     },
     containerId
   );
+}
+
+function scriptNodeMatches(ctx: ScriptContext, nodeId: string, selector: string): boolean {
+  const live = scriptLookup(ctx, nodeId);
+  if (!live || ctx.deletedIds.has(nodeId)) return false;
+  return runNodeMatches(scriptQueryDeps(ctx), live, selector);
 }
 
 function detachedTraversalContext(ctx: ScriptContext): DetachedTraversalContext {
@@ -354,7 +375,10 @@ const TRAVERSAL_METHODS = new Set([
   'findChildren',
   'findChild',
   'findAllWithCriteria',
+  'query',
 ]);
+
+const NODE_SELECTOR_METHODS = new Set(['matches', 'set']);
 
 const HANDLE_METHOD_KEYS = new Set([
   'remove',
@@ -401,6 +425,7 @@ function enumerateHandleKeys(live: import('../model/types.js').AnyTreeNode): str
     keys.add('children');
     for (const m of TRAVERSAL_METHODS) keys.add(m);
   }
+  for (const m of NODE_SELECTOR_METHODS) keys.add(m);
   if (live.type === 'INSTANCE' || live.type === 'COMPONENT_INSTANCE') {
     keys.add('mainComponent');
     keys.add('componentProperties');
@@ -499,6 +524,19 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       }
       if (TRAVERSAL_METHODS.has(prop as string)) {
         return (traversal() as Record<string, unknown>)[prop as string];
+      }
+      if (prop === 'set') {
+        return (props: Record<string, unknown>): unknown => {
+          applyNodeSetProps(scriptQueryDeps(ctx), id, props);
+          return createHandleProxy(ctx, id);
+        };
+      }
+      if (prop === 'matches') {
+        return (selector: string): boolean => {
+          const live = scriptLookup(ctx, id);
+          if (!live || ctx.deletedIds.has(id)) return false;
+          return runNodeMatches(scriptQueryDeps(ctx), live, selector);
+        };
       }
       if (prop === 'parent') {
         return scriptParentHandle(ctx, id);
@@ -752,7 +790,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (prop === 'id' || prop === HFC_HANDLE_MARKER || prop === HFC_HANDLE_FLAG) return true;
       if (typeof prop === 'symbol') return false;
       const p = prop as string;
-      if (TRAVERSAL_METHODS.has(p) || HANDLE_METHOD_KEYS.has(p)) return true;
+      if (TRAVERSAL_METHODS.has(p) || NODE_SELECTOR_METHODS.has(p) || HANDLE_METHOD_KEYS.has(p)) return true;
       const live = scriptLookup(ctx, id);
       if (!live || ctx.deletedIds.has(id)) return false;
       if (live.type === 'TEXT' && TEXT_HANDLE_METHOD_KEYS.has(p)) return true;
@@ -852,6 +890,23 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
     get(target, prop, receiver) {
       const p = prop as string;
       const nid = target.getAttachedIdOrNull();
+      if (p === 'set') {
+        return (props: Record<string, unknown>): unknown => {
+          const nodeId = target.getAttachedIdOrNull();
+          if (!nodeId) {
+            throw new ValidationErr('VALIDATION_ERROR', 'set requires the node to be appended to the document');
+          }
+          applyNodeSetProps(scriptQueryDeps(ctx), nodeId, props);
+          return receiver;
+        };
+      }
+      if (p === 'matches') {
+        return (selector: string): boolean => {
+          const nodeId = target.getAttachedIdOrNull();
+          if (!nodeId) return false;
+          return scriptNodeMatches(ctx, nodeId, selector);
+        };
+      }
       if (TRAVERSAL_METHODS.has(p)) {
         if (!target.attached || nid === null) {
           if (runtimeSupportsDetachedTraversal(target.type)) {
@@ -2312,6 +2367,14 @@ class RuntimePage {
 
   findAllWithCriteria(criteria: unknown): unknown[] {
     return scriptTraversalMethods(this.ctx, this.pageId).findAllWithCriteria(criteria);
+  }
+
+  query(selector: string): unknown {
+    return scriptTraversalMethods(this.ctx, this.pageId).query(selector);
+  }
+
+  matches(selector: string): boolean {
+    return scriptTraversalMethods(this.ctx, this.pageId).matches(selector);
   }
 
   get selection(): unknown[] {

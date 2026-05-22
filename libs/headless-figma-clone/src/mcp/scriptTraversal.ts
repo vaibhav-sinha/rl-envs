@@ -1,6 +1,6 @@
 import type { FileEnvelope } from '../model/types.js';
 import { findEnvelopeNode } from '../engine/DocumentEngine.js';
-import type { NodeIndex } from '../engine/nodeIndex.js';
+import type { GraphIndexes, NodeIndex } from '../engine/nodeIndex.js';
 import {
   findAllDescendants,
   findImmediateChildren,
@@ -10,6 +10,7 @@ import {
   type FindCriteria,
 } from '../traversal/findNodes.js';
 import { ValidationErr } from '../util/errors.js';
+import { runNodeMatches, runNodeQuery, type ScriptQueryDeps, type ScriptQueryResult } from './scriptQuery.js';
 
 export type TraversalHandleFactory = (nodeId: string) => unknown;
 
@@ -19,6 +20,23 @@ export interface ScriptTraversalContext {
   createHandle: TraversalHandleFactory;
   signal?: AbortSignal;
   nodeIndex?: NodeIndex;
+  graphIndexes?: GraphIndexes;
+  queueUpdate?: (nodeId: string, patch: Record<string, unknown>) => void;
+}
+
+function queryDeps(ctx: ScriptTraversalContext): ScriptQueryDeps {
+  if (!ctx.queueUpdate) {
+    throw new ValidationErr('VALIDATION_ERROR', 'query requires write context');
+  }
+  return {
+    working: ctx.working,
+    deletedIds: ctx.deletedIds,
+    nodeIndex: ctx.nodeIndex,
+    graphIndexes: ctx.graphIndexes,
+    signal: ctx.signal,
+    createHandle: ctx.createHandle,
+    queueUpdate: ctx.queueUpdate,
+  };
 }
 
 function liveContainer(ctx: ScriptTraversalContext, containerId: string) {
@@ -123,5 +141,22 @@ export function createTraversalMethods(ctx: ScriptTraversalContext, containerId:
         })
       );
     },
+
+    query(selector: unknown): ScriptQueryResult {
+      if (typeof selector !== 'string') {
+        throw new ValidationErr('VALIDATION_ERROR', 'query requires a selector string');
+      }
+      const live = liveContainer(ctx, containerId);
+      return runNodeQuery(queryDeps(ctx), live, selector);
+    },
+
+    matches(selector: unknown): boolean {
+      if (typeof selector !== 'string') {
+        throw new ValidationErr('VALIDATION_ERROR', 'matches requires a selector string');
+      }
+      const live = liveContainer(ctx, containerId);
+      return runNodeMatches(queryDeps(ctx), live, selector);
+    },
   };
 }
+
