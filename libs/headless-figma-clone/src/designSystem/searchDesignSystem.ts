@@ -118,5 +118,8 @@ export function searchDesignSystem(env: FileEnvelope, query: string, limit: numb
   }
 
   hits.sort(compareHits);
+  if (hits.length === 0 && qLower !== '') {
+    return searchDesignSystem(env, '', limit);
+  }
   return hits.slice(0, lim);
 }

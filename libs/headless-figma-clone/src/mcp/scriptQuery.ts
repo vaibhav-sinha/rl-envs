@@ -68,7 +68,7 @@ export function applyNodeSetProps(
       ? (props.height as number)
       : ('height' in live && typeof live.height === 'number' ? live.height : 100);
     const resizePatch: Record<string, unknown> = { width: w, height: h };
-    if (live.type === 'FRAME') {
+    if (live.type === 'FRAME' || live.type === 'INSTANCE') {
       const frame = live as { layoutMode?: string };
       if (frame.layoutMode === 'HORIZONTAL' || frame.layoutMode === 'VERTICAL') {
         resizePatch.primaryAxisSizingMode = 'FIXED';

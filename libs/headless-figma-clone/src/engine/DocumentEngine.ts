@@ -1509,6 +1509,21 @@ function normalizeNewInstance(
     minHeight: spec.minHeight,
     maxHeight: spec.maxHeight,
     isMask: spec.isMask,
+    layoutMode: spec.layoutMode,
+    paddingLeft: spec.paddingLeft,
+    paddingRight: spec.paddingRight,
+    paddingTop: spec.paddingTop,
+    paddingBottom: spec.paddingBottom,
+    itemSpacing: spec.itemSpacing,
+    layoutWrap: spec.layoutWrap,
+    counterAxisSpacing: spec.counterAxisSpacing,
+    counterAxisAlignContent: spec.counterAxisAlignContent,
+    primaryAxisAlignItems: spec.primaryAxisAlignItems,
+    counterAxisAlignItems: spec.counterAxisAlignItems,
+    primaryAxisSizingMode: spec.primaryAxisSizingMode,
+    counterAxisSizingMode: spec.counterAxisSizingMode,
+    itemReverseZIndex: spec.itemReverseZIndex,
+    strokesIncludedInLayout: spec.strokesIncludedInLayout,
   };
 
   validateShapeBox(n as unknown as FrameNode);
@@ -2105,9 +2120,9 @@ export function applyEngineOp(
         );
       }
     }
-    if (node.type === 'FRAME') {
-      const f = node;
-      assertFrameLayoutPatchAllowed(f, patch);
+    if (node.type === 'FRAME' || node.type === 'INSTANCE') {
+      const f = node as FrameNode | InstanceNode;
+      assertFrameLayoutPatchAllowed(f as FrameNode, patch);
       if ('primaryAxisSizingMode' in patch) {
         if (!isHorizontalVerticalAutoLayout(f.layoutMode)) {
           throw new ValidationErr(
@@ -3953,6 +3968,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
   }
   if (node.type === 'INSTANCE') {
     const inst = node as import('../model/types.js').InstanceNode;
+    assertFrameLayoutPatchAllowed(inst as unknown as FrameNode, patch);
     if ('name' in patch) {
       if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
       inst.name = patch.name;
@@ -4081,6 +4097,50 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     if ('clipsContent' in patch) {
       if (typeof patch.clipsContent !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'clipsContent must be boolean');
       inst.clipsContent = patch.clipsContent;
+    }
+    if ('layoutMode' in patch) {
+      inst.layoutMode = patch.layoutMode as FrameNode['layoutMode'];
+      validateOptionalLayoutMode(inst.layoutMode);
+    }
+    if ('layoutWrap' in patch) {
+      inst.layoutWrap = patch.layoutWrap as FrameNode['layoutWrap'];
+      validateOptionalLayoutWrap(inst.layoutWrap);
+    }
+    if ('counterAxisAlignContent' in patch) {
+      inst.counterAxisAlignContent = patch.counterAxisAlignContent as FrameNode['counterAxisAlignContent'];
+      validateOptionalCounterAxisAlignContent(inst.counterAxisAlignContent);
+    }
+    if ('primaryAxisAlignItems' in patch) {
+      inst.primaryAxisAlignItems = patch.primaryAxisAlignItems as FrameNode['primaryAxisAlignItems'];
+      validateOptionalPrimaryAxisAlignItems(inst.primaryAxisAlignItems);
+    }
+    if ('counterAxisAlignItems' in patch) {
+      inst.counterAxisAlignItems = patch.counterAxisAlignItems as FrameNode['counterAxisAlignItems'];
+      validateOptionalCounterAxisAlignItems(inst.counterAxisAlignItems);
+    }
+    for (const k of [
+      'paddingLeft',
+      'paddingRight',
+      'paddingTop',
+      'paddingBottom',
+      'itemSpacing',
+      'counterAxisSpacing',
+    ] as const) {
+      if (k in patch) {
+        const v = patch[k];
+        if (typeof v !== 'number') throw new ValidationErr('VALIDATION_ERROR', `${k} must be number`);
+        (inst as unknown as Record<string, number>)[k] = v;
+      }
+    }
+    if ('itemReverseZIndex' in patch) {
+      if (typeof patch.itemReverseZIndex !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'itemReverseZIndex must be boolean');
+      inst.itemReverseZIndex = patch.itemReverseZIndex;
+    }
+    if ('strokesIncludedInLayout' in patch) {
+      if (typeof patch.strokesIncludedInLayout !== 'boolean') {
+        throw new ValidationErr('VALIDATION_ERROR', 'strokesIncludedInLayout must be boolean');
+      }
+      inst.strokesIncludedInLayout = patch.strokesIncludedInLayout;
     }
     return;
   }

@@ -58,6 +58,32 @@ const shapePatchKeys = [
   ...layoutSelfPatchKeys,
 ] as const;
 
+/** Auto-layout frame fields (Figma: FrameNode + InstanceNode). */
+const autoLayoutPatchKeys = [
+  'layoutMode',
+  'gridRowCount',
+  'gridColumnCount',
+  'gridRowGap',
+  'gridColumnGap',
+  'gridRowSizes',
+  'gridColumnSizes',
+  'paddingLeft',
+  'paddingRight',
+  'paddingTop',
+  'paddingBottom',
+  'itemSpacing',
+  'layoutWrap',
+  'counterAxisSpacing',
+  'counterAxisAlignContent',
+  'primaryAxisAlignItems',
+  'counterAxisAlignItems',
+  'layoutGrids',
+  'primaryAxisSizingMode',
+  'counterAxisSizingMode',
+  'itemReverseZIndex',
+  'strokesIncludedInLayout',
+] as const;
+
 export const ENGINE_MATRIX = {
   createNode: {
     allowedChildPairs: [
@@ -106,26 +132,7 @@ export const ENGINE_MATRIX = {
       'effectStyleId',
       'gridStyleId',
       'explicitVariableModes',
-      'layoutMode',
-      'gridRowCount',
-      'gridColumnCount',
-      'gridRowGap',
-      'gridColumnGap',
-      'gridRowSizes',
-      'gridColumnSizes',
-      'paddingLeft',
-      'paddingRight',
-      'paddingTop',
-      'paddingBottom',
-      'itemSpacing',
-      'layoutWrap',
-      'counterAxisSpacing',
-      'counterAxisAlignContent',
-      'primaryAxisAlignItems',
-      'counterAxisAlignItems',
-      'layoutGrids',
-      'primaryAxisSizingMode',
-      'counterAxisSizingMode',
+      ...autoLayoutPatchKeys,
       'boundVariables',
     ]),
     TEXT: new Set([
@@ -310,6 +317,7 @@ export const ENGINE_MATRIX = {
       'componentProperties',
       'overrides',
       'scaleFactor',
+      ...autoLayoutPatchKeys,
     ]),
     PAGE: new Set(['name', 'x', 'y', 'width', 'height', 'backgrounds', 'isPageDivider']),
     DOCUMENT: new Set(['name']),

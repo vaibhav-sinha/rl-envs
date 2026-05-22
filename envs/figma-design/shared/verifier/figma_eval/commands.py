@@ -6,7 +6,7 @@ from typing import Any
 
 from .types import SubCheckResult
 
-COMMAND_CORRECTNESS_CAP = 0.8
+COMMAND_CORRECTNESS_CAP = 0.5
 
 
 def _load_commands(issues_path: Path | None) -> list[dict[str, Any]] | None:

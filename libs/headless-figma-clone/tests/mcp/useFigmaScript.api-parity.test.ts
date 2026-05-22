@@ -139,4 +139,31 @@ return 'bad';
       expect(badRun.message).toContain('must be FIXED or AUTO');
     }
   });
+
+  it('attached INSTANCE accepts primaryAxisSizingMode via set', async () => {
+    const engine = new DocumentEngine({
+      persistence: new JsonPersistence(),
+      logger: createConsoleLogger('error'),
+    });
+    await engine.createEmptyFile({ fileName: 'InstanceAxis' });
+
+    const run = await runUseFigmaScript(
+      `
+const frame = figma.createFrame();
+frame.layoutMode = 'VERTICAL';
+figma.currentPage.appendChild(frame);
+const comp = figma.createComponentFromNode(frame);
+const inst = figma.createInstance(comp);
+inst.layoutMode = 'VERTICAL';
+figma.currentPage.appendChild(inst);
+inst.primaryAxisSizingMode = 'AUTO';
+return inst.primaryAxisSizingMode;
+`.trim(),
+      engine
+    );
+
+    expect(run.kind).toBe('ok');
+    if (run.kind !== 'ok') return;
+    expect(run.result).toBe('AUTO');
+  });
 });

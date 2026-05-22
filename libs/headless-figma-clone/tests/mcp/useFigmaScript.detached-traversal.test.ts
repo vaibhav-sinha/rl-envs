@@ -1,8 +1,14 @@
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('useFigmaScript detached traversal (Figma parity)', () => {
   it('findAll on detached frame finds nested descendants before page append', async () => {
@@ -169,5 +175,36 @@ return { ok: true };
     if (run.kind !== 'ok') return;
     expect(run.result).toEqual({ ok: true });
     expect(run.operations.some((o) => o.op === 'createNode')).toBe(true);
+  });
+
+  it('findOne on detached createInstance resolves main component subtree', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hfc-detached-inst-'));
+    const hfcPath = join(tmp, 'demo.hfc.json');
+    copyFileSync(join(__dirname, '../fixtures/phase5-demo.hfc.json'), hfcPath);
+
+    const engine = new DocumentEngine({
+      persistence: new JsonPersistence(),
+      logger: createConsoleLogger('error'),
+    });
+    await engine.loadFromDisk({ absolutePath: hfcPath });
+
+    const run = await runUseFigmaScript(
+      `
+const inst = figma.createInstance('COMP1');
+const hit = inst.findOne((n) => n.type === 'TEXT');
+const queryHit = inst.query('TEXT').first();
+return {
+  findOneName: hit?.name ?? null,
+  queryName: queryHit?.name ?? null,
+};
+`.trim(),
+      engine
+    );
+
+    rmSync(tmp, { recursive: true, force: true });
+
+    expect(run.kind).toBe('ok');
+    if (run.kind !== 'ok') return;
+    expect(run.result).toEqual({ findOneName: 'label', queryName: 'label' });
   });
 });

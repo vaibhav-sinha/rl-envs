@@ -32,4 +32,14 @@ describe('searchDesignSystem', () => {
     const h = searchDesignSystem(env, '', 5);
     expect(h.length).toBeLessThanOrEqual(5);
   });
+
+  it('no-match query falls back to full catalog slice', () => {
+    const env = demo();
+    const catalog = searchDesignSystem(env, '', 10);
+    const fallback = searchDesignSystem(env, 'zzznomatch_xyz', 10);
+    expect(fallback.length).toBeGreaterThan(0);
+    expect(fallback.map((h) => `${h.kind}:${h.id}`).join('|')).toBe(
+      catalog.map((h) => `${h.kind}:${h.id}`).join('|')
+    );
+  });
 });

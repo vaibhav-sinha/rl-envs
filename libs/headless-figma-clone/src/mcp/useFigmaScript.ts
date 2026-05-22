@@ -500,6 +500,10 @@ function mergeComponentPropertyValues(
 
 const AXIS_SIZING_PROPS = new Set(['primaryAxisSizingMode', 'counterAxisSizingMode']);
 
+function nodeSupportsAxisSizing(type: string): boolean {
+  return type === 'FRAME' || type === 'INSTANCE';
+}
+
 function createHandleProxy(ctx: ScriptContext, id: string): unknown {
   const traversal = () => scriptTraversalMethods(ctx, id);
   const textDeps = {
@@ -773,7 +777,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
       const p = prop as string;
       if (AXIS_SIZING_PROPS.has(p)) {
-        if (live.type !== 'FRAME') {
+        if (!nodeSupportsAxisSizing(live.type)) {
           throw new ValidationErr('UNSUPPORTED_PROPERTY', `Unsupported patch key: ${p}`);
         }
         const normalized = validateAxisSizingMode(value, p);
@@ -961,7 +965,7 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
       ) {
         return Reflect.get(target, p, receiver);
       }
-      if (target.type === 'FRAME' && AXIS_SIZING_PROPS.has(p)) {
+      if (nodeSupportsAxisSizing(target.type) && AXIS_SIZING_PROPS.has(p)) {
         return exposeAxisSizingMode(Reflect.get(target, p, receiver));
       }
       return Reflect.get(target, prop, receiver);
@@ -973,7 +977,7 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
           const live = scriptLookup(ctx, target.getAttachedIdOrNull()!);
           return live ? nodeExposesChildren(live) : false;
         }
-        return target.type === 'FRAME' || target.type === 'TRANSFORM_GROUP';
+        return runtimeSupportsDetachedTraversal(target.type);
       }
       if (prop === 'clone' || prop === 'duplicate') return true;
       if (prop === 'getMainComponentAsync' || prop === 'setProperties' || prop === 'setComponentProperty') {
@@ -1034,7 +1038,7 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
           );
         }
       }
-      if (target.type === 'FRAME' && AXIS_SIZING_PROPS.has(p)) {
+      if (nodeSupportsAxisSizing(target.type) && AXIS_SIZING_PROPS.has(p)) {
         const normalized = validateAxisSizingMode(value, p);
         Reflect.set(target, prop, normalized, receiver);
         if (target.attached && target.getAttachedIdOrNull() !== null) {
@@ -2169,6 +2173,21 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
   mainComponentId = '';
   componentProperties?: Record<string, ComponentPropertyValue>;
   overrides?: Record<string, { fills?: Paint[]; characters?: string; fontSize?: number; fontWeight?: number }>;
+  layoutMode?: FrameNode['layoutMode'];
+  layoutWrap?: FrameNode['layoutWrap'];
+  itemSpacing?: number;
+  counterAxisSpacing?: number;
+  counterAxisAlignContent?: FrameNode['counterAxisAlignContent'];
+  paddingLeft?: number;
+  paddingRight?: number;
+  paddingTop?: number;
+  paddingBottom?: number;
+  primaryAxisAlignItems?: FrameNode['primaryAxisAlignItems'];
+  counterAxisAlignItems?: FrameNode['counterAxisAlignItems'];
+  primaryAxisSizingMode?: AxisSizingMode;
+  counterAxisSizingMode?: AxisSizingMode;
+  itemReverseZIndex?: boolean;
+  strokesIncludedInLayout?: boolean;
 
   private getSelectedComponentIdFromSet(set: import('../model/types.js').ComponentSetNode): string {
     const key = set.variantPropertyKey ?? 'variant';
@@ -2281,6 +2300,21 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
       mainComponentId: this.mainComponentId,
       componentProperties: this.componentProperties,
       overrides: this.overrides,
+      layoutMode: this.layoutMode,
+      layoutWrap: this.layoutWrap,
+      itemSpacing: this.itemSpacing,
+      counterAxisSpacing: this.counterAxisSpacing,
+      counterAxisAlignContent: this.counterAxisAlignContent,
+      paddingLeft: this.paddingLeft,
+      paddingRight: this.paddingRight,
+      paddingTop: this.paddingTop,
+      paddingBottom: this.paddingBottom,
+      primaryAxisAlignItems: this.primaryAxisAlignItems,
+      counterAxisAlignItems: this.counterAxisAlignItems,
+      primaryAxisSizingMode: this.primaryAxisSizingMode,
+      counterAxisSizingMode: this.counterAxisSizingMode,
+      itemReverseZIndex: this.itemReverseZIndex,
+      strokesIncludedInLayout: this.strokesIncludedInLayout,
       visible: this.visible,
       opacity: this.opacity,
       rotation: this.rotation,

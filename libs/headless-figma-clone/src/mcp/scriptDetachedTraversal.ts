@@ -3,11 +3,14 @@ import type { NodeIndex } from '../engine/nodeIndex.js';
 import type { AnyTreeNode, FileEnvelope } from '../model/types.js';
 import {
   findSubtreeNodes,
-  nodeMatches,
+  nodeMatches as nodeMatchesCriteria,
+  nodeSupportsTraversal,
   parseFindCriteria,
   type FindCriteria,
 } from '../traversal/findNodes.js';
 import { throwIfAborted } from './inFlightAbort.js';
+import { ScriptQueryResult, type ScriptQueryDeps } from './scriptQuery.js';
+import { queryDescendants, nodeMatches as nodeMatchesSelector, type QueryContext } from '../traversal/nodeQuery.js';
 import { ValidationErr } from '../util/errors.js';
 
 export interface PendingChildEntry {
@@ -23,6 +26,8 @@ export interface DetachedTraversalContainer {
   readonly attached: boolean;
   getAttachedIdOrNull(): string | null;
   getPendingChildEntries(): ReadonlyArray<PendingChildEntry>;
+  /** Present on detached `INSTANCE` — used when pending children are empty. */
+  readonly mainComponentId?: string;
 }
 
 export interface DetachedTraversalContext {
@@ -55,11 +60,42 @@ function readChildId(child: unknown): string | null {
 }
 
 export function runtimeSupportsDetachedTraversal(type: string): boolean {
-  return type === 'FRAME' || type === 'TRANSFORM_GROUP';
+  return type !== 'PAGE' && type !== 'DOCUMENT' && nodeSupportsTraversal(type);
+}
+
+function resolveMainComponentRootChildIds(
+  working: FileEnvelope,
+  mainComponentId: string,
+  nodeIndex?: NodeIndex
+): string[] {
+  const main = findEnvelopeNode(working, mainComponentId, nodeIndex);
+  if (!main) return [];
+  let compId: string | null = null;
+  if (main.type === 'COMPONENT') compId = main.id;
+  else if (main.type === 'COMPONENT_SET') compId = main.componentIds[0] ?? null;
+  if (!compId) return [];
+  const comp = findEnvelopeNode(working, compId, nodeIndex);
+  if (!comp || comp.type !== 'COMPONENT') return [];
+  const frame = findEnvelopeNode(working, comp.rootFrameId, nodeIndex);
+  if (frame?.type !== 'FRAME') return [];
+  return frame.children.map((c) => c.id);
+}
+
+function walkDetachedInstanceMainComponentRoots(
+  container: DetachedTraversalContainer,
+  ctx: DetachedTraversalContext,
+  parsed: ReturnType<typeof parseCallbackOrCriteria>,
+  out: unknown[]
+): void {
+  const mid = container.mainComponentId;
+  if (!mid) return;
+  for (const rootId of resolveMainComponentRootChildIds(ctx.working, mid, ctx.nodeIndex)) {
+    walkDocumentPendingSubtree(rootId, ctx, parsed, out);
+  }
 }
 
 function runtimeMatchesCriteria(node: DetachedTraversalContainer, criteria: FindCriteria): boolean {
-  return nodeMatches(
+  return nodeMatchesCriteria(
     { type: node.type, name: node.name, visible: node.visible } as AnyTreeNode,
     criteria
   );
@@ -113,7 +149,7 @@ function matchesDocumentNode(
 ): boolean {
   const handle = ctx.createHandle(live.id);
   if (parsed.mode === 'predicate') return parsed.fn(handle);
-  return nodeMatches(live, parsed.criteria);
+  return nodeMatchesCriteria(live, parsed.criteria);
 }
 
 function walkDetachedRuntimePreorder(
@@ -169,7 +205,12 @@ function walkDetachedFindAllRoots(
   parsed: ReturnType<typeof parseCallbackOrCriteria>
 ): unknown[] {
   const out: unknown[] = [];
-  for (const entry of container.getPendingChildEntries()) {
+  const pending = container.getPendingChildEntries();
+  if (pending.length === 0 && container.type === 'INSTANCE') {
+    walkDetachedInstanceMainComponentRoots(container, ctx, parsed, out);
+    return out;
+  }
+  for (const entry of pending) {
     const { child } = entry;
     if (isRuntimeSceneNode(child) && !child.attached) {
       walkDetachedRuntimePreorder(child, ctx, parsed, out);
@@ -187,7 +228,19 @@ function filterDetachedImmediateChildren(
   parsed: ReturnType<typeof parseCallbackOrCriteria>
 ): unknown[] {
   const out: unknown[] = [];
-  for (const entry of container.getPendingChildEntries()) {
+  const pending = container.getPendingChildEntries();
+  if (pending.length === 0 && container.type === 'INSTANCE') {
+    const mid = container.mainComponentId;
+    if (!mid) return out;
+    for (const rootId of resolveMainComponentRootChildIds(ctx.working, mid, ctx.nodeIndex)) {
+      if (ctx.deletedIds.has(rootId)) continue;
+      const live = findEnvelopeNode(ctx.working, rootId, ctx.nodeIndex);
+      if (!live) continue;
+      if (matchesDocumentNode(live, ctx, parsed)) out.push(ctx.createHandle(live.id));
+    }
+    return out;
+  }
+  for (const entry of pending) {
     const { child } = entry;
     if (isRuntimeSceneNode(child) && !child.attached) {
       if (matchesDetachedRuntime(child, ctx, parsed)) out.push(ctx.wrapRuntime(child));
@@ -202,12 +255,74 @@ function filterDetachedImmediateChildren(
   return out;
 }
 
+function detachedScriptQueryDeps(ctx: DetachedTraversalContext): ScriptQueryDeps {
+  return {
+    working: ctx.working,
+    deletedIds: ctx.deletedIds,
+    nodeIndex: ctx.nodeIndex,
+    createHandle: ctx.createHandle,
+    queueUpdate: () => {
+      throw new ValidationErr('VALIDATION_ERROR', 'query requires write context');
+    },
+    signal: ctx.signal,
+  };
+}
+
+function collectDetachedQueryIds(
+  container: DetachedTraversalContainer,
+  ctx: DetachedTraversalContext,
+  selector: string
+): string[] {
+  const qctx: QueryContext = {
+    working: ctx.working,
+    nodeIndex: ctx.nodeIndex,
+    signal: ctx.signal,
+  };
+  const merged: string[] = [];
+  const walkFromLive = (live: AnyTreeNode): void => {
+    for (const hit of queryDescendants(live, selector, qctx)) {
+      if (!ctx.deletedIds.has(hit.id)) merged.push(hit.id);
+    }
+  };
+  if (container.type === 'INSTANCE' && container.mainComponentId) {
+    const main = findEnvelopeNode(ctx.working, container.mainComponentId, ctx.nodeIndex);
+    if (main?.type === 'COMPONENT') {
+      const frame = findEnvelopeNode(ctx.working, main.rootFrameId, ctx.nodeIndex);
+      if (frame) walkFromLive(frame);
+    } else if (main?.type === 'COMPONENT_SET') {
+      const cid = main.componentIds[0];
+      if (cid) {
+        const comp = findEnvelopeNode(ctx.working, cid, ctx.nodeIndex);
+        if (comp?.type === 'COMPONENT') {
+          const frame = findEnvelopeNode(ctx.working, comp.rootFrameId, ctx.nodeIndex);
+          if (frame) walkFromLive(frame);
+        }
+      }
+    }
+  }
+  for (const entry of container.getPendingChildEntries()) {
+    const id = readChildId(entry.child);
+    if (!id) continue;
+    const live = findEnvelopeNode(ctx.working, id, ctx.nodeIndex);
+    if (live) walkFromLive(live);
+  }
+  return merged;
+}
+
 export function getDetachedImmediateChildren(
   container: DetachedTraversalContainer,
   ctx: DetachedTraversalContext
 ): unknown[] {
   if (!runtimeSupportsDetachedTraversal(container.type)) return [];
-  return container.getPendingChildEntries()
+  const pending = container.getPendingChildEntries();
+  if (pending.length === 0 && container.type === 'INSTANCE') {
+    const mid = container.mainComponentId;
+    if (!mid) return [];
+    return resolveMainComponentRootChildIds(ctx.working, mid, ctx.nodeIndex)
+      .filter((id) => !ctx.deletedIds.has(id))
+      .map((id) => ctx.createHandle(id));
+  }
+  return pending
     .map((entry) => resolvePendingChildHandle(ctx, entry))
     .filter((h): h is unknown => h !== null);
 }
@@ -250,6 +365,31 @@ export function createDetachedTraversalMethods(
         throw new ValidationErr('VALIDATION_ERROR', 'findAllWithCriteria requires a criteria object');
       }
       return walkDetachedFindAllRoots(container, ctx, parsed);
+    },
+
+    query(selector: unknown): ScriptQueryResult {
+      assertDetachedTraversalContainer(container);
+      if (typeof selector !== 'string') {
+        throw new ValidationErr('VALIDATION_ERROR', 'query requires a selector string');
+      }
+      return new ScriptQueryResult(detachedScriptQueryDeps(ctx), collectDetachedQueryIds(container, ctx, selector));
+    },
+
+    matches(selector: unknown): boolean {
+      assertDetachedTraversalContainer(container);
+      if (typeof selector !== 'string') {
+        throw new ValidationErr('VALIDATION_ERROR', 'matches requires a selector string');
+      }
+      const qctx: QueryContext = {
+        working: ctx.working,
+        nodeIndex: ctx.nodeIndex,
+        signal: ctx.signal,
+      };
+      return nodeMatchesSelector(
+        { type: container.type, name: container.name, visible: container.visible } as AnyTreeNode,
+        selector,
+        qctx
+      );
     },
   };
 }

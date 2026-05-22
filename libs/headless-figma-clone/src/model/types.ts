@@ -983,6 +983,22 @@ export interface InstanceNode extends NodeBase, LayoutSelfFields {
   effectStyleId?: string | null;
   boundVariables?: FrameVariableBindings;
   clipsContent?: boolean;
+  /** Auto-layout (Figma InstanceNode frame mixin). */
+  layoutMode?: LayoutMode;
+  paddingLeft?: number;
+  paddingRight?: number;
+  paddingTop?: number;
+  paddingBottom?: number;
+  itemSpacing?: number;
+  layoutWrap?: 'NO_WRAP' | 'WRAP';
+  counterAxisSpacing?: number;
+  counterAxisAlignContent?: 'AUTO' | 'SPACE_BETWEEN';
+  primaryAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'SPACE_BETWEEN';
+  counterAxisAlignItems?: 'MIN' | 'CENTER' | 'MAX' | 'BASELINE';
+  primaryAxisSizingMode?: AxisSizingMode;
+  counterAxisSizingMode?: AxisSizingMode;
+  itemReverseZIndex?: boolean;
+  strokesIncludedInLayout?: boolean;
   mainComponentId: string;
   /** Exported SVG icon for this instance (plugin snapshot). */
   iconSvgAssetHash?: string;
