@@ -68,7 +68,8 @@ describe('mcp-http smoke', () => {
     const createdBody = parseToolJson(cText!);
     expect(createdBody.ok).toBe(true);
     const filePath = (createdBody.data as { filePath: string }).filePath;
-    expect(readFileSync(filePath, 'utf8')).toContain('"type": "DOCUMENT"');
+    const saved = JSON.parse(readFileSync(filePath, 'utf8')) as { document?: { type?: string } };
+    expect(saved.document?.type).toBe('DOCUMENT');
 
     const use = await client.callTool({
       name: 'use_figma',

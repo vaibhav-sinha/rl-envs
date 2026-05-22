@@ -3,13 +3,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { afterAll, describe, expect, it } from 'vitest';
-import { applyEngineOp, DocumentEngine } from '../../src/engine/DocumentEngine.js';
+import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
 import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
 import { injectFontFacesIntoHtml } from '../../src/fonts/injectFonts.js';
 import { getLocalFontsFileBaseUrl } from '../../src/fonts/localFontRegistry.js';
 import { designCompiler, HFC_UA_RESET_CSS } from '../../src/render/DesignCompiler.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
+import { envelopeAfterScriptRun } from '../helpers/commitScriptRun.js';
 import type { FileEnvelope, FrameNode, SceneNode, TextNode } from '../../src/model/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -66,8 +67,7 @@ describe('scenario 106 mail split inbox — single-line clip + hug text flex', (
     expect(run.kind).toBe('ok');
     if (run.kind !== 'ok') return;
 
-    const env = structuredClone(engine.getActiveFile()!) as FileEnvelope;
-    for (const op of run.operations) applyEngineOp(env, op);
+    const env = structuredClone(envelopeAfterScriptRun(engine, run)) as FileEnvelope;
     const rootId = (run.result as { rootId: string }).rootId;
 
     const body = findText(env, (t) => t.characters.startsWith('Hey team'));

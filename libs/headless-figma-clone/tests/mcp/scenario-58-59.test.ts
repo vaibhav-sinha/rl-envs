@@ -8,6 +8,7 @@ import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
 import type { GroupNode, RectangleNode, SceneNode } from '../../src/model/types.js';
+import { commitScriptRun } from '../helpers/commitScriptRun.js';
 
 const scenariosDir = join(dirname(fileURLToPath(import.meta.url)), '../../verification/scenarios');
 
@@ -37,7 +38,8 @@ async function runScenario(id: string) {
   const run = await runUseFigmaScript(code, engine);
   expect(run.kind).toBe('ok');
   if (run.kind !== 'ok') throw new Error('script failed');
-  await engine.applyTransaction(run.operations);
+  const tx = await commitScriptRun(engine, run);
+  expect(tx.success).toBe(true);
   return { file: engine.getActiveFile()!, rootId: (run.result as { rootId: string }).rootId };
 }
 

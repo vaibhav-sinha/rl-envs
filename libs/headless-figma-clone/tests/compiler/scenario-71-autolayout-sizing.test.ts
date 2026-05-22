@@ -2,13 +2,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { applyEngineOp, DocumentEngine } from '../../src/engine/DocumentEngine.js';
+import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
 import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
 import { applyAutoLayoutIntrinsicSizingDeep } from '../../src/render/autoLayoutIntrinsicSizing.js';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
 import type { FileEnvelope, FrameNode, SceneNode } from '../../src/model/types.js';
+import { envelopeAfterScriptRun } from '../helpers/commitScriptRun.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,8 +71,7 @@ describe('scenario 71 nested autolayout — compile-time sizing parity', () => {
     expect(run.kind).toBe('ok');
     if (run.kind !== 'ok') return;
 
-    const env = structuredClone(engine.getActiveFile()!) as FileEnvelope;
-    for (const op of run.operations) applyEngineOp(env, op);
+    const env = structuredClone(envelopeAfterScriptRun(engine, run)) as FileEnvelope;
     const rootId = (run.result as { rootId: string }).rootId;
 
     const colPre = findVerticalFrame(

@@ -184,7 +184,7 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
   if (op.op === 'createVariableCollection') {
     const cols = ensureCollections(working);
     if (cols.some((c) => c.id === op.collectionId)) {
-      throw new ValidationErr('VALIDATION_ERROR', `Duplicate variable collection id ${op.collectionId}`);
+      return;
     }
     cols.push({
       id: op.collectionId,
@@ -312,14 +312,14 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
   }
   if (op.op === 'createPaintStyle') {
     if (!working.paintStyles) working.paintStyles = [];
-    if (working.paintStyles.some((s) => s.id === op.id)) throw new ValidationErr('VALIDATION_ERROR', `Duplicate paint style ${op.id}`);
+    if (working.paintStyles.some((s) => s.id === op.id)) return;
     validatePaintArray(op.paints, 'paintStyle.paints', working);
     working.paintStyles.push({ id: op.id, name: op.name, paints: op.paints });
     return;
   }
   if (op.op === 'createTextStyle') {
     if (!working.textStyles) working.textStyles = [];
-    if (working.textStyles.some((s) => s.id === op.id)) throw new ValidationErr('VALIDATION_ERROR', `Duplicate text style ${op.id}`);
+    if (working.textStyles.some((s) => s.id === op.id)) return;
     const spec = op.spec ?? {};
     working.textStyles.push({
       id: op.id,
@@ -332,14 +332,14 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
   }
   if (op.op === 'createEffectStyle') {
     if (!working.effectStyles) working.effectStyles = [];
-    if (working.effectStyles.some((s) => s.id === op.id)) throw new ValidationErr('VALIDATION_ERROR', `Duplicate effect style ${op.id}`);
+    if (working.effectStyles.some((s) => s.id === op.id)) return;
     const eff = validateEffects(op.effects, 'effectStyle.effects') ?? [];
     working.effectStyles.push({ id: op.id, name: op.name, effects: eff });
     return;
   }
   if (op.op === 'createGridStyle') {
     if (!working.gridStyles) working.gridStyles = [];
-    if (working.gridStyles.some((s) => s.id === op.id)) throw new ValidationErr('VALIDATION_ERROR', `Duplicate grid style ${op.id}`);
+    if (working.gridStyles.some((s) => s.id === op.id)) return;
     working.gridStyles.push({ id: op.id, name: op.name, layoutGrids: op.layoutGrids });
     return;
   }

@@ -7,6 +7,7 @@ import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
+import { commitScriptRun } from '../helpers/commitScriptRun.js';
 
 const scenariosDir = join(dirname(fileURLToPath(import.meta.url)), '../../verification/scenarios');
 
@@ -23,7 +24,7 @@ describe('scenario 04 / 80 / 99 regressions', () => {
     );
     expect(run.kind).toBe('ok');
     if (run.kind !== 'ok') return;
-    const tx = await engine.applyTransaction(run.operations);
+    const tx = await commitScriptRun(engine, run);
     expect(tx.success).toBe(true);
     const file = engine.getActiveFile()!;
     const rootId = (run.result as { rootId: string }).rootId;
@@ -51,7 +52,7 @@ describe('scenario 04 / 80 / 99 regressions', () => {
     );
     expect(run.kind).toBe('ok');
     if (run.kind !== 'ok') return;
-    const tx = await engine.applyTransaction(run.operations);
+    const tx = await commitScriptRun(engine, run);
     expect(tx.success).toBe(true);
     const file = engine.getActiveFile()!;
     const rootId = (run.result as { rootId: string }).rootId;
@@ -76,7 +77,7 @@ describe('scenario 04 / 80 / 99 regressions', () => {
     );
     expect(run.kind).toBe('ok');
     if (run.kind !== 'ok') return;
-    const tx = await engine.applyTransaction(run.operations);
+    const tx = await commitScriptRun(engine, run);
     expect(tx.success).toBe(true);
     const file = engine.getActiveFile()!;
     const rootId = (run.result as { rootId: string }).rootId;

@@ -6,6 +6,7 @@ import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
 import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
+import { commitScriptRun } from '../helpers/commitScriptRun.js';
 
 function withWs<T>(fn: () => Promise<T>): Promise<T> {
   const base = mkdtempSync(join(tmpdir(), 'hfc-p6f-'));
@@ -53,7 +54,7 @@ return { ok: true };
       );
       expect(run.kind).toBe('ok');
       if (run.kind !== 'ok') return;
-      const applied = await engine.applyTransaction(run.operations);
+      const applied = await commitScriptRun(engine, run);
       expect(applied.success).toBe(true);
       const creates = run.operations.filter((o) => o.op === 'createNode');
       const polySpec = creates.find((c) => c.op === 'createNode' && c.node.type === 'POLYGON');
@@ -114,7 +115,7 @@ return {};
       );
       expect(run.kind).toBe('ok');
       if (run.kind !== 'ok') return;
-      await engine.applyTransaction(run.operations);
+      await commitScriptRun(engine, run);
       const white = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
       const frames = run.operations
         .filter((o) => o.op === 'createNode' && o.node.type === 'FRAME')
@@ -140,7 +141,7 @@ return {};
       );
       expect(run.kind).toBe('ok');
       if (run.kind !== 'ok') return;
-      await engine.applyTransaction(run.operations);
+      await commitScriptRun(engine, run);
       const after = engine.getActiveFile()!.document.children.filter((c) => c.type === 'PAGE').length;
       expect(after).toBe(before + 1);
     });

@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { applyEngineOp, DocumentEngine } from '../../src/engine/DocumentEngine.js';
+import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
 import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
+import { envelopeAfterScriptRun } from '../helpers/commitScriptRun.js';
 
 const scenariosDir = join(dirname(fileURLToPath(import.meta.url)), '../../verification/scenarios');
 
@@ -22,10 +23,7 @@ describe('scenario 43 local styles compile', () => {
     expect(run.kind).toBe('ok');
     if (run.kind !== 'ok') return;
 
-    const env = structuredClone(engine.getActiveFile()!);
-    for (const op of run.operations) {
-      applyEngineOp(env, op);
-    }
+    const env = structuredClone(envelopeAfterScriptRun(engine, run));
 
     const rootId = (run.result as { rootId: string }).rootId;
     const out = designCompiler.compileSubtree({

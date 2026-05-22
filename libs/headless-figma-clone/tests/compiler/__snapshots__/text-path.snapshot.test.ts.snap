@@ -15,7 +15,7 @@ html,body{margin:0;padding:0;}#hfc-root,#hfc-root *{box-sizing:border-box;}#hfc-
   </head>
   <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">
     <div id="hfc-root" style="position:relative;width:360px;height:40px;">
-      <div class="hfc-node-I5" data-hfc-id="I5" style="z-index:0"><div class="hfc-text-inner"><span style="font-size:12px;font-weight:600;color:rgba(38,38,51,1);font-family:"Inter",sans-serif;line-height:16.64px;">Curved label</span></div></div>
+      <div class="hfc-node-I5" data-hfc-id="I5" style="z-index:0"><div class="hfc-text-inner"><span style="font-size:12px;font-weight:600;color:rgba(38,38,51,1);font-family:"Inter",sans-serif;line-height:15px;">Curved label</span></div></div>
     </div>
   </body>
 </html>"

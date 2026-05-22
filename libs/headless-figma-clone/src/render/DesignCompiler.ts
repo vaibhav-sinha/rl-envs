@@ -1187,7 +1187,9 @@ function emitBooleanOperation(
   htmlParts.push(
     `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${chunks}</svg></div>`
   );
-  warnings.push(`boolean_op_fallback:${b.id}:${b.booleanOperation}`);
+  if (boolPaths.failed) {
+    warnings.push(`boolean_op_fallback:${b.id}:${b.booleanOperation}`);
+  }
 }
 
 function emitVector(

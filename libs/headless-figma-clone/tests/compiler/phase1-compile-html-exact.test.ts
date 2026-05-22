@@ -11,6 +11,7 @@ import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { designCompiler, HFC_UA_RESET_CSS } from '../../src/render/DesignCompiler.js';
 import type { FileEnvelope } from '../../src/model/types.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
+import { commitScriptRun } from '../helpers/commitScriptRun.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -387,7 +388,7 @@ describe('use_figma script → engine → compiler (deterministic)', () => {
       if (first?.op === 'createNode' && first.node.type === 'FRAME') {
         expect('children' in first.node ? first.node.children : undefined).toBeUndefined();
       }
-      const applied = await engine.applyTransaction(run.operations);
+      const applied = await commitScriptRun(engine, run);
       expect(applied.success).toBe(true);
       const compiled = designCompiler.compileSubtree({
         envelope: engine.getActiveFile()!,

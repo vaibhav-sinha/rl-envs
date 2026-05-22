@@ -8,6 +8,7 @@ import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { compileSubtreeForScreenshot } from '../../src/render/compileForScreenshot.js';
 import { playwrightScreenshotService, __closeTestBrowser } from '../../src/screenshot/PlaywrightScreenshotService.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
+import { commitScriptRun } from '../helpers/commitScriptRun.js';
 
 const scenariosDir = join(dirname(fileURLToPath(import.meta.url)), '../../verification/scenarios');
 
@@ -27,7 +28,7 @@ describe('scenario 69 boolean intersect screenshot', () => {
     expect(run.kind).toBe('ok');
     if (run.kind !== 'ok') return;
 
-    const tx = await engine.applyTransaction(run.operations);
+    const tx = await commitScriptRun(engine, run);
     expect(tx.success).toBe(true);
 
     const file = engine.getActiveFile()!;

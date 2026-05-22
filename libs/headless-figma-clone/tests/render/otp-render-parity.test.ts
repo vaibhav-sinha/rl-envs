@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
 import { buildImageDataUrlByHash } from '../../src/render/imageDataUrls.js';
 import { resolveHfcNodeIdBySourceFigmaId } from '../../src/resolveNodeRef.js';
-import type { FileEnvelope, FrameNode, InstanceNode, RectangleNode, TextNode } from '../../src/model/types.js';
+import type { FileEnvelope, FrameNode, InstanceNode, TextNode } from '../../src/model/types.js';
 
 const OTP_HFC = join(
   __dirname,
@@ -66,7 +66,7 @@ describe('OTP render parity', () => {
     const env = loadOtpEnvelope();
     const compiled = compileOtpRoot(env);
     const styles = styleBlob(compiled);
-    expect(styles).toMatch(/\.hfc-node-I1551 \.hfc-node-I1552\{[^}]*background-color:rgba\(206,210,217/);
+    expect(styles).toMatch(/\.hfc-node-I1541 \.hfc-node-I1542\{[^}]*background-color:rgba\(206,210,217/);
     const { warnings } = compiled;
     expect(warnings.filter((w) => w.startsWith('missing_component:I0'))).toHaveLength(0);
   });
@@ -74,20 +74,20 @@ describe('OTP render parity', () => {
   it('primary button root spans full instance width', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));
-    expect(styles).toMatch(/\.hfc-node-I1643 \.hfc-node-I73591\{[^}]*width:328px/);
+    expect(styles).toMatch(/\.hfc-node-I1633 \.hfc-node-I73577\{[^}]*width:328px/);
   });
 
   it('secondary resend button clears component chrome when instance paints are empty', () => {
     const env = loadOtpEnvelope();
-    const inst = findNode(env, 'I1647');
+    const inst = findNode(env, 'I1637');
     expect(inst?.type).toBe('INSTANCE');
     if (inst?.type === 'INSTANCE') {
       expect(inst.fills).toEqual([]);
       expect(inst.strokes).toEqual([]);
     }
     const styles = styleBlob(compileOtpRoot(env));
-    expect(styles).not.toMatch(/\.hfc-node-I1647 \.hfc-node-I73600\{[^}]*rgba\(255,\s*255,\s*255/);
-    expect(styles).not.toMatch(/\.hfc-node-I1647 \.hfc-node-I73600\{[^}]*border:[^;]*rgba\(225/);
+    expect(styles).not.toMatch(/\.hfc-node-I1637 \.hfc-node-I73586\{[^}]*rgba\(255,\s*255,\s*255/);
+    expect(styles).not.toMatch(/\.hfc-node-I1637 \.hfc-node-I73586\{[^}]*border:[^;]*rgba\(225/);
   });
 
   it('primary button label uses design font size not instance stretch scale', () => {
@@ -100,46 +100,46 @@ describe('OTP render parity', () => {
   it('OTP digit input frame keeps instance width after detached merge', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));
-    expect(styles).toMatch(/\.hfc-node-I1606 \.hfc-node-I73568\{[^}]*width:48px/);
-    expect(styles).not.toMatch(/\.hfc-node-I1606 \.hfc-node-I73568\{[^}]*width:7\./);
+    expect(styles).toMatch(/\.hfc-node-I1602 \.hfc-node-I73557\{[^}]*width:48px/);
+    expect(styles).not.toMatch(/\.hfc-node-I1602 \.hfc-node-I73557\{[^}]*width:7\./);
   });
 
   it('OTP digit text uses center alignment after detached merge', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));
-    expect(styles).toMatch(/\.hfc-node-I73572 \.hfc-text-inner\{[^}]*text-align:center/);
-    expect(styles).not.toMatch(/\.hfc-node-I73572 \.hfc-text-inner\{[^}]*text-align:left/);
+    expect(styles).toMatch(/\.hfc-node-I1602 \.hfc-node-I73558 \.hfc-text-inner\{[^}]*text-align:center/);
+    expect(styles).not.toMatch(/\.hfc-node-I1602 \.hfc-node-I73558 \.hfc-text-inner\{[^}]*text-align:left/);
   });
 
   it('header subtitle stays within instance bounds (no vertical stretch clip)', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));
-    expect(styles).toMatch(/\.hfc-node-I1602 \.hfc-node-I73831\{[^}]*width:328px/);
-    expect(styles).toMatch(/\.hfc-node-I1602 \.hfc-node-I73831\{[^}]*top:28px/);
-    expect(styles).toMatch(/\.hfc-node-I1602 \.hfc-node-I73831\{[^}]*height:40px/);
-    expect(styles).not.toMatch(/\.hfc-node-I1602 \.hfc-node-I73831\{[^}]*width:418px/);
+    expect(styles).toMatch(/\.hfc-node-I1592 \.hfc-node-I73817\{[^}]*width:328px/);
+    expect(styles).toMatch(/\.hfc-node-I1592 \.hfc-node-I73817\{[^}]*top:28px/);
+    expect(styles).toMatch(/\.hfc-node-I1592 \.hfc-node-I73817\{[^}]*height:40px/);
+    expect(styles).not.toMatch(/\.hfc-node-I1592 \.hfc-node-I73817\{[^}]*width:418px/);
     expect(styles).toMatch(/\+91 99304448/);
   });
 
   it('toast message omits paragraph spacing on single-line centered text', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));
-    const toastSpan = styles.match(/OTP expired\. Please try again\.[^<]*/)?.[0] ?? '';
+    const toastSpan = styles.match(/Incorrect OTP\. Please try again\.[^<]*/)?.[0] ?? '';
     expect(toastSpan).not.toMatch(/margin-bottom:8px/);
   });
 
   it('toast instance wrapper allows shadow overflow', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));
-    expect(styles).toMatch(/\.hfc-node-I1651\{[^}]*overflow:visible/);
+    expect(styles).toMatch(/\.hfc-node-I1641\{[^}]*overflow:visible/);
     expect(styles).toMatch(/box-shadow:0px 4px 8px/);
   });
 
   it('instance paint shell for leaf keyboard key bg', () => {
     const env = loadOtpEnvelope();
     const styles = styleBlob(compileOtpRoot(env));
-    expect(styles).toMatch(/\.hfc-node-I1556 \.hfc-node-I1557\{[^}]*box-shadow:/);
-    expect(styles).toMatch(/\.hfc-node-I1556 \.hfc-node-I1557\{[^}]*background-color:rgba\(255,255,255,1\)/);
+    expect(styles).toMatch(/\.hfc-node-I1554 \.hfc-node-I1555\{[^}]*box-shadow:/);
+    expect(styles).toMatch(/\.hfc-node-I1554 \.hfc-node-I1555\{[^}]*background-color:rgba\(255,255,255,1\)/);
   });
 });
 
