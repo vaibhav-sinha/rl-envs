@@ -39,7 +39,8 @@ envs/figma-design/
 │   └── verifier/              # copied into each task's tests/
 ├── scripts/
 │   ├── build-base.mjs
-│   └── new-task.mjs
+│   ├── new-task.mjs
+│   └── rerun-verifier.py
 └── tasks/
     └── <task-id>/
         ├── instruction.md
@@ -225,6 +226,28 @@ harbor run -p envs/figma-design/tasks/hello-frame --env docker `
   --agent-import-path agents.cursor_cli:CursorCliWithSkills `
   -m cursor/auto
 ```
+
+## Re-run verifiers on a completed job
+
+After changing `shared/verifier/figma_eval`, regrade finished trials **without** writing into `jobs/`:
+
+```powershell
+# From repository root
+pip install -r envs/figma-design/shared/verifier/requirements.txt
+
+# All trials in a job
+python envs/figma-design/scripts/rerun-verifier.py jobs/2026-05-22__01-30-40
+
+# Single trial
+python envs/figma-design/scripts/rerun-verifier.py jobs/2026-05-22__01-30-40/oker-create-max-otp-screen__JoQCmsv
+
+# Structural checks only (no LLM judges; still renders screenshots)
+python envs/figma-design/scripts/rerun-verifier.py jobs/2026-05-22__01-30-40 --skip-llm
+```
+
+Outputs go to `verifier-reruns/<job>/<trial>/<timestamp>/` (`eval-report.json`, `eval-report-details.json`, `reward.json`, `screenshots/`, `manifest.json` with original vs rerun reward). The script only **reads** the job folder (artifacts + `result.json` for task paths).
+
+For full LLM visual/metadata scoring, omit `--skip-llm` and set API keys (`GEMINI_API_KEY`, etc.). Build the HFC CLI locally (`libs/headless-figma-clone`) or pass `--hfc-cli`.
 
 ## Running
 

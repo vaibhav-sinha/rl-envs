@@ -127,7 +127,7 @@ export const CHECK_CATALOG = {
       design_consistency: {
         label: 'Design consistency',
         description:
-          'Compare agent result to a reference screenshot using custom criteria you define.',
+          'Compare agent result to a reference screenshot using custom criteria you define. Uses the same screenshot frame as good design and task completeness (largest enclosing frame inside allowed_change_inside when set).',
         fields: {
           reference_asset: 'Reference PNG in task assets (upload via screenshot).',
           criteria: 'One check per line (e.g. same background pattern, keyboard at bottom).',

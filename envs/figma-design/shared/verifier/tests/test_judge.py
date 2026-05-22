@@ -35,6 +35,26 @@ def test_parse_criteria_scores_combines_consistency_and_fit():
     assert "layout_fit" in out["fit_scores"]
 
 
+def test_parse_criteria_scores_extracts_explanations():
+    text = json.dumps(
+        {
+            "scores": {"typography": 3, "spacing": 4},
+            "explanations": {
+                "typography": "Body text is too small.",
+                "spacing": "Padding is consistent.",
+            },
+        }
+    )
+    out = parse_criteria_scores(
+        text,
+        consistency_keys=["typography", "spacing"],
+        scores_key="scores",
+        explanations_key="explanations",
+    )
+    assert out["explanations"]["typography"] == "Body text is too small."
+    assert out["explanations"]["spacing"] == "Padding is consistent."
+
+
 def test_parse_task_completeness_boolean():
     text = json.dumps({"completed": True, "requirements": []})
     out = parse_task_completeness(text)

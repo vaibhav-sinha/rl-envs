@@ -74,7 +74,11 @@ def test_good_design_renders_largest_change(mock_judge, mock_render, load_fixtur
         return None
 
     mock_render.side_effect = fake_render
-    mock_judge.return_value = {"mean_score": 0.8, "consistency_scores": {"typography": 0.75}}
+    mock_judge.return_value = {
+        "mean_score": 0.8,
+        "consistency_scores": {"typography": 0.75},
+        "explanations": {"typography": "Readable hierarchy."},
+    }
 
     spec = {"id": "gd1", "type": "good_design"}
     result = run_visual_check(
@@ -91,6 +95,7 @@ def test_good_design_renders_largest_change(mock_judge, mock_render, load_fixtur
     )
     assert result.score == 0.8
     assert rendered["node_id"] == "I20"
+    assert result.details["explanations"]["typography"] == "Readable hierarchy."
     mock_judge.assert_called_once()
 
 
@@ -160,6 +165,57 @@ def test_design_fit_missing_node_scores_zero(load_fixture, tmp_path):
 
 @patch("figma_eval.visual.run_visual.render_node_or_error")
 @patch("figma_eval.visual.run_visual.run_llm_judge")
+def test_design_consistency_uses_task_completeness_screenshot_with_allowed_root(
+    mock_judge, mock_render, tmp_path
+):
+    if not OKER_BEFORE.is_file() or not OKER_AFTER_JOB.is_file():
+        pytest.skip("oker job fixtures not present")
+    before = json.loads(OKER_BEFORE.read_text(encoding="utf-8"))
+    after = json.loads(OKER_AFTER_JOB.read_text(encoding="utf-8"))
+    rendered: dict[str, str] = {}
+
+    def fake_render(**kwargs):
+        rendered["node_id"] = kwargs["node_id"]
+        Path(kwargs["out"]).write_bytes(b"png")
+        return None
+
+    mock_render.side_effect = fake_render
+    mock_judge.return_value = {
+        "mean_score": 0.5,
+        "consistency_scores": {"criterion_0": 0.5},
+        "explanations": {"criterion_0": "Keyboard differs."},
+    }
+
+    ref_path = tmp_path / "ref.png"
+    ref_path.write_bytes(b"ref-png")
+    spec = {
+        "id": "dc1",
+        "type": "design_consistency",
+        "reference_asset": "ref.png",
+        "criteria": ["Keyboard matches reference"],
+    }
+    gates = {"allowed_change_inside_ids": ["1621:130309"]}
+    result = run_visual_check(
+        spec=spec,
+        before=before,
+        after=after,
+        graph=build_edit_graph(before, after),
+        before_path=str(OKER_BEFORE),
+        after_path=str(OKER_AFTER_JOB),
+        work_dir=tmp_path,
+        task_instruction="Create max OTP screen",
+        gates=gates,
+        assets_dir=str(tmp_path),
+        skip_llm=False,
+        model="test",
+    )
+    assert result.score == 0.5
+    assert rendered["node_id"] == "I78386"
+    assert result.details["screenshot_node_id"] == "I78386"
+
+
+@patch("figma_eval.visual.run_visual.render_node_or_error")
+@patch("figma_eval.visual.run_visual.run_llm_judge")
 def test_design_consistency_with_reference(mock_judge, mock_render, load_fixture, tmp_path):
     before = load_fixture("minimal", "before")
     after = load_fixture("add-frame", "after")
@@ -176,6 +232,7 @@ def test_design_consistency_with_reference(mock_judge, mock_render, load_fixture
     mock_judge.return_value = {
         "mean_score": 0.75,
         "consistency_scores": {"criterion_0": 0.75},
+        "explanations": {"criterion_0": "Background pattern differs."},
     }
 
     spec = {
@@ -199,6 +256,10 @@ def test_design_consistency_with_reference(mock_judge, mock_render, load_fixture
     )
     assert result.score == 0.75
     assert rendered["node_id"] == "I20"
+    assert (
+        result.details["criteria_explanations"]["criterion_0"]
+        == "Background pattern differs."
+    )
     images = mock_judge.call_args.kwargs["images"]
     roles = {img["role"] for img in images}
     assert roles == {"reference", "agent"}

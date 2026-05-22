@@ -39,12 +39,31 @@ def mean_normalized(scores: list[float]) -> float:
     return sum(scores) / len(scores)
 
 
+def _parse_explanations(
+    data: dict[str, Any],
+    *,
+    explanations_key: str | None,
+    keys: list[str],
+) -> dict[str, str]:
+    if not explanations_key:
+        return {}
+    raw = data.get(explanations_key) or {}
+    if not isinstance(raw, dict):
+        return {}
+    explanations: dict[str, str] = {}
+    for key in keys:
+        if key in raw and raw[key] is not None:
+            explanations[key] = str(raw[key]).strip()
+    return explanations
+
+
 def parse_criteria_scores(
     text: str,
     *,
     consistency_keys: list[str],
     fit_keys: list[str] | None = None,
     scores_key: str = "consistency_scores",
+    explanations_key: str | None = None,
 ) -> dict[str, Any]:
     data = json.loads(_strip_json_fence(text))
     consistency_raw = (
@@ -67,12 +86,22 @@ def parse_criteria_scores(
             if key in fit_raw:
                 fit[key] = _normalize_1_to_5(fit_raw[key])
 
+    all_keys = list(consistency_keys) + list(fit_keys or [])
+    explanations = _parse_explanations(
+        data,
+        explanations_key=explanations_key,
+        keys=all_keys,
+    )
+
     all_scores = list(consistency.values()) + list(fit.values())
-    return {
+    result: dict[str, Any] = {
         "consistency_scores": consistency,
         "fit_scores": fit,
         "mean_score": mean_normalized(all_scores),
     }
+    if explanations:
+        result["explanations"] = explanations
+    return result
 
 
 def parse_task_completeness(text: str) -> dict[str, Any]:

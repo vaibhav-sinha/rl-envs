@@ -89,7 +89,7 @@ def _resolve_visual_screenshot_node(
     graph: EditGraph,
     gates: dict[str, Any] | None,
 ) -> str | None:
-    """Screenshot target shared by good_design and task_completeness."""
+    """Screenshot target shared by good_design, task_completeness, and design_consistency."""
     explicit = spec.get("node_id")
     if explicit:
         return explicit
@@ -164,8 +164,11 @@ def _run_good_design(
             text,
             consistency_keys=GOOD_DESIGN_CRITERIA,
             scores_key="scores",
+            explanations_key="explanations",
         ),
-        retry_hint='Return ONLY valid JSON with key "scores". No markdown.',
+        retry_hint=(
+            'Return ONLY valid JSON with keys "scores" and "explanations". No markdown.'
+        ),
     )
     return _visual_result(
         spec,
@@ -174,6 +177,7 @@ def _run_good_design(
             "check": "good_design",
             "screenshot_node_id": screenshot_id,
             "scores": llm.get("consistency_scores"),
+            "explanations": llm.get("explanations"),
         },
     )
 
@@ -181,9 +185,11 @@ def _run_good_design(
 def _run_design_consistency(
     *,
     spec: dict[str, Any],
+    before: Envelope,
     after: Envelope,
     after_path: str,
     graph: EditGraph,
+    gates: dict[str, Any] | None,
     work: Path,
     task_instruction: str,
     assets_dir: str | None,
@@ -202,12 +208,18 @@ def _run_design_consistency(
     criteria = [str(c) for c in spec["criteria"]]
     ids = criterion_ids(len(criteria))
 
-    screenshot_id = _resolve_largest_change_screenshot_id(after, graph)
+    screenshot_id = _resolve_visual_screenshot_node(
+        spec=spec,
+        before=before,
+        after=after,
+        graph=graph,
+        gates=gates,
+    )
     if not screenshot_id or not node_exists(after, screenshot_id):
         return _visual_result(
             spec,
             0.0,
-            {"reason": "screenshot_node_unresolved", "node_id": screenshot_id},
+            {"reason": "enclosing_frame_missing", "node_id": screenshot_id},
         )
 
     agent_shot = work / f"{spec['id']}-agent.png"
@@ -248,8 +260,12 @@ def _run_design_consistency(
             text,
             consistency_keys=ids,
             scores_key="criteria_scores",
+            explanations_key="criteria_explanations",
         ),
-        retry_hint='Return ONLY valid JSON with key "criteria_scores". No markdown.',
+        retry_hint=(
+            'Return ONLY valid JSON with keys "criteria_scores" and '
+            '"criteria_explanations". No markdown.'
+        ),
     )
     return _visual_result(
         spec,
@@ -259,6 +275,7 @@ def _run_design_consistency(
             "screenshot_node_id": screenshot_id,
             "reference_path": str(ref_path),
             "criteria_scores": llm.get("consistency_scores"),
+            "criteria_explanations": llm.get("explanations"),
         },
     )
 
@@ -525,9 +542,11 @@ def run_visual_check(
             spec,
             _run_design_consistency(
                 spec=spec,
+                before=before,
                 after=after,
                 after_path=after_path,
                 graph=graph,
+                gates=gates,
                 work=work,
                 task_instruction=task_instruction,
                 assets_dir=assets_dir,

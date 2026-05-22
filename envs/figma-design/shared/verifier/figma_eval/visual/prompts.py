@@ -69,6 +69,7 @@ def build_good_design_prompt(*, task_instruction: str) -> str:
         "- A clear focal point guides the eye to the primary action or message.\n"
         "- Secondary information is visually subordinate to primary content.\n"
         "- Grouping and whitespace reinforce what belongs together.\n\n"
+        "For each dimension, provide a brief explanation (1-2 sentences) justifying the score.\n\n"
         "Respond with JSON only:\n"
         "{\n"
         '  "scores": {\n'
@@ -78,6 +79,14 @@ def build_good_design_prompt(*, task_instruction: str) -> str:
         '    "content_not_overflowing": 1-5,\n'
         '    "alignment": 1-5,\n'
         '    "visual_hierarchy": 1-5\n'
+        "  },\n"
+        '  "explanations": {\n'
+        '    "typography": "...",\n'
+        '    "spacing": "...",\n'
+        '    "color": "...",\n'
+        '    "content_not_overflowing": "...",\n'
+        '    "alignment": "...",\n'
+        '    "visual_hierarchy": "..."\n'
         "  }\n"
         "}\n"
         "Do not include markdown fences."
@@ -91,6 +100,7 @@ def build_design_consistency_prompt(
 ) -> str:
     ids = criterion_ids(len(criteria))
     score_lines = ",\n".join(f'    "{cid}": 1-5' for cid in ids)
+    explanation_lines = ",\n".join(f'    "{cid}": "..."' for cid in ids)
 
     return (
         "You are comparing an agent-produced Figma design to a reference design.\n\n"
@@ -103,10 +113,14 @@ def build_design_consistency_prompt(
         "Score each criterion independently based on how well the AGENT image matches "
         "the REFERENCE with respect to that criterion only:\n"
         f"{_numbered_criteria_lines(criteria)}\n\n"
+        "For each criterion, provide a brief explanation (1-2 sentences) justifying the score.\n\n"
         "Respond with JSON only:\n"
         "{\n"
         '  "criteria_scores": {\n'
         f"{score_lines}\n"
+        "  },\n"
+        '  "criteria_explanations": {\n'
+        f"{explanation_lines}\n"
         "  }\n"
         "}\n"
         "Do not include markdown fences."

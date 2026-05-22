@@ -1,5 +1,6 @@
 from figma_eval.visual.prompts import (
     GOOD_DESIGN_CRITERIA,
+    build_design_consistency_prompt,
     build_good_design_prompt,
     build_task_completeness_prompt,
 )
@@ -11,6 +12,18 @@ def test_good_design_prompt_includes_all_criteria():
     for key in GOOD_DESIGN_CRITERIA:
         assert key in prompt
     assert '"scores"' in prompt
+    assert '"explanations"' in prompt
+
+
+def test_design_consistency_prompt_includes_explanations():
+    prompt = build_design_consistency_prompt(
+        task_instruction="Match the reference.",
+        criteria=["Same background", "Keyboard at bottom"],
+    )
+    assert '"criteria_scores"' in prompt
+    assert '"criteria_explanations"' in prompt
+    assert "criterion_0" in prompt
+    assert "criterion_1" in prompt
 
 
 def test_task_completeness_prompt_without_evaluation_instructions():

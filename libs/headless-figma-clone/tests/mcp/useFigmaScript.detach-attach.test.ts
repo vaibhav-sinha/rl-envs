@@ -1,5 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
@@ -7,18 +7,29 @@ import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
 
-const designPath = join(
+/** Read-only task fixture; never load or save this path directly. */
+const designFixturePath = join(
   import.meta.dirname,
   '../../../../envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json'
 );
 
-function withWs<T>(fn: () => Promise<T>): Promise<T> {
+/** Copies the fixture into a temp workspace; applyTransaction writes only there. */
+function withDesignFixture<T>(fn: (designPath: string) => Promise<T>): Promise<T> {
   const base = mkdtempSync(join(tmpdir(), 'hfc-detach-'));
+  const ws = join(base, 'ws');
+  const designPath = join(ws, 'design.hfc.json');
   const prev = process.env.HFC_WORKSPACE_DIR;
-  process.env.HFC_WORKSPACE_DIR = join(base, 'ws');
   return (async () => {
     try {
-      return await fn();
+      mkdirSync(ws, { recursive: true });
+      copyFileSync(designFixturePath, designPath);
+      const assetsFixture = join(dirname(designFixturePath), 'design.hfc.assets');
+      const assetsDest = join(dirname(designPath), 'design.hfc.assets');
+      if (existsSync(assetsFixture)) {
+        cpSync(assetsFixture, assetsDest, { recursive: true });
+      }
+      process.env.HFC_WORKSPACE_DIR = ws;
+      return await fn(designPath);
     } finally {
       if (prev === undefined) delete process.env.HFC_WORKSPACE_DIR;
       else process.env.HFC_WORKSPACE_DIR = prev;
@@ -29,7 +40,7 @@ function withWs<T>(fn: () => Promise<T>): Promise<T> {
 
 describe('useFigmaScript detached frame attach (Figma parity)', () => {
   it('step 14 pattern: clone into detached frame then append to section commits', async () => {
-    await withWs(async () => {
+    await withDesignFixture(async (designPath) => {
       const engine = new DocumentEngine({
         persistence: new JsonPersistence(),
         logger: createConsoleLogger('error'),
@@ -83,7 +94,7 @@ return { createdNodeIds: [newFrame.id], childCount: newFrame.children.length };
   });
 
   it('step 15+16: clone into attached dest commits via duplicateNode replay', async () => {
-    await withWs(async () => {
+    await withDesignFixture(async (designPath) => {
       const engine = new DocumentEngine({
         persistence: new JsonPersistence(),
         logger: createConsoleLogger('error'),
