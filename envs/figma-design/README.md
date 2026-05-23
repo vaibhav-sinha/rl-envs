@@ -64,6 +64,23 @@ Tasks intentionally have **no** `solution/` directory (RL / agent-only eval).
 - Docker Desktop (or Docker Engine) running
 - [Harbor](https://www.harborframework.com/) CLI: `pip install harbor` or `uv tool install harbor`
 - Node 20+ (only for local HFC development; the image builds HFC inside Docker)
+- [Git LFS](https://git-lfs.com/) for task design files (`*.hfc.json` are stored in LFS)
+
+After clone or checkout, pull LFS objects **before** `harbor run` or building a task image:
+
+```bash
+git lfs pull
+```
+
+Without this, `environment/design.hfc.json` may be a small pointer file (~130 bytes) instead of the real design (~100MB+). Docker will bake the pointer into the image, HFC will fail to parse it at startup (`Unexpected token 'v', "version ht"...`), and Harbor will report **`HealthcheckError`** on `curl http://127.0.0.1:3847/health`.
+
+To pull one task’s design only:
+
+```bash
+git lfs pull --include="envs/figma-design/tasks/<task-id>/environment/design.hfc.json"
+```
+
+Confirm the file size on disk before running (not the LFS pointer).
 
 ## Build the base image
 
@@ -251,7 +268,7 @@ For full LLM visual/metadata scoring, omit `--skip-llm` and set API keys (`GEMIN
 
 ## Running
 
-Build the base image, then:
+Build the base image, pull Git LFS design files (`git lfs pull`), then:
 
 ```bash
 # Single task
@@ -283,6 +300,7 @@ Single-container tasks work with standard Docker environments (including many cl
 ## Pitfalls
 
 - **Docker not running** — base and task builds fail immediately.
+- **Git LFS not pulled** — `design.hfc.json` in the task image is an LFS pointer; MCP never starts; healthcheck fails with `HealthcheckError`. Run `git lfs pull` and rebuild (`harbor run ... --force-build`).
 - **`FROM metaphi/figma-design-base:latest` missing** — run `build-base.mjs` first.
 - **`.hfc` without `.json`** — engine requires `*.hfc.json`.
 - **MCP URL hostname** — must be `127.0.0.1` in single-container setup, not a Compose service name.
