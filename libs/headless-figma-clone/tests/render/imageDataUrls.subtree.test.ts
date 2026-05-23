@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { FileEnvelope, PageNode, SceneNode } from '../../src/model/types.js';
+import type { ComponentNode, FileEnvelope, FrameNode, InstanceNode, PageNode, RectangleNode, SceneNode } from '../../src/model/types.js';
 import {
   buildImageDataUrlByHash,
   buildImageDataUrlForSubtree,
@@ -42,5 +42,85 @@ describe('imageDataUrls subtree scope', () => {
     expect(section).toBeDefined();
     const sectionHashes = collectImageHashesFromSubtree(env, 'I27');
     expect(sectionHashes.size).toBeLessThanOrEqual(pageHashes.size);
+  });
+
+  it('collectImageHashesFromSubtree includes in-document component master paints', () => {
+    const masterRect: RectangleNode = {
+      id: 'R1',
+      type: 'RECTANGLE',
+      name: 'bg',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      fills: [{ type: 'IMAGE', imageHash: 'only-on-master-hash', scaleMode: 'FILL', visible: true, opacity: 1, blendMode: 'NORMAL' }],
+    };
+    const masterRoot: FrameNode = {
+      id: 'F1',
+      type: 'FRAME',
+      name: 'root',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      children: [masterRect],
+    };
+    const comp: ComponentNode = {
+      id: 'C1',
+      type: 'COMPONENT',
+      name: 'Comp',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      rootFrameId: 'F1',
+    };
+    const inst: InstanceNode = {
+      id: 'I1',
+      type: 'INSTANCE',
+      name: 'Inst',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      mainComponentId: 'C1',
+      children: [],
+    };
+    const page: PageNode = {
+      id: 'P1',
+      type: 'PAGE',
+      name: 'Page',
+      sourceFigmaId: '0:1',
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      children: [comp, inst, masterRoot],
+    };
+    const env: FileEnvelope = {
+      schemaVersion: 1,
+      fileKey: 'test',
+      fileName: 'test',
+      nextInternalId: 10,
+      document: {
+        id: 'D1',
+        type: 'DOCUMENT',
+        name: 'doc',
+        sourceFigmaId: '0:0',
+        children: [page],
+      },
+      assets: {
+        byId: {
+          'only-on-master-hash': {
+            id: 'only-on-master-hash',
+            sha256: 'only-on-master-hash',
+            mimeType: 'image/png',
+            byteLength: 1,
+          },
+        },
+      },
+    };
+    const hashes = collectImageHashesFromSubtree(env, 'I1');
+    expect(hashes.has('only-on-master-hash')).toBe(true);
   });
 });

@@ -97,8 +97,8 @@ interface ImportContext {
   componentSceneNodes: Map<string, ComponentNode>;
   /** Figma `key` → HFC component id */
   componentByKey: Map<string, string>;
-  /** Variant display name (e.g. `Property 1=Coffee, Property 2=6`) → HFC component id */
-  componentByVariantName: Map<string, string>;
+  /** Variant display name (e.g. `Property 1=Coffee, Property 2=6`) → HFC component ids (many files reuse names). */
+  componentByVariantName: Map<string, string[]>;
   /** Instances imported before their COMPONENT; linked after the full tree is in idMap. */
   deferredInstances: DeferredInstanceMainComponent[];
 }
@@ -334,9 +334,60 @@ function registerComponentLookup(
   nodeName: string,
   props: Record<string, unknown>
 ): void {
-  ctx.componentByVariantName.set(nodeName, compId);
+  const existing = ctx.componentByVariantName.get(nodeName) ?? [];
+  if (!existing.includes(compId)) existing.push(compId);
+  ctx.componentByVariantName.set(nodeName, existing);
   const key = optStr(prop(props, 'componentKey')) ?? optStr(prop(props, 'key'));
   if (key) ctx.componentByKey.set(key, compId);
+}
+
+/** Strip instance override prefix: `I2296:202724;2296:202673` → `2296:202673`. */
+function baseFigmaIdFromSource(sourceFigmaId: string | undefined): string | undefined {
+  if (!sourceFigmaId) return undefined;
+  const semi = sourceFigmaId.indexOf(';');
+  if (semi >= 0) return sourceFigmaId.slice(semi + 1).split(';')[0];
+  return sourceFigmaId;
+}
+
+function buildComponentByChildKeyIndex(ctx: ImportContext): Map<string, string> {
+  const componentByChildKey = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const [compId, rootFrame] of ctx.componentRootFrames) {
+    for (const ch of rootFrame.children ?? []) {
+      const key = baseFigmaIdFromSource(ch.sourceFigmaId);
+      if (!key) continue;
+      const existing = componentByChildKey.get(key);
+      if (existing === undefined) componentByChildKey.set(key, compId);
+      else if (existing !== compId) ambiguous.add(key);
+    }
+  }
+  for (const key of ambiguous) componentByChildKey.delete(key);
+  return componentByChildKey;
+}
+
+function resolveMainComponentFromDetachedChildren(
+  inst: InstanceNode,
+  componentByChildKey: Map<string, string>
+): string | undefined {
+  const votes = new Map<string, number>();
+  for (const ch of inst.children ?? []) {
+    const key = baseFigmaIdFromSource(ch.sourceFigmaId);
+    if (!key) continue;
+    const compId = componentByChildKey.get(key);
+    if (!compId) continue;
+    votes.set(compId, (votes.get(compId) ?? 0) + 1);
+  }
+  if (votes.size === 0) return undefined;
+  let bestId: string | undefined;
+  let bestCount = 0;
+  for (const [compId, count] of votes) {
+    if (count > bestCount) {
+      bestCount = count;
+      bestId = compId;
+    }
+  }
+  const tied = [...votes.values()].filter((c) => c === bestCount).length;
+  return tied === 1 ? bestId : undefined;
 }
 
 /** Figma variant component names: `Property 1=Coffee, Property 2=6`. */
@@ -377,9 +428,15 @@ function extractInstanceMainComponentHints(
   return { figmaMainComponentId, componentKey };
 }
 
+type ResolveMainComponentOptions = {
+  /** When false, variant display names are ignored (import-time pass). */
+  allowVariantNameFallback?: boolean;
+};
+
 function resolveMainComponentIdFromHints(
   ctx: ImportContext,
-  hints: Pick<DeferredInstanceMainComponent, 'figmaMainComponentId' | 'componentKey' | 'componentProperties'>
+  hints: Pick<DeferredInstanceMainComponent, 'figmaMainComponentId' | 'componentKey' | 'componentProperties'>,
+  options: ResolveMainComponentOptions = {}
 ): string | undefined {
   if (hints.figmaMainComponentId) {
     const mapped = ctx.idMap.get(hints.figmaMainComponentId);
@@ -391,18 +448,24 @@ function resolveMainComponentIdFromHints(
     if (byKey) return byKey;
   }
 
-  const variantName = variantDisplayNameFromProperties(hints.componentProperties);
-  if (variantName) {
-    const byName = ctx.componentByVariantName.get(variantName);
-    if (byName) return byName;
+  if (options.allowVariantNameFallback) {
+    const variantName = variantDisplayNameFromProperties(hints.componentProperties);
+    if (variantName) {
+      const candidates = ctx.componentByVariantName.get(variantName);
+      if (candidates?.length === 1) return candidates[0];
+    }
   }
 
   return undefined;
 }
 
 function linkDeferredInstanceMainComponents(ctx: ImportContext): void {
+  const componentByChildKey = buildComponentByChildKeyIndex(ctx);
   for (const entry of ctx.deferredInstances) {
-    const resolved = resolveMainComponentIdFromHints(ctx, entry);
+    let resolved = resolveMainComponentIdFromHints(ctx, entry, { allowVariantNameFallback: true });
+    if (!resolved) {
+      resolved = resolveMainComponentFromDetachedChildren(entry.inst, componentByChildKey);
+    }
     if (resolved) {
       entry.inst.mainComponentId = resolved;
     }
@@ -780,11 +843,18 @@ function importSceneNode(
     case 'INSTANCE': {
       const componentProperties = mapComponentProperties(prop(p, 'componentProperties'), idMap);
       const mainHints = extractInstanceMainComponentHints(p);
-      const mainComponentId = resolveMainComponentIdFromHints(ctx, {
-        ...mainHints,
-        componentProperties,
+      const hints = { ...mainHints, componentProperties };
+      const mainComponentId = resolveMainComponentIdFromHints(ctx, hints, {
+        allowVariantNameFallback: false,
       });
-      if (!mainComponentId && importStrict()) {
+      const pendingFigmaMainComponent =
+        mainHints.figmaMainComponentId !== undefined &&
+        ctx.idMap.get(mainHints.figmaMainComponentId) === undefined;
+      const shouldDefer =
+        pendingFigmaMainComponent ||
+        (!mainComponentId &&
+          (mainHints.figmaMainComponentId || mainHints.componentKey || componentProperties));
+      if (!mainComponentId && !shouldDefer && importStrict()) {
         throw new Error(`HFC_IMPORT_STRICT: INSTANCE ${node.id} missing mainComponent`);
       }
       const instanceAppearance: Partial<InstanceNode> = {};
@@ -845,7 +915,7 @@ function importSceneNode(
           );
         }
       }
-      if (!mainComponentId) {
+      if (shouldDefer) {
         if (importVerbose()) {
           const variantName = variantDisplayNameFromProperties(componentProperties);
           console.warn(
@@ -853,15 +923,13 @@ function importSceneNode(
               (variantName ? ` (variant ${variantName})` : '')
           );
         }
-        if (mainHints.figmaMainComponentId || mainHints.componentKey || componentProperties) {
-          ctx.deferredInstances.push({
-            inst,
-            ...mainHints,
-            componentProperties,
-          });
-        } else if (importVerbose()) {
-          console.warn(`[hfc-import] unresolved mainComponent for INSTANCE ${node.id} (no export hints)`);
-        }
+        ctx.deferredInstances.push({
+          inst,
+          ...mainHints,
+          componentProperties,
+        });
+      } else if (!mainComponentId && importVerbose()) {
+        console.warn(`[hfc-import] unresolved mainComponent for INSTANCE ${node.id} (no export hints)`);
       }
       return inst;
     }

@@ -423,6 +423,15 @@ export function mergeDetachedChildrenIntoRoot(
         mergeFrameFromDetached(rootFrame, detachedFrame, ctx);
         return;
       }
+      // Instance exports often wrap overrides in a frame whose id matches a direct child of the
+      // component root (not the root itself), e.g. root 2413:168358 vs detached 2413:168359.
+      if (detachedKey) {
+        const matchingChild = masterKids.find((c) => mergeKey(c) === detachedKey);
+        if (matchingChild) {
+          mergeNodePairFromDetached(matchingChild, detachedFrame, ctx);
+          return;
+        }
+      }
       mergeDetachedChildrenIntoRoot(root, detachedFrame.children, ctx);
       return;
     }

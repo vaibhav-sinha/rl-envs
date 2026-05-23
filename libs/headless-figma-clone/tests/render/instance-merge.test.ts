@@ -4,7 +4,7 @@ import {
   mergeTextFromDetached,
   normalizeSourceFigmaId,
 } from '../../src/render/instanceMerge.js';
-import type { FrameNode, TextNode } from '../../src/model/types.js';
+import type { FrameNode, RectangleNode, TextNode } from '../../src/model/types.js';
 
 describe('instanceMerge', () => {
   it('normalizeSourceFigmaId strips instance prefix', () => {
@@ -108,5 +108,69 @@ describe('instanceMerge', () => {
     mergeDetachedChildrenIntoRoot(root, [detachedOther, detachedCentered], { warnings });
     expect(masterText.textAlignHorizontal).toBe('CENTER');
     expect(masterOther.textAlignHorizontal).toBe('LEFT');
+  });
+
+  it('merges detached wrapper onto direct child when component root ids differ', () => {
+    const masterHero: RectangleNode = {
+      id: 'masterHero',
+      type: 'RECTANGLE',
+      name: 'Hero',
+      sourceFigmaId: '2413:168361',
+      x: 0,
+      y: 0,
+      width: 360,
+      height: 424,
+      fills: [{ type: 'IMAGE', imageHash: 'master-hash', scaleMode: 'FILL', visible: true, opacity: 1, blendMode: 'NORMAL' }],
+    };
+    const masterWrapper: FrameNode = {
+      id: 'masterWrap',
+      type: 'FRAME',
+      name: 'Frame 427320622',
+      sourceFigmaId: '2413:168359',
+      x: 0,
+      y: 0,
+      width: 360,
+      height: 440,
+      layoutMode: 'VERTICAL',
+      children: [masterHero],
+    };
+    const root: FrameNode = {
+      id: 'compRoot',
+      type: 'FRAME',
+      name: 'Property 1=Variant2',
+      sourceFigmaId: '2413:168358',
+      x: 0,
+      y: 0,
+      width: 360,
+      height: 440,
+      children: [masterWrapper],
+    };
+    const detachedHero: RectangleNode = {
+      id: 'detachedHero',
+      type: 'RECTANGLE',
+      name: 'Hero',
+      sourceFigmaId: 'I2415:175378;2413:168361',
+      x: 0,
+      y: 0,
+      width: 360,
+      height: 424,
+      fills: [{ type: 'IMAGE', imageHash: 'detached-hash', scaleMode: 'FILL', visible: true, opacity: 1, blendMode: 'NORMAL' }],
+    };
+    const detachedWrapper: FrameNode = {
+      id: 'detachedWrap',
+      type: 'FRAME',
+      name: 'Frame 427320622',
+      sourceFigmaId: 'I2415:175378;2413:168359',
+      x: 0,
+      y: 0,
+      width: 360,
+      height: 440,
+      layoutMode: 'VERTICAL',
+      children: [detachedHero],
+    };
+    const warnings: string[] = [];
+    mergeDetachedChildrenIntoRoot(root, [detachedWrapper], { warnings });
+    expect(warnings.some((w) => w.startsWith('instance_merge_unmatched_child:'))).toBe(false);
+    expect(masterHero.fills?.[0]).toMatchObject({ type: 'IMAGE', imageHash: 'detached-hash' });
   });
 });

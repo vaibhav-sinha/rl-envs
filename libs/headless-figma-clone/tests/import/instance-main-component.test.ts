@@ -108,6 +108,38 @@ describe('INSTANCE mainComponent import', () => {
     expect(compName).toBe('Property 1=Coffee, Property 2=6');
   });
 
+  it('disambiguates duplicate variant display names via detached child keys', () => {
+    const dup = parseFigmaPluginSnapshot(
+      JSON.parse(
+        readFileSync(join(fixturesDir, 'instance-duplicate-variant-name.snapshot.json'), 'utf8')
+      )
+    );
+    const { envelope: dupEnv } = importFigmaPluginSnapshot(dup, {
+      fileName: 'Duplicate Variant',
+    });
+
+    const findCompByFigmaId = (figmaId: string) => {
+      const stack = dupEnv.document.children.flatMap((p) => p.children);
+      while (stack.length) {
+        const n = stack.pop()!;
+        if (n.type === 'COMPONENT' && n.sourceFigmaId === figmaId) return n;
+        if ('children' in n && Array.isArray(n.children)) stack.push(...n.children);
+      }
+      return undefined;
+    };
+
+    const home = findInstanceByName(dupEnv, 'Visual', 'Home');
+    expect(home?.type).toBe('INSTANCE');
+    if (home?.type !== 'INSTANCE') return;
+    expect(home.mainComponentId).toBe(findCompByFigmaId('2296:202672')?.id);
+    expect(home.mainComponentId).not.toBe(findCompByFigmaId('1826:114881')?.id);
+
+    const explicit = findInstanceByName(dupEnv, 'Visual', 'Home Explicit');
+    expect(explicit?.type).toBe('INSTANCE');
+    if (explicit?.type !== 'INSTANCE') return;
+    expect(explicit.mainComponentId).toBe(home.mainComponentId);
+  });
+
   it('compiles instances via component masters without missing_component warnings', () => {
     const visualPage = envelope.document.children.find((p) => p.name === 'Visual')!;
     const out = designCompiler.compileFirstPage({

@@ -1,0 +1,175 @@
+{
+  "snapshotVersion": 1,
+  "exportedAt": "2026-05-23T00:00:00.000Z",
+  "figmaFileKey": "test-duplicate-variant",
+  "figmaFileName": "Duplicate Variant Name",
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "properties": {},
+    "children": [
+      {
+        "id": "0:1",
+        "type": "PAGE",
+        "name": "Assets",
+        "properties": {
+          "absoluteBoundingBox": { "x": 0, "y": 0, "width": 400, "height": 400 }
+        },
+        "children": [
+          {
+            "id": "1826:114881",
+            "type": "COMPONENT",
+            "name": "Property 1=Variant2",
+            "properties": {
+              "absoluteBoundingBox": { "x": 0, "y": 0, "width": 115, "height": 44 },
+              "componentKey": "wrong-variant-key"
+            },
+            "children": [
+              {
+                "id": "1826:114882",
+                "type": "POLYGON",
+                "name": "Polygon 1",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 42, "y": 0, "width": 16, "height": 16 }
+                }
+              },
+              {
+                "id": "1826:114883",
+                "type": "FRAME",
+                "name": "Frame 427319399",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 0, "y": 12, "width": 115, "height": 44 }
+                },
+                "children": [
+                  {
+                    "id": "1826:114884",
+                    "type": "TEXT",
+                    "name": "Label",
+                    "properties": {
+                      "absoluteBoundingBox": { "x": 8, "y": 20, "width": 24, "height": 12 },
+                      "characters": "Oko"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "2296:202672",
+            "type": "COMPONENT",
+            "name": "Property 1=Variant2",
+            "properties": {
+              "absoluteBoundingBox": { "x": 0, "y": 0, "width": 360, "height": 109 },
+              "componentKey": "home-header-variant-key"
+            },
+            "children": [
+              {
+                "id": "2296:202673",
+                "type": "FRAME",
+                "name": "Header",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 16, "y": 12, "width": 360, "height": 28 }
+                },
+                "children": []
+              },
+              {
+                "id": "2296:202680",
+                "type": "FRAME",
+                "name": "SegmentedControl",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 16, "y": 56, "width": 328, "height": 36 }
+                },
+                "children": []
+              },
+              {
+                "id": "2296:202681",
+                "type": "FRAME",
+                "name": "Divider",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 0, "y": 108, "width": 360, "height": 1 }
+                },
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "0:2",
+        "type": "PAGE",
+        "name": "Visual",
+        "properties": {
+          "absoluteBoundingBox": { "x": 0, "y": 0, "width": 400, "height": 200 }
+        },
+        "children": [
+          {
+            "id": "2296:202724",
+            "type": "INSTANCE",
+            "name": "Home",
+            "properties": {
+              "absoluteBoundingBox": { "x": 0, "y": 0, "width": 360, "height": 109 },
+              "componentProperties": {
+                "Property 1": { "type": "VARIANT", "value": "Variant2" }
+              }
+            },
+            "children": [
+              {
+                "id": "I2296:202724;2296:202673",
+                "type": "FRAME",
+                "name": "Header",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 16, "y": 12, "width": 360, "height": 28 }
+                }
+              },
+              {
+                "id": "I2296:202724;2296:202680",
+                "type": "FRAME",
+                "name": "SegmentedControl",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 16, "y": 56, "width": 328, "height": 36 }
+                }
+              },
+              {
+                "id": "I2296:202724;2296:202681",
+                "type": "FRAME",
+                "name": "Divider",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 0, "y": 108, "width": 360, "height": 1 }
+                }
+              }
+            ]
+          },
+          {
+            "id": "2296:202725",
+            "type": "INSTANCE",
+            "name": "Home Explicit",
+            "properties": {
+              "absoluteBoundingBox": { "x": 0, "y": 120, "width": 360, "height": 109 },
+              "mainComponentId": "2296:202672",
+              "componentProperties": {
+                "Property 1": { "type": "VARIANT", "value": "Variant2" }
+              }
+            },
+            "children": [
+              {
+                "id": "I2296:202725;2296:202673",
+                "type": "FRAME",
+                "name": "Header",
+                "properties": {
+                  "absoluteBoundingBox": { "x": 16, "y": 132, "width": 360, "height": 28 }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "variableCollections": [],
+  "paintStyles": [],
+  "textStyles": [],
+  "effectStyles": [],
+  "gridStyles": [],
+  "assets": []
+}
