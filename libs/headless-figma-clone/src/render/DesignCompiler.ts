@@ -115,6 +115,8 @@ export type CompileHtmlOptions = {
   imageDataUrlByHash?: Record<string, string>;
   /** Rasterized pattern source tiles (`sourceNodeId` → data URL). */
   patternTileDataUrlByNodeId?: Record<string, string>;
+  /** Node ids showing MCP `placeholder` shimmer overlay in screenshots. */
+  placeholderNodeIds?: ReadonlySet<string>;
 };
 
 function finalizeCompiledHtml(html: string, options: CompileHtmlOptions, envelope: FileEnvelope): string {
@@ -3056,7 +3058,25 @@ function compileRootScenes(
     pageBackgrounds?.[0] && pageBackgrounds[0].visible !== false
       ? fillBackgroundStyles(pageBackgrounds[0], imgMap, patternTiles, warnings, 'page_canvas', envelope)
       : '';
-  const cssBlock = `${HFC_UA_RESET_CSS}\n#hfc-root{position:relative;width:${String(W)}px;height:${String(H)}px;isolation:isolate;${pageBg}}\n${cssParts.join('\n')}`;
+  let htmlBody = htmlParts.join('');
+  if (options.placeholderNodeIds && options.placeholderNodeIds.size > 0) {
+    for (const id of options.placeholderNodeIds) {
+      htmlBody = htmlBody.replaceAll(`class="hfc-node-${id}"`, `class="hfc-node-${id} hfc-placeholder"`);
+      htmlBody = htmlBody.replaceAll(
+        `class="hfc-node-${id} `,
+        `class="hfc-node-${id} hfc-placeholder `
+      );
+    }
+  }
+  const placeholderCss =
+    options.placeholderNodeIds && options.placeholderNodeIds.size > 0
+      ? '\n#hfc-root .hfc-placeholder{position:relative;overflow:hidden;}' +
+        '\n#hfc-root .hfc-placeholder::after{content:"";position:absolute;inset:0;pointer-events:none;' +
+        'background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.45) 50%,transparent 100%);' +
+        'background-size:200% 100%;animation:hfc-placeholder-shimmer 1.2s ease-in-out infinite;}' +
+        '\n@keyframes hfc-placeholder-shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}'
+      : '';
+  const cssBlock = `${HFC_UA_RESET_CSS}${placeholderCss}\n#hfc-root{position:relative;width:${String(W)}px;height:${String(H)}px;isolation:isolate;${pageBg}}\n${cssParts.join('\n')}`;
   const primary = roots[0]!;
   const rootClip: Rect =
     roots.length === 1
@@ -3084,7 +3104,7 @@ ${inline ? cssBlock : '/* css attached separately */'}
   </head>
   <body style="margin:0;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';">
     <div id="hfc-root" style="position:relative;width:${String(W)}px;height:${String(H)}px;">
-      ${htmlParts.join('')}
+      ${htmlBody}
     </div>
   </body>
 </html>`;

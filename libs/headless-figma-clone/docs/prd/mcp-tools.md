@@ -130,6 +130,25 @@ Use a structured payload the engine can dispatch without arbitrary JS eval, for 
 
 **Later phases.** Expand allowlist per [functional requirements](./functional-requirements.md) without breaking Phase 1 clients (additive properties and operations).
 
+**MCP-only Plugin API extensions (JavaScript `use_figma` scripts).**
+
+The headless clone executes agent scripts against a Plugin API–shaped sandbox. These surfaces match the remote Figma MCP `use_figma` skill and are **not** available in desktop plugins:
+
+| API | Notes |
+|-----|--------|
+| `figma.createAutoLayout(direction?, props?)` | Auto-layout frame with optional props object |
+| `node.query(selector)` / `QueryResult` | CSS-like subtree search |
+| `node.matches(selector)` | Selector membership test |
+| `node.set(props)` | Batch property updates (`layoutMode` first; `width`/`height` → `resize`) |
+| `await node.screenshot(opts?)` | Queues PNG capture; returned inline on the `use_figma` tool response |
+| `node.placeholder` | Transient shimmer flag (screenshot compile only; not persisted) |
+| `figma.io.write(path, data)` | Attach JSON/CSV/PNG bytes to the tool response |
+| `figma.root.query` / `figma.root.matches` | Document-wide selector search |
+
+**Plugin metadata.** `getPluginData` / `setPluginData` remain unsupported. `getSharedPluginData` / `setSharedPluginData` / `getSharedPluginDataKeys` are supported as **in-memory stubs for the script session only** (not written to the envelope; see NG11).
+
+**Page switching.** `figma.currentPage = page` throws `"Setting figma.currentPage is not supported"`; use `await figma.setCurrentPageAsync(page)`.
+
 **Errors.**
 
 - Schema validation failures, unknown parent, unsupported operation for current phase, constraint violations (negative size, etc.).

@@ -40,6 +40,12 @@ import {
   runNodeMatches,
   type ScriptQueryDeps,
 } from './scriptQuery.js';
+import {
+  queueIoWrite,
+  SharedPluginDataStore,
+  type ScriptIoWrite,
+  type ScriptScreenshotRequest,
+} from './scriptMcpParity.js';
 import { createDocumentTraversalMethods } from './scriptDocumentTraversal.js';
 import {
   createDetachedTraversalMethods,
@@ -135,6 +141,69 @@ interface ScriptContext {
   activeFilePath: string | null;
   signal?: AbortSignal;
   onMutate?: () => void;
+  sharedPluginData: SharedPluginDataStore;
+  placeholderByNodeId: Map<string, boolean>;
+  screenshotQueue: ScriptScreenshotRequest[];
+  ioWrites: ScriptIoWrite[];
+}
+
+const PLUGIN_DATA_METHODS = new Set([
+  'getPluginData',
+  'setPluginData',
+  'getSharedPluginData',
+  'setSharedPluginData',
+  'getSharedPluginDataKeys',
+]);
+
+function pluginDataNotSupported(method: 'getPluginData' | 'setPluginData'): never {
+  const alt = method === 'getPluginData' ? 'getSharedPluginData' : 'setSharedPluginData';
+  throw new Error(`${method} is not supported in use_figma; use ${alt} instead`);
+}
+
+function createPluginDataMethods(ctx: ScriptContext, nodeId: string): Record<string, unknown> {
+  return {
+    getPluginData: () => pluginDataNotSupported('getPluginData'),
+    setPluginData: () => pluginDataNotSupported('setPluginData'),
+    getSharedPluginData: (namespace: string, key: string) => ctx.sharedPluginData.get(nodeId, namespace, key),
+    setSharedPluginData: (namespace: string, key: string, value: string) => {
+      ctx.sharedPluginData.set(nodeId, namespace, key, value);
+    },
+    getSharedPluginDataKeys: (namespace: string) => ctx.sharedPluginData.keys(nodeId, namespace),
+  };
+}
+
+function createScreenshotMethod(
+  ctx: ScriptContext,
+  resolveNodeId: () => string | null
+): (options?: { scale?: number; contentsOnly?: boolean }) => Promise<void> {
+  return async (options?: { scale?: number; contentsOnly?: boolean }) => {
+    const nodeId = resolveNodeId();
+    if (!nodeId) {
+      throw new ValidationErr('VALIDATION_ERROR', 'screenshot: node must be in the document');
+    }
+    ctx.screenshotQueue.push({
+      nodeId,
+      scale: options?.scale,
+      contentsOnly: options?.contentsOnly,
+    });
+  };
+}
+
+function applyDetachedOrAttachedSet(
+  ctx: ScriptContext,
+  target: RuntimeSceneNode,
+  props: Record<string, unknown>
+): void {
+  const nodeId = target.getAttachedIdOrNull();
+  if (nodeId) {
+    applyNodeSetProps(scriptQueryDeps(ctx), nodeId, props);
+    return;
+  }
+  if (target.type === 'FRAME') {
+    applyDetachedFrameSetProps(target as RuntimeFrame, props);
+    return;
+  }
+  throw new ValidationErr('VALIDATION_ERROR', 'set requires the node to be appended to the document');
 }
 
 function imageHandleCtx(ctx: ScriptContext): ImageHandleContext {
@@ -467,7 +536,7 @@ const TRAVERSAL_METHODS = new Set([
   'query',
 ]);
 
-const NODE_SELECTOR_METHODS = new Set(['matches', 'set']);
+const NODE_SELECTOR_METHODS = new Set(['matches', 'set', 'screenshot', ...PLUGIN_DATA_METHODS]);
 
 const HANDLE_METHOD_KEYS = new Set([
   'remove',
@@ -515,6 +584,7 @@ function enumerateHandleKeys(live: import('../model/types.js').AnyTreeNode): str
     for (const m of TRAVERSAL_METHODS) keys.add(m);
   }
   for (const m of NODE_SELECTOR_METHODS) keys.add(m);
+  keys.add('placeholder');
   if (live.type === 'INSTANCE' || live.type === 'COMPONENT_INSTANCE') {
     keys.add('mainComponent');
     keys.add('componentProperties');
@@ -610,6 +680,18 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
           if (!live || ctx.deletedIds.has(id)) return false;
           return runNodeMatches(scriptQueryDeps(ctx), live, selector);
         };
+      }
+      if (prop === 'screenshot') {
+        return createScreenshotMethod(ctx, () => {
+          if (ctx.deletedIds.has(id)) return null;
+          return scriptLookup(ctx, id) ? id : null;
+        });
+      }
+      if (PLUGIN_DATA_METHODS.has(prop as string)) {
+        return createPluginDataMethods(ctx, id)[prop as string];
+      }
+      if (prop === 'placeholder') {
+        return ctx.placeholderByNodeId.get(id) ?? false;
       }
       if (prop === 'parent') {
         return scriptParentHandle(ctx, id);
@@ -854,6 +936,10 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       const live = scriptLookup(ctx, id);
       if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
       const p = prop as string;
+      if (p === 'placeholder') {
+        ctx.placeholderByNodeId.set(id, Boolean(value));
+        return true;
+      }
       if (AXIS_SIZING_PROPS.has(p)) {
         if (!nodeSupportsAxisSizing(live.type)) {
           throw new ValidationErr('UNSUPPORTED_PROPERTY', `Unsupported patch key: ${p}`);
@@ -870,6 +956,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
     },
     has(_t, prop) {
       if (prop === 'id' || prop === HFC_HANDLE_MARKER || prop === HFC_HANDLE_FLAG) return true;
+      if (prop === 'placeholder') return true;
       if (typeof prop === 'symbol') return false;
       const p = prop as string;
       if (TRAVERSAL_METHODS.has(p) || NODE_SELECTOR_METHODS.has(p) || HANDLE_METHOD_KEYS.has(p)) return true;
@@ -999,11 +1086,7 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
       }
       if (p === 'set') {
         return (props: Record<string, unknown>): unknown => {
-          const nodeId = target.getAttachedIdOrNull();
-          if (!nodeId) {
-            throw new ValidationErr('VALIDATION_ERROR', 'set requires the node to be appended to the document');
-          }
-          applyNodeSetProps(scriptQueryDeps(ctx), nodeId, props);
+          applyDetachedOrAttachedSet(ctx, target, props);
           return receiver;
         };
       }
@@ -1013,6 +1096,18 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
           if (!nodeId) return false;
           return scriptNodeMatches(ctx, nodeId, selector);
         };
+      }
+      if (p === 'screenshot') {
+        return createScreenshotMethod(ctx, () => target.getAttachedIdOrNull());
+      }
+      if (PLUGIN_DATA_METHODS.has(p)) {
+        const nodeId = target.getAttachedIdOrNull();
+        if (!nodeId) return undefined;
+        return createPluginDataMethods(ctx, nodeId)[p];
+      }
+      if (p === 'placeholder') {
+        const nodeId = target.getAttachedIdOrNull();
+        return nodeId ? (ctx.placeholderByNodeId.get(nodeId) ?? false) : false;
       }
       if (TRAVERSAL_METHODS.has(p)) {
         if (!target.attached || nid === null) {
@@ -1090,6 +1185,11 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
     },
     set(target, prop, value, receiver) {
       const p = prop as string;
+      if (p === 'placeholder') {
+        const nodeId = target.getAttachedIdOrNull();
+        if (nodeId) ctx.placeholderByNodeId.set(nodeId, Boolean(value));
+        return true;
+      }
       if (GRID_LAYOUT_PROP_SET.has(p)) {
         const nodeId = target.getAttachedIdOrNull();
         if (!nodeId) {
@@ -2539,6 +2639,18 @@ class RuntimePage {
     return scriptTraversalMethods(this.ctx, this.pageId).matches(selector);
   }
 
+  screenshot(options?: { scale?: number; contentsOnly?: boolean }): Promise<void> {
+    return createScreenshotMethod(this.ctx, () => this.pageId)(options);
+  }
+
+  get placeholder(): boolean {
+    return this.ctx.placeholderByNodeId.get(this.pageId) ?? false;
+  }
+
+  set placeholder(value: boolean) {
+    this.ctx.placeholderByNodeId.set(this.pageId, Boolean(value));
+  }
+
   get selection(): unknown[] {
     const ids = this.ctx.selectionByPageId.get(this.pageId) ?? [];
     return ids
@@ -2659,6 +2771,12 @@ export interface RunUseFigmaScriptOk {
   snapshotWarnings: string[];
   /** Node specs for runtime nodes never appended to the document (for issues.hfc.json). */
   detachedNodes: unknown[];
+  /** Pending inline screenshots from `await node.screenshot()`. */
+  screenshotQueue: ScriptScreenshotRequest[];
+  /** Files written via `figma.io.write` during the script. */
+  ioWrites: ScriptIoWrite[];
+  /** Node ids with `placeholder = true` at end of script (for screenshot shimmer). */
+  placeholderNodeIds: string[];
   /** Sandbox already applied ops to a working copy; commit without replay. */
   preApplied: boolean;
   /** Pre-mutated envelope when preApplied (not serialized to MCP). */
@@ -2738,6 +2856,10 @@ export async function runUseFigmaScript(
     sessionAssetBytes: new Map(),
     activeFilePath: engine.getActiveFilePath(),
     signal,
+    sharedPluginData: new SharedPluginDataStore(),
+    placeholderByNodeId: new Map(),
+    screenshotQueue: [],
+    ioWrites: [],
   };
   const firstPage = file.document.children.find((c): c is PageNode => c.type === 'PAGE');
   if (!firstPage) {
@@ -2798,6 +2920,12 @@ export async function runUseFigmaScript(
       findAllWithCriteria(criteria: unknown): unknown[] {
         return documentTraversal().findAllWithCriteria(criteria);
       },
+      query(selector: unknown): unknown {
+        return documentTraversal().query(selector);
+      },
+      matches(selector: unknown): boolean {
+        return documentTraversal().matches(selector);
+      },
     },
     get currentPage(): RuntimePage {
       const page = ctx.working.document.children.find(
@@ -2805,6 +2933,9 @@ export async function runUseFigmaScript(
       );
       const id = page?.id ?? firstPage.id;
       return new RuntimePage(ctx, id);
+    },
+    set currentPage(_page: unknown) {
+      throw new Error('Setting figma.currentPage is not supported');
     },
     setCurrentPageAsync: async (page: RuntimePage | { id: string }): Promise<void> => {
       const id = page instanceof RuntimePage ? page.pageId : page.id;
@@ -3251,6 +3382,11 @@ export async function runUseFigmaScript(
     closePlugin: (): void => {
       throw new Error('figma.closePlugin is not supported in headless use_figma (handled by the host)');
     },
+    io: {
+      write(path: string, data: Uint8Array | string): void {
+        queueIoWrite(ctx.ioWrites, path, data);
+      },
+    },
     variables: variablesApi,
     ...stylesApi,
   };
@@ -3293,6 +3429,10 @@ export async function runUseFigmaScript(
   if (ctx.ownsWorking) {
     engine.adoptSandboxEnvelope(ctx.working);
   }
+  const placeholderNodeIds = [...ctx.placeholderByNodeId.entries()]
+    .filter(([, on]) => on)
+    .map(([nid]) => nid);
+
   return {
     kind: 'ok',
     operations: ctx.ops,
@@ -3300,6 +3440,9 @@ export async function runUseFigmaScript(
     result,
     snapshotWarnings,
     detachedNodes,
+    screenshotQueue: ctx.screenshotQueue,
+    ioWrites: ctx.ioWrites,
+    placeholderNodeIds,
     preApplied: ctx.ownsWorking,
     committedWorking: ctx.ownsWorking ? ctx.working : null,
     touchedNodeIds: [...ctx.touchedIds],

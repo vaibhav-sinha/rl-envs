@@ -53,4 +53,33 @@ return figma.currentPage.id;
     expect(names).toContain('AlsoOnPage2');
     expect(engine.getCurrentPageId()).toBe(page2!.id);
   });
+
+  it('rejects sync figma.currentPage assignment', async () => {
+    const engine = new DocumentEngine({
+      persistence: new JsonPersistence(),
+      logger: createConsoleLogger('error'),
+    });
+    await engine.createEmptyFile({ fileName: 'PageSetter' });
+
+    const run = await runUseFigmaScript(
+      `
+const p2 = figma.createPage();
+p2.name = 'Other';
+try {
+  figma.currentPage = p2;
+  return { threw: false };
+} catch (e) {
+  return { threw: true, message: String(e.message || e) };
+}
+`.trim(),
+      engine
+    );
+
+    expect(run.kind).toBe('ok');
+    if (run.kind !== 'ok') return;
+    expect(run.result).toEqual({
+      threw: true,
+      message: 'Setting figma.currentPage is not supported',
+    });
+  });
 });

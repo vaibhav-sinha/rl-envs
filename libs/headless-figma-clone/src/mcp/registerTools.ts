@@ -11,6 +11,7 @@ import { collectMetadataTree, collectPagesIndex } from './metadata.js';
 import { runMcpToolWithCancellation } from './runMcpToolWithCancellation.js';
 import { toolErrorJson, toolJson } from './useFigmaMap.js';
 import { runUseFigmaScript } from './useFigmaScript.js';
+import { captureScriptScreenshots } from './scriptMcpParity.js';
 import { buildVariableDefsPayload } from '../variables/resolution.js';
 import { searchDesignSystem } from '../designSystem/searchDesignSystem.js';
 
@@ -452,14 +453,59 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             warnings: [...txWarnings, ...detachedWarnings, ...(run.snapshotWarnings ?? [])],
             result: run.result,
           };
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: toolJson(data),
-              },
-            ],
-          };
+          const content: Array<
+            | { type: 'text'; text: string }
+            | { type: 'image'; data: string; mimeType: string; _meta?: Record<string, unknown> }
+          > = [{ type: 'text', text: toolJson(data) }];
+
+          if (run.screenshotQueue.length > 0) {
+            const file = engine.getActiveFile();
+            const fp = engine.getActiveFilePath();
+            if (file) {
+              const shots = await captureScriptScreenshots({
+                envelope: file,
+                filePath: fp,
+                requests: run.screenshotQueue,
+                placeholderNodeIds: new Set(run.placeholderNodeIds),
+                screenshot: playwrightScreenshotService,
+                timeoutMs: deps.screenshotTimeoutMs,
+                defaultDeviceScaleFactor: deps.screenshotDefaultDeviceScaleFactor,
+                defaultBackground: deps.screenshotDefaultBackground,
+              });
+              for (const shot of shots) {
+                content.push({
+                  type: 'image',
+                  data: shot.bytes.toString('base64'),
+                  mimeType: shot.mimeType,
+                  _meta: { caption: shot.caption, nodeId: shot.nodeId },
+                });
+              }
+            }
+          }
+
+          for (const write of run.ioWrites) {
+            if (write.mimeType.startsWith('image/')) {
+              const bytes =
+                typeof write.data === 'string'
+                  ? Buffer.from(write.data, 'utf8')
+                  : Buffer.from(write.data);
+              content.push({
+                type: 'image',
+                data: bytes.toString('base64'),
+                mimeType: write.mimeType,
+                _meta: { path: write.path },
+              });
+            } else {
+              const text =
+                typeof write.data === 'string' ? write.data : new TextDecoder().decode(write.data);
+              content.push({
+                type: 'text',
+                text: `--- ${write.path} ---\n${text}`,
+              });
+            }
+          }
+
+          return { content };
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

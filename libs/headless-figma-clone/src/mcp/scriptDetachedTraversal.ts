@@ -268,6 +268,39 @@ function detachedScriptQueryDeps(ctx: DetachedTraversalContext): ScriptQueryDeps
   };
 }
 
+function detachedNodeQueryStub(container: DetachedTraversalContainer): AnyTreeNode {
+  const stub: Record<string, unknown> = {
+    type: container.type,
+    name: container.name,
+    visible: container.visible ?? true,
+  };
+  const ext = container as unknown as Record<string, unknown>;
+  if (Array.isArray(ext.fills)) stub.fills = ext.fills;
+  if (typeof ext.layoutMode === 'string') stub.layoutMode = ext.layoutMode;
+  return stub as unknown as AnyTreeNode;
+}
+
+function collectRuntimeDetachedQueryIds(
+  container: DetachedTraversalContainer,
+  ctx: DetachedTraversalContext,
+  selector: string,
+  qctx: QueryContext
+): string[] {
+  const out: string[] = [];
+  const walk = (node: DetachedTraversalContainer): void => {
+    if (nodeMatchesSelector(detachedNodeQueryStub(node), selector, qctx)) {
+      const nid = node.getAttachedIdOrNull();
+      if (nid && !ctx.deletedIds.has(nid)) out.push(nid);
+    }
+    for (const entry of node.getPendingChildEntries()) {
+      const { child } = entry;
+      if (isRuntimeSceneNode(child) && !child.attached) walk(child);
+    }
+  };
+  if (!container.attached) walk(container);
+  return out;
+}
+
 function collectDetachedQueryIds(
   container: DetachedTraversalContainer,
   ctx: DetachedTraversalContext,
@@ -305,6 +338,9 @@ function collectDetachedQueryIds(
     if (!id) continue;
     const live = findEnvelopeNode(ctx.working, id, ctx.nodeIndex);
     if (live) walkFromLive(live);
+  }
+  for (const id of collectRuntimeDetachedQueryIds(container, ctx, selector, qctx)) {
+    if (!merged.includes(id)) merged.push(id);
   }
   return merged;
 }
@@ -385,11 +421,7 @@ export function createDetachedTraversalMethods(
         nodeIndex: ctx.nodeIndex,
         signal: ctx.signal,
       };
-      return nodeMatchesSelector(
-        { type: container.type, name: container.name, visible: container.visible } as AnyTreeNode,
-        selector,
-        qctx
-      );
+      return nodeMatchesSelector(detachedNodeQueryStub(container), selector, qctx);
     },
   };
 }
