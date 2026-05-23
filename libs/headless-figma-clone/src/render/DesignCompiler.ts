@@ -62,7 +62,6 @@ import type {
   BooleanOperationNode,
   ComponentInstanceNode,
   ComponentNode,
-  ComponentPropertyValue,
   ComponentSetNode,
   InstanceNode,
   Effect,

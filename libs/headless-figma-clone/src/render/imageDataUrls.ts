@@ -1,38 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
-import { sidecarDirForHfcJson } from '../persistence/assetPaths.js';
+import { readFileSync } from 'node:fs';
 import type { FileEnvelope, PageNode, Paint, SceneNode } from '../model/types.js';
+import { lookupAssetRecord, resolveAssetAbsolutePath } from '../images/resolveAssetBytes.js';
 import { findSceneNode } from './patternTiles.js';
-
-function mimeToFileExt(mimeType: string): string {
-  if (mimeType === 'image/jpeg') return 'jpg';
-  if (mimeType === 'image/png') return 'png';
-  if (mimeType === 'image/svg+xml') return 'svg';
-  if (mimeType === 'image/webp') return 'webp';
-  return 'bin';
-}
-
-function resolveAssetAbsolutePath(
-  jsonAbsolutePath: string,
-  rec: {
-    relativePath: string;
-    sha256: string;
-    mimeType: string;
-  }
-): string | null {
-  const baseDir = dirname(jsonAbsolutePath);
-  const sidecar = sidecarDirForHfcJson(jsonAbsolutePath);
-  const ext = mimeToFileExt(rec.mimeType);
-  const candidates = [
-    join(baseDir, rec.relativePath),
-    join(sidecar, `${rec.sha256}.${ext}`),
-    join(sidecar, basename(rec.relativePath)),
-  ];
-  for (const abs of candidates) {
-    if (existsSync(abs)) return abs;
-  }
-  return null;
-}
 
 function sceneChildren(n: SceneNode): SceneNode[] | null {
   if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
@@ -89,13 +58,6 @@ export function collectImageHashesFromSubtree(envelope: FileEnvelope, rootNodeId
   const root = findSceneNode(envelope, rootNodeId);
   if (root) walkSceneImageHashes(root, envelope, hashes);
   return hashes;
-}
-
-function lookupAssetRecord(
-  reg: NonNullable<FileEnvelope['assets']>['byId'],
-  hash: string
-): (typeof reg)[string] | undefined {
-  return reg[hash] ?? Object.values(reg).find((r) => r.sha256 === hash || r.id === hash);
 }
 
 /** Read disk bytes and build `data:` URLs only for the given registry hashes. */

@@ -939,6 +939,7 @@ export interface ComponentSetNode extends NodeBase, LayoutSelfFields {
   variantPropertyKey?: string;
   /** Values are parallel to `componentIds` (used for instance.variantProperties/componentProperties). */
   variantOptions?: string[];
+  componentPropertyDefinitions?: Record<string, ComponentPropertyDefinition>;
   /**
    * For override preservation across variants:
    * - stable ids are from the base component variant (componentIds[0])

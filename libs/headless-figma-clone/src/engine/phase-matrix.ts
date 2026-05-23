@@ -284,6 +284,7 @@ export const ENGINE_MATRIX = {
       ...shapePatchKeys,
       'componentKey',
       'componentIds',
+      'componentPropertyDefinitions',
       'variantPropertyKey',
       'variantOptions',
       'nodeIdMapByComponentId',

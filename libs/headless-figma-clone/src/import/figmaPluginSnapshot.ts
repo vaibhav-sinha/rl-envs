@@ -541,6 +541,7 @@ function importSceneNode(
         ...(optStr(prop(p, 'componentKey')) ?? optStr(prop(p, 'key'))
           ? { componentKey: optStr(prop(p, 'componentKey')) ?? optStr(prop(p, 'key')) }
           : {}),
+        ...(defs ? { componentPropertyDefinitions: defs } : {}),
       } as ComponentSetNode;
     }
     report.skippedNodes.push({

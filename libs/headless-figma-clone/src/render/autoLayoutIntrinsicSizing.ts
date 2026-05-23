@@ -429,8 +429,7 @@ export function syncTextNodeIntrinsicMetrics(
     force ||
     t.textAutoResize === 'HEIGHT' ||
     t.textAutoResize === 'WIDTH_AND_HEIGHT' ||
-    (t.layoutSizingVertical === 'HUG' &&
-      !(t.textAutoResize === 'HEIGHT' && (t.height ?? 0) > 0)) ||
+    t.layoutSizingVertical === 'HUG' ||
     (t.layoutSizingVertical === 'FILL' && (t.height ?? 0) <= 0) ||
     (t.layoutSizingVertical !== 'FIXED' && (t.height ?? 0) <= 0);
   if (needsIntrinsicW) {

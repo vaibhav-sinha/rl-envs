@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import {
   applyCreateNodeOp,
@@ -22,7 +23,14 @@ import {
   loadFontAsync,
 } from '../fonts/fontCatalog.js';
 import { createNodeSpecFromSvg } from '../images/svgImport.js';
+import {
+  createImageHandle,
+  registerRasterImageInScript,
+  type ImageHandleContext,
+} from '../images/imageHandle.js';
 import { fetchBytes, loadNetworkPolicyFromEnv } from '../images/networkPolicy.js';
+import { lookupAssetRecord, resolveAssetBytes } from '../images/resolveAssetBytes.js';
+import type { RasterMime } from '../images/rasterMime.js';
 import { getImmediateSceneChildren } from '../traversal/findNodes.js';
 import { createTraversalMethods } from './scriptTraversal.js';
 import { applyNodeSetProps, runNodeMatches, type ScriptQueryDeps } from './scriptQuery.js';
@@ -116,8 +124,20 @@ interface ScriptContext {
   selectionByPageId: Map<string, string[]>;
   /** Runtime nodes from figma.create* (for detached-node capture at end of script). */
   createdNodes: Set<RuntimeSceneNode>;
+  /** In-script raster bytes before transaction commit (for Image.getBytesAsync). */
+  sessionAssetBytes: Map<string, Buffer>;
+  activeFilePath: string | null;
   signal?: AbortSignal;
   onMutate?: () => void;
+}
+
+function imageHandleCtx(ctx: ScriptContext): ImageHandleContext {
+  return {
+    working: ctx.working,
+    ops: ctx.ops,
+    sessionAssetBytes: ctx.sessionAssetBytes,
+    activeFilePath: ctx.activeFilePath,
+  };
 }
 
 /** Proxied runtime nodes fail `instanceof RuntimeSceneNode`; use duck typing. */
@@ -2637,6 +2657,8 @@ export async function runUseFigmaScript(
     deletedIds: new Set(),
     selectionByPageId: new Map(),
     createdNodes: new Set(),
+    sessionAssetBytes: new Map(),
+    activeFilePath: engine.getActiveFilePath(),
     signal,
   };
   const firstPage = file.document.children.find((c): c is PageNode => c.type === 'PAGE');
@@ -2961,23 +2983,45 @@ export async function runUseFigmaScript(
     hasMissingFont: (): boolean => hasMissingFont(ctx.working),
     base64Encode: (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64'),
     base64Decode: (s: string): Uint8Array => new Uint8Array(Buffer.from(s, 'base64')),
-    createImage: (bytes: Uint8Array): { hash: string } => {
+    createImage: (bytes: Uint8Array) => {
       const buf = Buffer.from(bytes);
-      const { hash } = registerAssetBytesInEnvelope(ctx.working, buf, 'image/png');
-      ctx.ops.push({ op: 'registerAssetBytes', mimeType: 'image/png', dataBase64: buf.toString('base64') });
-      return { hash };
+      return registerRasterImageInScript(imageHandleCtx(ctx), buf, (b, mime: RasterMime) => {
+        const { hash } = registerAssetBytesInEnvelope(ctx.working, b, mime);
+        ctx.ops.push({
+          op: 'registerAssetBytes',
+          mimeType: mime,
+          dataBase64: b.toString('base64'),
+        });
+        return hash;
+      });
     },
-    createImageAsync: async (src: string): Promise<{ hash: string }> => {
+    createImageAsync: async (src: string) => {
       const bytes = await fetchBytes(networkPolicy, src);
       const buf = Buffer.from(bytes);
-      const { hash } = registerAssetBytesInEnvelope(ctx.working, buf, 'image/png');
-      ctx.ops.push({ op: 'registerAssetBytes', mimeType: 'image/png', dataBase64: buf.toString('base64') });
-      return { hash };
+      return registerRasterImageInScript(imageHandleCtx(ctx), buf, (b, mime: RasterMime) => {
+        const { hash } = registerAssetBytesInEnvelope(ctx.working, b, mime);
+        ctx.ops.push({
+          op: 'registerAssetBytes',
+          mimeType: mime,
+          dataBase64: b.toString('base64'),
+        });
+        return hash;
+      });
     },
-    getImageByHash: (hash: string): { hash: string; getBytesAsync: () => Promise<Uint8Array> } => {
-      const rec = ctx.working.assets?.byId[hash];
-      if (!rec) throw new Error(`Unknown image hash ${hash}`);
-      return { hash: rec.sha256, getBytesAsync: async () => new Uint8Array(0) };
+    getImageByHash: (hash: string) => {
+      const reg = ctx.working.assets?.byId;
+      const rec = reg ? lookupAssetRecord(reg, hash) : undefined;
+      if (rec) return createImageHandle(imageHandleCtx(ctx), rec.sha256);
+      const bytes = resolveAssetBytes({
+        envelope: ctx.working,
+        hash,
+        activeFilePath: ctx.activeFilePath,
+        pendingOps: ctx.ops,
+        sessionBytes: ctx.sessionAssetBytes,
+      });
+      if (!bytes) return null;
+      const sha256 = createHash('sha256').update(bytes).digest('hex');
+      return createImageHandle(imageHandleCtx(ctx), sha256);
     },
     group: (
       nodes: ReadonlyArray<RuntimeSceneNode | { id: string }>,
