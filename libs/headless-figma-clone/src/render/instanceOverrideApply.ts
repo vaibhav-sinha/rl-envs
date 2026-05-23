@@ -5,6 +5,7 @@ import type {
   ComponentOverrideFields,
   Effect,
   FrameNode,
+  IndividualStrokeWeights,
   Paint,
   SceneNode,
 } from '../model/types.js';
@@ -65,6 +66,9 @@ export function applyOverrideFieldsToNode(node: SceneNode, patch: ComponentOverr
     if (patch.cornerRadius !== undefined) f.cornerRadius = patch.cornerRadius;
     if (patch.strokeWeight !== undefined) f.strokeWeight = patch.strokeWeight;
     if (patch.strokeAlign !== undefined) f.strokeAlign = patch.strokeAlign;
+    if (patch.individualStrokeWeights !== undefined) {
+      f.individualStrokeWeights = { ...patch.individualStrokeWeights };
+    }
     if ('backgrounds' in patch && patch.backgrounds !== undefined) {
       f.backgrounds = patch.backgrounds.length > 0 ? structuredClone(patch.backgrounds) : [];
     }
@@ -89,6 +93,11 @@ export function applyOverrideFieldsToNode(node: SceneNode, patch: ComponentOverr
   if ('strokeWeight' in node && patch.strokeWeight !== undefined) {
     (node as { strokeWeight?: number }).strokeWeight = patch.strokeWeight;
   }
+  if ('individualStrokeWeights' in node && patch.individualStrokeWeights !== undefined) {
+    (node as { individualStrokeWeights?: Partial<IndividualStrokeWeights> }).individualStrokeWeights = {
+      ...patch.individualStrokeWeights,
+    };
+  }
   if ('cornerRadius' in node && patch.cornerRadius !== undefined) {
     (node as { cornerRadius?: number }).cornerRadius = patch.cornerRadius;
   }
@@ -110,4 +119,15 @@ export function applyComponentOverridesToTree(
       for (const ch of node.children as unknown as SceneNode[]) stack.push(ch);
     }
   }
+}
+
+/** Apply instance-shell overrides keyed by the INSTANCE id onto the cloned component root. */
+export function applyInstanceShellOverrideToRoot(
+  root: FrameNode,
+  instanceId: string,
+  overrides: Record<string, ComponentOverrideFields> | undefined
+): void {
+  const patch = overrides?.[instanceId];
+  if (!patch) return;
+  applyOverrideFieldsToNode(root, patch);
 }

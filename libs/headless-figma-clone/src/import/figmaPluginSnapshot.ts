@@ -57,6 +57,7 @@ import {
   mapTypography,
   reportUnmappedProperties,
 } from './importNodeMappers.js';
+import { normalizeSourceFigmaId } from '../render/instanceMerge.js';
 
 const SUPPORTED_SCENE_TYPES = new Set([
   'FRAME',
@@ -341,28 +342,52 @@ function registerComponentLookup(
   if (key) ctx.componentByKey.set(key, compId);
 }
 
-/** Strip instance override prefix: `I2296:202724;2296:202673` → `2296:202673`. */
-function baseFigmaIdFromSource(sourceFigmaId: string | undefined): string | undefined {
-  if (!sourceFigmaId) return undefined;
-  const semi = sourceFigmaId.indexOf(';');
-  if (semi >= 0) return sourceFigmaId.slice(semi + 1).split(';')[0];
-  return sourceFigmaId;
+function sceneSubtreeChildren(node: SceneNode): SceneNode[] {
+  if (
+    node.type === 'FRAME' ||
+    node.type === 'GROUP' ||
+    node.type === 'TRANSFORM_GROUP' ||
+    node.type === 'SECTION'
+  ) {
+    return node.children;
+  }
+  if (node.type === 'BOOLEAN_OPERATION') {
+    return node.children as unknown as SceneNode[];
+  }
+  return [];
 }
 
+/** Index every layer in component masters by leaf {@link normalizeSourceFigmaId} (instance-merge parity). */
 function buildComponentByChildKeyIndex(ctx: ImportContext): Map<string, string> {
   const componentByChildKey = new Map<string, string>();
   const ambiguous = new Set<string>();
   for (const [compId, rootFrame] of ctx.componentRootFrames) {
-    for (const ch of rootFrame.children ?? []) {
-      const key = baseFigmaIdFromSource(ch.sourceFigmaId);
-      if (!key) continue;
-      const existing = componentByChildKey.get(key);
-      if (existing === undefined) componentByChildKey.set(key, compId);
-      else if (existing !== compId) ambiguous.add(key);
+    const stack: SceneNode[] = [rootFrame];
+    while (stack.length) {
+      const node = stack.pop()!;
+      const key = normalizeSourceFigmaId(node.sourceFigmaId);
+      if (key) {
+        const existing = componentByChildKey.get(key);
+        if (existing === undefined) componentByChildKey.set(key, compId);
+        else if (existing !== compId) ambiguous.add(key);
+      }
+      for (const ch of sceneSubtreeChildren(node)) stack.push(ch);
     }
   }
   for (const key of ambiguous) componentByChildKey.delete(key);
   return componentByChildKey;
+}
+
+function collectDetachedSubtreeFigmaKeys(inst: InstanceNode): string[] {
+  const keys: string[] = [];
+  const stack: SceneNode[] = [...(inst.children ?? [])];
+  while (stack.length) {
+    const node = stack.pop()!;
+    const key = normalizeSourceFigmaId(node.sourceFigmaId);
+    if (key) keys.push(key);
+    for (const ch of sceneSubtreeChildren(node)) stack.push(ch);
+  }
+  return keys;
 }
 
 function resolveMainComponentFromDetachedChildren(
@@ -370,9 +395,7 @@ function resolveMainComponentFromDetachedChildren(
   componentByChildKey: Map<string, string>
 ): string | undefined {
   const votes = new Map<string, number>();
-  for (const ch of inst.children ?? []) {
-    const key = baseFigmaIdFromSource(ch.sourceFigmaId);
-    if (!key) continue;
+  for (const key of collectDetachedSubtreeFigmaKeys(inst)) {
     const compId = componentByChildKey.get(key);
     if (!compId) continue;
     votes.set(compId, (votes.get(compId) ?? 0) + 1);
@@ -466,7 +489,7 @@ function linkDeferredInstanceMainComponents(ctx: ImportContext): void {
     if (!resolved) {
       resolved = resolveMainComponentFromDetachedChildren(entry.inst, componentByChildKey);
     }
-    if (resolved) {
+    if (resolved && ctx.componentRootFrames.has(resolved)) {
       entry.inst.mainComponentId = resolved;
     }
   }
@@ -898,6 +921,7 @@ function importSceneNode(
         children: importChildren(),
         ...instanceAppearance,
         ...strokeExtras,
+        ...mapIndividualStrokes(p),
         ...corners,
         mainComponentId: mainComponentId ?? UNRESOLVED_MAIN_COMPONENT_ID,
         componentProperties,

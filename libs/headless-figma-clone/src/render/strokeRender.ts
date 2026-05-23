@@ -105,6 +105,15 @@ export interface StrokeBorderResult {
   warnings: string[];
 }
 
+/** Expand {@link StrokeBorderResult.borderCss} into a full CSS declaration block fragment. */
+export function borderCssDeclaration(borderCss: string): string {
+  if (borderCss === 'none') return 'border:none;';
+  if (borderCss.includes('border-')) {
+    return borderCss.endsWith(';') ? borderCss : `${borderCss};`;
+  }
+  return `border:${borderCss};`;
+}
+
 export function computeStrokeBorder(
   n: StrokeBoxNode,
   nodeId: string,

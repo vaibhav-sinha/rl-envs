@@ -864,6 +864,7 @@ export type ComponentOverrideFields = {
   cornerRadius?: number;
   strokeWeight?: number;
   strokeAlign?: 'INSIDE' | 'OUTSIDE' | 'CENTER';
+  individualStrokeWeights?: Partial<IndividualStrokeWeights>;
 };
 
 export interface ComponentInstanceNode extends NodeBase, LayoutSelfFields {

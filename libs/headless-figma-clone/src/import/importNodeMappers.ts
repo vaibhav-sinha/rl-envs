@@ -4,6 +4,7 @@ import type {
   ComponentPropertyDefinition,
   ComponentPropertyValue,
   FrameNode,
+  IndividualStrokeWeights,
   LayoutConstraints,
   LayoutSelfFields,
   Paint,
@@ -62,6 +63,10 @@ export const HANDLED_SNAPSHOT_KEYS = new Set([
   'miterLimit',
   'dashPattern',
   'individualStrokeWeights',
+  'strokeTopWeight',
+  'strokeRightWeight',
+  'strokeBottomWeight',
+  'strokeLeftWeight',
   'cornerRadius',
   'topLeftRadius',
   'topRightRadius',
@@ -289,18 +294,42 @@ export function mapFrameLayout(
 }
 
 export function mapIndividualStrokes(props: Record<string, unknown>): Record<string, unknown> {
+  const sideKeys = [
+    ['strokeTopWeight', 'top'],
+    ['strokeRightWeight', 'right'],
+    ['strokeBottomWeight', 'bottom'],
+    ['strokeLeftWeight', 'left'],
+  ] as const;
+
+  let hasExplicitSide = false;
+  const explicitSides: Partial<IndividualStrokeWeights> = {};
+  for (const [propName, side] of sideKeys) {
+    if (!Object.prototype.hasOwnProperty.call(props, propName)) continue;
+    hasExplicitSide = true;
+    explicitSides[side] = optNum(prop(props, propName)) ?? 0;
+  }
+  if (hasExplicitSide) {
+    return {
+      individualStrokeWeights: {
+        top: explicitSides.top ?? 0,
+        right: explicitSides.right ?? 0,
+        bottom: explicitSides.bottom ?? 0,
+        left: explicitSides.left ?? 0,
+      },
+    };
+  }
+
   const raw = prop(props, 'individualStrokeWeights') as Record<string, unknown> | undefined;
   if (!raw) return {};
-  const out: Record<string, unknown> = {};
-  const top = optNum(raw.top);
-  const right = optNum(raw.right);
-  const bottom = optNum(raw.bottom);
-  const left = optNum(raw.left);
-  if (top !== undefined) out.strokeTopWeight = top;
-  if (right !== undefined) out.strokeRightWeight = right;
-  if (bottom !== undefined) out.strokeBottomWeight = bottom;
-  if (left !== undefined) out.strokeLeftWeight = left;
-  return out;
+
+  const base = optNum(prop(props, 'strokeWeight')) ?? 0;
+  const sides: IndividualStrokeWeights = {
+    top: optNum(raw.top) ?? base,
+    right: optNum(raw.right) ?? base,
+    bottom: optNum(raw.bottom) ?? base,
+    left: optNum(raw.left) ?? base,
+  };
+  return { individualStrokeWeights: sides };
 }
 
 export function mapArcData(props: Record<string, unknown>): Record<string, unknown> {
@@ -466,6 +495,9 @@ function mapOverrideEntry(
   if ('strokes' in o) entry.strokes = mapPaintsPreservingEmpty(o.strokes, imageHashRemap, idMap) ?? [];
   if ('effects' in o) entry.effects = mapEffectsPreservingEmpty(o.effects) ?? [];
   if ('backgrounds' in o) entry.backgrounds = mapPaintsPreservingEmpty(o.backgrounds, imageHashRemap, idMap) ?? [];
+  const sw = optNum(o.strokeWeight);
+  if (sw !== undefined) entry.strokeWeight = sw;
+  Object.assign(entry, mapIndividualStrokes(o));
   return entry;
 }
 

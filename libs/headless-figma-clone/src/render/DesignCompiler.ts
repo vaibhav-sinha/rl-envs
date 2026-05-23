@@ -8,7 +8,6 @@ import {
   syncHugTextLayoutMetricsDeep,
 } from './autoLayoutIntrinsicSizing.js';
 import {
-  booleanOperandPathD,
   clampRectCornerRadiiToBox,
   computeBooleanPathData,
   rectCornerRadii,
@@ -16,7 +15,7 @@ import {
 } from './booleanPaths.js';
 import { ellipseArcPathD, ellipsePathD, isPlainFullEllipse } from './shapePaths.js';
 import { buildSvgStackedFillPaths } from './svgStackedFills.js';
-import { linearGradientCss, radialGradientCss, svgLinearGradientEndpoints, svgRadialGradientAttrs } from './gradientCss.js';
+import { linearGradientCss, radialGradientCss } from './gradientCss.js';
 import {
   buildPatternTileSvgDataUrl,
   buildSyncPatternTileDataUrl,
@@ -48,14 +47,18 @@ import { injectFontFacesIntoHtml } from '../fonts/injectFonts.js';
 import { normalizeFigmaText, rawTextCharacters, splitFigmaParagraphRanges } from './figmaTextParagraphs.js';
 import {
   applyInstanceAppearanceToRoot,
+  hasOwnAppearanceField,
   type InstanceAppearanceFields,
 } from './instanceAppearance.js';
-import { applyComponentOverridesToTree } from './instanceOverrideApply.js';
+import {
+  applyComponentOverridesToTree,
+  applyInstanceShellOverrideToRoot,
+} from './instanceOverrideApply.js';
 import {
   mergeDetachedChildrenIntoRoot,
   type InstanceMergeContext,
 } from './instanceMerge.js';
-import { computeStrokeBorder, rgbaFromSolid as strokeRgbaFromSolid } from './strokeRender.js';
+import { computeStrokeBorder, borderCssDeclaration, rgbaFromSolid as strokeRgbaFromSolid } from './strokeRender.js';
 import { svgViewportForPathData, svgViewportForVectorPaths } from './vectorPathBounds.js';
 import {
   buildRootCssVariableBlock,
@@ -365,11 +368,6 @@ function rgbaFromSolid(p: SolidPaint): string {
   return `rgba(${String(Math.round(r * 255))},${String(Math.round(g * 255))},${String(Math.round(b * 255))},${String(a)})`;
 }
 
-function rgbaFromRgba(c: { r: number; g: number; b: number; a?: number }): string {
-  const a = c.a !== undefined ? c.a : 1;
-  return `rgba(${String(Math.round(c.r * 255))},${String(Math.round(c.g * 255))},${String(Math.round(c.b * 255))},${String(a)})`;
-}
-
 function escapeHtmlText(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -532,6 +530,15 @@ function effectiveRectEffects(r: RectangleNode, env: FileEnvelope): Effect[] | u
     if (st?.effects?.length) return st.effects;
   }
   return r.effects;
+}
+
+function effectiveRectStrokes(r: RectangleNode, env: FileEnvelope): Paint[] {
+  if (r.strokes?.length) return r.strokes;
+  if (r.strokeStyleId) {
+    const ps = env.paintStyles?.find((p) => p.id === r.strokeStyleId);
+    return ps?.paints ?? [];
+  }
+  return r.strokes ?? [];
 }
 
 function effectiveFrameFills(f: FrameNode, env: FileEnvelope): Paint[] {
@@ -817,29 +824,6 @@ function svgStrokeAttrs(n: {
   const cap = mapStrokeCapSvg(n.strokeCap);
   const jn = mapStrokeJoinSvg(n.strokeJoin);
   return `stroke="${escapeAttr(rgbaFromSolid(sp))}" stroke-width="${String(sw)}" stroke-linecap="${cap}" stroke-linejoin="${jn}"`;
-}
-
-function svgStrokeGradientDefs(stroke: Paint, gradId: string, w: number, h: number): string | null {
-  if (stroke.type === 'GRADIENT_LINEAR') {
-    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(stroke, w, h);
-    let defs = `<linearGradient id="${escapeAttr(gradId)}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
-    for (const st of stroke.gradientStops) {
-      defs += `<stop offset="${String(st.position)}" stop-color="${escapeAttr(rgbaFromRgba(st.color))}"/>`;
-    }
-    defs += '</linearGradient>';
-    return defs;
-  }
-  if (stroke.type === 'GRADIENT_RADIAL') {
-    const ra = svgRadialGradientAttrs(stroke);
-    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
-    let defs = `<radialGradient id="${escapeAttr(gradId)}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
-    for (const st of stroke.gradientStops) {
-      defs += `<stop offset="${String(st.position)}" stop-color="${escapeAttr(rgbaFromRgba(st.color))}"/>`;
-    }
-    defs += '</radialGradient>';
-    return defs;
-  }
-  return null;
 }
 
 function listTypeForRange(
@@ -1829,7 +1813,7 @@ function emitScene(
       escapeAttr
     );
     warnings.push(...strokeResult.warnings);
-    const border = strokeResult.borderCss;
+    const border = borderCssDeclaration(strokeResult.borderCss);
     const shadow = nodeEffectsCss(effectiveFrameEffects(f, env), env, f, warnings, 'frame');
     const radiusCss = frameCornerRadiusCss(f);
     const radiusClip = radiusCss ? 'overflow:hidden;' : '';
@@ -1855,7 +1839,7 @@ function emitScene(
     if (!layered) {
       htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
       cssParts.push(
-        `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;${fillCss}border:${border};${radiusCss}${clip}${frameOpRot}${shadow}}`
+        `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;${fillCss}${border}${radiusCss}${clip}${frameOpRot}${shadow}}`
       );
       if (strokeResult.svgOverlay) htmlParts.push(strokeResult.svgOverlay);
       if (flex) {
@@ -1913,7 +1897,7 @@ function emitScene(
 
     htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;border:${border};background-color:transparent;${radiusCss}${clip}${frameOpRot}${shadow}}`
+      `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;${border}background-color:transparent;${radiusCss}${clip}${frameOpRot}${shadow}}`
     );
     cssParts.push(
       `${hfcNodeCssSel(f.id)} > .hfc-bg-layer{${bgCss}}${hfcNodeCssSel(f.id)} > .hfc-fill-layer{${fillCss}}`
@@ -2228,17 +2212,34 @@ function emitInstancePaintShell(
  * Plugin exports store per-layer overrides in `instance.children` (detached subtree merge).
  * The optional `overrides` map is applied when present on the INSTANCE node.
  */
+function buildInstanceAppearanceForRoot(
+  inst: InstanceAppearanceFields & Pick<InstanceNode, 'id'>,
+  overrides: ComponentInstanceNode['overrides'] | undefined
+): InstanceAppearanceFields {
+  const appearance: InstanceAppearanceFields = { ...inst };
+  const shell = overrides?.[inst.id];
+  if (
+    hasOwnAppearanceField(appearance, 'strokes') &&
+    (appearance.strokes?.length ?? 0) === 0 &&
+    (shell?.strokes?.length ?? 0) > 0
+  ) {
+    delete appearance.strokes;
+  }
+  return appearance;
+}
+
 function prepareInstanceComponentRoot(
   root: FrameNode,
   inst: InstanceAppearanceFields &
-    Pick<InstanceNode, 'width' | 'height' | 'children' | 'componentProperties'>,
+    Pick<InstanceNode, 'width' | 'height' | 'children' | 'componentProperties' | 'id'>,
   env: FileEnvelope,
   overrides: ComponentInstanceNode['overrides'] | undefined,
   mergeCtx: InstanceMergeContext
 ): void {
   applyComponentOverridesToTree(root, overrides);
   applyComponentProperties(root, inst.componentProperties);
-  applyInstanceAppearanceToRoot(root, inst);
+  applyInstanceAppearanceToRoot(root, buildInstanceAppearanceForRoot(inst, overrides));
+  applyInstanceShellOverrideToRoot(root, inst.id, overrides);
   const detached = instanceDetachedChildren(inst);
   if (detached) {
     mergeDetachedChildrenIntoRoot(root, detached, mergeCtx);
@@ -2373,7 +2374,7 @@ function emitComponentInstance(
   if (root.x !== 0 || root.y !== 0) {
     warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
   }
-  prepareInstanceComponentRoot(root, inst, env, inst.overrides, { warnings });
+  prepareInstanceComponentRoot(root, inst, env, inst.overrides, { warnings, overrides: inst.overrides });
   const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
   const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
   htmlParts.push(`<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`);
@@ -2607,6 +2608,7 @@ function emitInstance(
       const root = cloneComponentRootForInstance(main.root);
       prepareInstanceComponentRoot(root, inst, env, inst.overrides as ComponentInstanceNode['overrides'], {
         warnings,
+        overrides: inst.overrides as ComponentInstanceNode['overrides'],
       });
       const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
       const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
@@ -2727,6 +2729,7 @@ function emitInstance(
 
   prepareInstanceComponentRoot(root, inst, env, appliedOverrides as ComponentInstanceNode['overrides'], {
     warnings,
+    overrides: appliedOverrides as ComponentInstanceNode['overrides'],
   });
 
   const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
@@ -2776,17 +2779,10 @@ function emitRectangle(
 ): void {
   const shadow = nodeEffectsCss(effectiveRectEffects(r, env), env, r, warnings, 'rect');
   const fillCss = stackedFillsCss(effectiveRectFills(r, env), imgMap, patternTiles, warnings, `rect:${r.id}`, env);
-  const stroke = r.strokes?.[0];
-  const sw = r.strokeWeight ?? 0;
-  const gradientStroke =
-    stroke &&
-    sw > 0 &&
-    stroke.visible !== false &&
-    (stroke.type === 'GRADIENT_LINEAR' || stroke.type === 'GRADIENT_RADIAL');
-  const border =
-    !gradientStroke && stroke && stroke.type === 'SOLID' && sw > 0 && !(r.dashPattern && r.dashPattern.length)
-      ? `${String(sw)}px solid ${rgbaFromSolid(stroke)}`
-      : 'none';
+  const rectStrokes = effectiveRectStrokes(r, env);
+  const strokeResult = computeStrokeBorder({ ...r, strokes: rectStrokes }, r.id, escapeAttr);
+  warnings.push(...strokeResult.warnings);
+  const border = borderCssDeclaration(strokeResult.borderCss);
   const [tl0, tr0, br0, bl0] = rectCornerRadii(r);
   const [tl, tr, br, bl] = clampRectCornerRadiiToBox(r.width, r.height, tl0, tr0, br0, bl0);
   const radius =
@@ -2801,33 +2797,10 @@ function emitRectangle(
       ? constraintPositionCss(r, parentFrame.width, parentFrame.height)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${r.id}" data-hfc-id="${r.id}" style="z-index:${String(zIndex)}">`);
-  if (!gradientStroke && r.dashPattern?.length && stroke?.type === 'SOLID' && sw > 0) {
-    cssParts.push(
-      `${hfcNodeCssSel(r.id)}{${pos}box-sizing:border-box;${fillCss}border:${String(sw)}px dashed ${rgbaFromSolid(stroke)};${radius}${opRot}${shadow}}`
-    );
-  } else {
-    cssParts.push(
-      `${hfcNodeCssSel(r.id)}{${pos}box-sizing:border-box;${fillCss}border:${border};${radius}${opRot}${shadow}}`
-    );
-  }
-  if (gradientStroke) {
-    const gradId = `stroke-grad-${r.id}`;
-    const defs = svgStrokeGradientDefs(stroke, gradId, r.width, r.height);
-    if (defs) {
-      const d = booleanOperandPathD(r);
-      const cap = mapStrokeCapSvg(r.strokeCap);
-      const jn = mapStrokeJoinSvg(r.strokeJoin);
-      const dash = r.dashPattern?.length ? dashArrayAttr(r) : '';
-      const pad = sw / 2;
-      const vbW = r.width + sw;
-      const vbH = r.height + sw;
-      htmlParts.push(
-        `<svg class="hfc-rect-stroke-svg" viewBox="${String(-pad)} ${String(-pad)} ${String(vbW)} ${String(vbH)}" width="100%" height="100%" style="position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>${defs}</defs><path d="${escapeAttr(d)}" fill="none" stroke="url(#${gradId})" stroke-width="${String(sw)}" stroke-linecap="${cap}" stroke-linejoin="${jn}"${dash}/></svg>`
-      );
-    } else {
-      warnings.push(`rect_gradient_stroke_unsupported:rect:${r.id}`);
-    }
-  }
+  cssParts.push(
+    `${hfcNodeCssSel(r.id)}{${pos}box-sizing:border-box;${fillCss}${border}${radius}${opRot}${shadow}}`
+  );
+  if (strokeResult.svgOverlay) htmlParts.push(strokeResult.svgOverlay);
   htmlParts.push('</div>');
 }
 

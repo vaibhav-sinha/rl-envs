@@ -5,6 +5,7 @@
 import type {
   BlendMode,
   BooleanOperationNode,
+  ComponentOverrideFields,
   Effect,
   EllipseNode,
   FrameNode,
@@ -22,8 +23,40 @@ import type {
   VectorNode,
 } from '../model/types.js';
 
+type MergePaintField = 'fills' | 'strokes' | 'effects' | 'backgrounds';
+
 export interface InstanceMergeContext {
   warnings: string[];
+  /** Formal per-layer overrides map from the INSTANCE (tri-state paints). */
+  overrides?: Record<string, ComponentOverrideFields>;
+}
+
+function hasExplicitPaintOverride(
+  ctx: InstanceMergeContext,
+  masterId: string | undefined,
+  detachedId: string | undefined,
+  field: MergePaintField
+): boolean {
+  const overrides = ctx.overrides;
+  if (!overrides) return false;
+  for (const nodeId of [detachedId, masterId]) {
+    if (!nodeId) continue;
+    const patch = overrides[nodeId];
+    if (patch && Object.prototype.hasOwnProperty.call(patch, field)) return true;
+  }
+  return false;
+}
+
+function shouldApplyDetachedPaintClear(
+  ctx: InstanceMergeContext,
+  masterId: string | undefined,
+  detachedId: string | undefined,
+  field: MergePaintField,
+  paints: readonly unknown[] | undefined
+): boolean {
+  if (paints === undefined) return false;
+  if (paints.length > 0) return true;
+  return hasExplicitPaintOverride(ctx, masterId, detachedId, field);
 }
 
 /** Strip instance prefix for pairing (`I2176:169422;24:6583` → `24:6583`). */
@@ -108,20 +141,37 @@ function copySceneAppearance(
 }
 
 function mergePaintsWithClear(
-  master: { fills?: Paint[]; strokes?: Paint[]; effects?: Effect[]; fillStyleId?: string | null; strokeStyleId?: string | null; effectStyleId?: string | null },
-  detached: { fills?: Paint[]; strokes?: Paint[]; effects?: Effect[]; fillStyleId?: string | null; strokeStyleId?: string | null; effectStyleId?: string | null }
+  master: {
+    id?: string;
+    fills?: Paint[];
+    strokes?: Paint[];
+    effects?: Effect[];
+    fillStyleId?: string | null;
+    strokeStyleId?: string | null;
+    effectStyleId?: string | null;
+  },
+  detached: {
+    id?: string;
+    fills?: Paint[];
+    strokes?: Paint[];
+    effects?: Effect[];
+    fillStyleId?: string | null;
+    strokeStyleId?: string | null;
+    effectStyleId?: string | null;
+  },
+  ctx: InstanceMergeContext
 ): void {
-  if (detached.fills !== undefined) {
-    master.fills = detached.fills.length > 0 ? structuredClone(detached.fills) : [];
-    if (detached.fills.length === 0) delete master.fillStyleId;
+  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'fills', detached.fills)) {
+    master.fills = detached.fills!.length > 0 ? structuredClone(detached.fills!) : [];
+    if (detached.fills!.length === 0) delete master.fillStyleId;
   }
-  if (detached.strokes !== undefined) {
-    master.strokes = detached.strokes.length > 0 ? structuredClone(detached.strokes) : [];
-    if (detached.strokes.length === 0) delete master.strokeStyleId;
+  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'strokes', detached.strokes)) {
+    master.strokes = detached.strokes!.length > 0 ? structuredClone(detached.strokes!) : [];
+    if (detached.strokes!.length === 0) delete master.strokeStyleId;
   }
-  if (detached.effects !== undefined) {
-    master.effects = detached.effects.length > 0 ? structuredClone(detached.effects) : [];
-    if (detached.effects.length === 0) delete master.effectStyleId;
+  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'effects', detached.effects)) {
+    master.effects = detached.effects!.length > 0 ? structuredClone(detached.effects!) : [];
+    if (detached.effects!.length === 0) delete master.effectStyleId;
   }
   if (detached.fillStyleId !== undefined) {
     if (detached.fillStyleId === null) delete master.fillStyleId;
@@ -160,20 +210,28 @@ function copyStrokeExtras(
   }
 }
 
-export function mergeRectangleFromDetached(master: RectangleNode, detached: RectangleNode): void {
+export function mergeRectangleFromDetached(
+  master: RectangleNode,
+  detached: RectangleNode,
+  ctx: InstanceMergeContext = { warnings: [] }
+): void {
   copySceneBoundsFromDetached(master, detached);
   copyCornerRadiiFromDetached(master, detached);
   copyLayoutSelfFields(master, detached);
   copySceneAppearance(master, detached);
-  mergePaintsWithClear(master, detached);
+  mergePaintsWithClear(master, detached, ctx);
   copyStrokeExtras(master, detached);
 }
 
-export function mergeTextFromDetached(master: TextNode, detached: TextNode): void {
+export function mergeTextFromDetached(
+  master: TextNode,
+  detached: TextNode,
+  ctx: InstanceMergeContext = { warnings: [] }
+): void {
   copySceneBoundsFromDetached(master, detached);
   copyLayoutSelfFields(master, detached);
   copySceneAppearance(master, detached);
-  mergePaintsWithClear(master, detached);
+  mergePaintsWithClear(master, detached, ctx);
   copyStrokeExtras(master, detached);
 
   if (detached.characters !== undefined) master.characters = detached.characters;
@@ -232,11 +290,12 @@ export function mergeFrameFromDetached(master: FrameNode, detached: FrameNode, c
   copyCornerRadiiFromDetached(master, detached);
   copyLayoutSelfFields(master, detached);
   copySceneAppearance(master, detached);
-  mergePaintsWithClear(master, detached);
+  mergePaintsWithClear(master, detached, ctx);
   copyStrokeExtras(master, detached);
   if (detached.clipsContent !== undefined) master.clipsContent = detached.clipsContent;
-  if (detached.backgrounds !== undefined) {
-    master.backgrounds = detached.backgrounds.length > 0 ? structuredClone(detached.backgrounds) : [];
+  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'backgrounds', detached.backgrounds)) {
+    master.backgrounds =
+      detached.backgrounds!.length > 0 ? structuredClone(detached.backgrounds!) : [];
   }
   if (detached.gridStyleId !== undefined) {
     if (detached.gridStyleId === null) delete master.gridStyleId;
@@ -256,12 +315,13 @@ export function mergeFrameFromDetached(master: FrameNode, detached: FrameNode, c
 
 function mergeShapeFromDetached(
   master: RectangleNode | EllipseNode | PolygonNode | StarNode | VectorNode | LineNode,
-  detached: typeof master
+  detached: typeof master,
+  ctx: InstanceMergeContext
 ): void {
   copySceneBoundsFromDetached(master, detached);
   copyLayoutSelfFields(master, detached);
   copySceneAppearance(master, detached);
-  mergePaintsWithClear(master, detached);
+  mergePaintsWithClear(master, detached, ctx);
   copyStrokeExtras(master, detached);
   if (master.type === 'VECTOR' && detached.type === 'VECTOR' && detached.vectorPaths !== undefined) {
     master.vectorPaths = structuredClone(detached.vectorPaths);
@@ -277,16 +337,19 @@ function mergeShapeFromDetached(
     if (detached.innerRadius !== undefined) master.innerRadius = detached.innerRadius;
   }
   if (master.type === 'LINE' && detached.type === 'LINE') {
-    master.strokes = detached.strokes?.length ? structuredClone(detached.strokes) : master.strokes;
     if (detached.strokeWeight !== undefined) master.strokeWeight = detached.strokeWeight;
   }
 }
 
-export function mergeInstanceFromDetached(master: InstanceNode, detached: InstanceNode): void {
+export function mergeInstanceFromDetached(
+  master: InstanceNode,
+  detached: InstanceNode,
+  ctx: InstanceMergeContext = { warnings: [] }
+): void {
   copySceneBoundsFromDetached(master, detached);
   copyLayoutSelfFields(master, detached);
   copySceneAppearance(master, detached);
-  mergePaintsWithClear(master, detached);
+  mergePaintsWithClear(master, detached, ctx);
   copyStrokeExtras(master, detached);
   copyCornerRadiiFromDetached(master, detached);
   if (detached.clipsContent !== undefined) master.clipsContent = detached.clipsContent;
@@ -298,8 +361,9 @@ export function mergeInstanceFromDetached(master: InstanceNode, detached: Instan
   if (detached.children !== undefined) {
     master.children = structuredClone(detached.children);
   }
-  if (detached.backgrounds !== undefined) {
-    master.backgrounds = detached.backgrounds.length > 0 ? structuredClone(detached.backgrounds) : [];
+  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'backgrounds', detached.backgrounds)) {
+    master.backgrounds =
+      detached.backgrounds!.length > 0 ? structuredClone(detached.backgrounds!) : [];
   }
   if (detached.boundVariables !== undefined) {
     master.boundVariables = detached.boundVariables
@@ -326,7 +390,7 @@ function mergeBooleanFromDetached(master: BooleanOperationNode, detached: Boolea
   copySceneBoundsFromDetached(master, detached);
   copyLayoutSelfFields(master, detached);
   copySceneAppearance(master, detached);
-  mergePaintsWithClear(master, detached);
+  mergePaintsWithClear(master, detached, ctx);
   if (detached.booleanOperation !== undefined) master.booleanOperation = detached.booleanOperation;
   const n = Math.min(master.children.length, detached.children.length);
   for (let i = 0; i < n; i++) {
@@ -337,11 +401,11 @@ function mergeBooleanFromDetached(master: BooleanOperationNode, detached: Boolea
 /** Align exported instance subtrees onto cloned masters (same structure, instance-local ids and geometry). */
 export function mergeNodePairFromDetached(master: SceneNode, detached: SceneNode, ctx: InstanceMergeContext): void {
   if (master.type === 'RECTANGLE' && detached.type === 'RECTANGLE') {
-    mergeRectangleFromDetached(master, detached);
+    mergeRectangleFromDetached(master, detached, ctx);
     return;
   }
   if (master.type === 'TEXT' && detached.type === 'TEXT') {
-    mergeTextFromDetached(master, detached);
+    mergeTextFromDetached(master, detached, ctx);
     return;
   }
   if (master.type === 'FRAME' && detached.type === 'FRAME') {
@@ -349,27 +413,27 @@ export function mergeNodePairFromDetached(master: SceneNode, detached: SceneNode
     return;
   }
   if (master.type === 'INSTANCE' && detached.type === 'INSTANCE') {
-    mergeInstanceFromDetached(master, detached);
+    mergeInstanceFromDetached(master, detached, ctx);
     return;
   }
   if (master.type === 'VECTOR' && detached.type === 'VECTOR') {
-    mergeShapeFromDetached(master, detached);
+    mergeShapeFromDetached(master, detached, ctx);
     return;
   }
   if (master.type === 'ELLIPSE' && detached.type === 'ELLIPSE') {
-    mergeShapeFromDetached(master, detached);
+    mergeShapeFromDetached(master, detached, ctx);
     return;
   }
   if (master.type === 'LINE' && detached.type === 'LINE') {
-    mergeShapeFromDetached(master, detached);
+    mergeShapeFromDetached(master, detached, ctx);
     return;
   }
   if (master.type === 'POLYGON' && detached.type === 'POLYGON') {
-    mergeShapeFromDetached(master, detached);
+    mergeShapeFromDetached(master, detached, ctx);
     return;
   }
   if (master.type === 'STAR' && detached.type === 'STAR') {
-    mergeShapeFromDetached(master, detached);
+    mergeShapeFromDetached(master, detached, ctx);
     return;
   }
   if (master.type === 'GROUP' && detached.type === 'GROUP') {

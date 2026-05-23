@@ -149,7 +149,7 @@ export function exportInstanceOverridesRecord(
   if (Object.keys(map).length > 0) props.overrides = map;
 }
 
-function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Record<string, unknown> {
+export function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Record<string, unknown> {
   const visited = new WeakSet<object>();
   const props: Record<string, unknown> = {};
   const keys = keysForNodeType(node.type);
@@ -182,9 +182,16 @@ function serializeNodeProperties(node: BaseNode & Record<string, unknown>): Reco
       const mc = inst.mainComponent;
       if (mc && typeof mc.id === 'string') {
         props.mainComponentId = mc.id;
+      } else {
+        pushInstanceExportDebug(
+          `[instance-export] ${inst.id} "${inst.name}" mainComponent=null (mainComponentId not written)`
+        );
       }
-    } catch {
-      /* detached or unreadable */
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      pushInstanceExportDebug(
+        `[instance-export] ${inst.id} "${inst.name}" mainComponent unreadable: ${msg}`
+      );
     }
     try {
       enrichInstanceNodeExport(inst, props);

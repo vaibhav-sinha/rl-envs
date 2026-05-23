@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   mergeDetachedChildrenIntoRoot,
+  mergeRectangleFromDetached,
   mergeTextFromDetached,
   normalizeSourceFigmaId,
 } from '../../src/render/instanceMerge.js';
@@ -172,5 +173,80 @@ describe('instanceMerge', () => {
     mergeDetachedChildrenIntoRoot(root, [detachedWrapper], { warnings });
     expect(warnings.some((w) => w.startsWith('instance_merge_unmatched_child:'))).toBe(false);
     expect(masterHero.fills?.[0]).toMatchObject({ type: 'IMAGE', imageHash: 'detached-hash' });
+  });
+
+  it('preserves master IMAGE fills when detached has empty fills without override', () => {
+    const master: RectangleNode = {
+      id: 'I73888',
+      type: 'RECTANGLE',
+      name: 'Hero',
+      sourceFigmaId: '1722:37930',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      fills: [
+        {
+          type: 'IMAGE',
+          imageHash: 'master-hash',
+          scaleMode: 'FILL',
+          visible: true,
+          opacity: 1,
+          blendMode: 'NORMAL',
+        },
+      ],
+    };
+    const detached: RectangleNode = {
+      id: 'I73888d',
+      type: 'RECTANGLE',
+      name: 'Hero',
+      sourceFigmaId: 'I9592;1722:37930',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      fills: [],
+    };
+    mergeRectangleFromDetached(master, detached, { warnings: [] });
+    expect(master.fills?.[0]).toMatchObject({ type: 'IMAGE', imageHash: 'master-hash' });
+  });
+
+  it('clears master fills when detached has empty fills with explicit override', () => {
+    const master: RectangleNode = {
+      id: 'I73888',
+      type: 'RECTANGLE',
+      name: 'Hero',
+      sourceFigmaId: '1722:37930',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      fills: [
+        {
+          type: 'IMAGE',
+          imageHash: 'master-hash',
+          scaleMode: 'FILL',
+          visible: true,
+          opacity: 1,
+          blendMode: 'NORMAL',
+        },
+      ],
+    };
+    const detached: RectangleNode = {
+      id: 'I73888d',
+      type: 'RECTANGLE',
+      name: 'Hero',
+      sourceFigmaId: 'I9592;1722:37930',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      fills: [],
+    };
+    mergeRectangleFromDetached(master, detached, {
+      warnings: [],
+      overrides: { I73888: { fills: [] } },
+    });
+    expect(master.fills).toEqual([]);
   });
 });
