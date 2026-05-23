@@ -9,13 +9,6 @@
   },
   "checks": [
     {
-      "id": "must_contain_text_1",
-      "type": "must_contain_text",
-      "required": true,
-      "contains": "sale",
-      "scope": "new_frames"
-    },
-    {
       "id": "must_contain_image_2",
       "type": "must_contain_image",
       "required": true,

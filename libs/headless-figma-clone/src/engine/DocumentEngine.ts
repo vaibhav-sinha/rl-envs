@@ -2070,6 +2070,36 @@ export function detachSceneNodeById(root: DocumentNode, nodeId: string): SceneNo
   return detachSubtree(root, nodeId);
 }
 
+/** Attach a detached subtree under a parent (shared by moveNode and remove→insertChild reattach). */
+export function reattachSceneNode(
+  working: FileEnvelope,
+  parentId: string,
+  index: number | undefined,
+  subtree: SceneNode
+): void {
+  const newParent = findNode(working.document, parentId);
+  if (!newParent) throw new ValidationErr('UNKNOWN_NODE', `Unknown new parent ${parentId}`);
+  if (!parentAllowsChild(newParent.type, subtree.type)) {
+    throw new ValidationErr('VALIDATION_ERROR', `Cannot move ${subtree.type} under ${newParent.type}`);
+  }
+  attachSceneNode(working.document, parentId, index, subtree);
+  if (newParent.type === 'FRAME') {
+    applyAutoLayoutChildDefaults(newParent, subtree);
+    if (newParent.layoutMode === 'GRID') {
+      assignGridChildAutoPlacement(newParent, subtree);
+    }
+  }
+  if (newParent.type === 'GROUP') {
+    syncGroupBounds(newParent);
+  }
+  if (newParent.type === 'BOOLEAN_OPERATION') {
+    const b = newParent;
+    subtree.x -= b.x;
+    subtree.y -= b.y;
+    syncBooleanOperationBounds(b);
+  }
+}
+
 function detachSubtree(root: DocumentNode, nodeId: string): SceneNode {
   const parent = findParent(root, nodeId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
@@ -2374,27 +2404,7 @@ export function applyEngineOp(
   }
   if (op.op === 'moveNode') {
     const subtree = detachSubtree(working.document, op.nodeId);
-    const newParent = findNode(working.document, op.newParentId);
-    if (!newParent) throw new ValidationErr('UNKNOWN_NODE', `Unknown new parent ${op.newParentId}`);
-    if (!parentAllowsChild(newParent.type, subtree.type)) {
-      throw new ValidationErr('VALIDATION_ERROR', `Cannot move ${subtree.type} under ${newParent.type}`);
-    }
-    attachSceneNode(working.document, op.newParentId, op.index, subtree);
-    if (newParent.type === 'FRAME') {
-      applyAutoLayoutChildDefaults(newParent, subtree);
-      if (newParent.layoutMode === 'GRID') {
-        assignGridChildAutoPlacement(newParent, subtree);
-      }
-    }
-    if (newParent.type === 'GROUP') {
-      syncGroupBounds(newParent);
-    }
-    if (newParent.type === 'BOOLEAN_OPERATION') {
-      const b = newParent;
-      subtree.x -= b.x;
-      subtree.y -= b.y;
-      syncBooleanOperationBounds(b);
-    }
+    reattachSceneNode(working, op.newParentId, op.index, subtree);
     return undefined;
   }
   return undefined;

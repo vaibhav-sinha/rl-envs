@@ -1,5 +1,7 @@
 from figma_eval.visual.prompts import (
     GOOD_DESIGN_CRITERIA,
+    GOOD_DESIGN_DEFECT_CRITERIA,
+    DEFAULT_TASK_COMPLETENESS_QUALITY_INSTRUCTIONS,
     build_design_consistency_prompt,
     build_good_design_prompt,
     build_task_completeness_prompt,
@@ -11,8 +13,19 @@ def test_good_design_prompt_includes_all_criteria():
     assert "Add a footer." in prompt
     for key in GOOD_DESIGN_CRITERIA:
         assert key in prompt
+    for key in GOOD_DESIGN_DEFECT_CRITERIA:
+        assert f"### {key}" in prompt
+    assert "Evaluate **defect dimensions first**" in prompt
     assert '"scores"' in prompt
     assert '"explanations"' in prompt
+
+
+def test_task_completeness_prompt_includes_quality_gate():
+    prompt = build_task_completeness_prompt(task_instruction="Add a login button.")
+    assert DEFAULT_TASK_COMPLETENESS_QUALITY_INSTRUCTIONS.splitlines()[0] in prompt
+    assert '"present"' in prompt
+    assert '"quality_acceptable"' in prompt
+    assert '"structurally_complete"' in prompt
 
 
 def test_design_consistency_prompt_includes_explanations():
@@ -29,6 +42,7 @@ def test_design_consistency_prompt_includes_explanations():
 def test_task_completeness_prompt_without_evaluation_instructions():
     prompt = build_task_completeness_prompt(task_instruction="Add a login button.")
     assert "Add a login button." in prompt
+    assert "## Visual quality gate (always apply)" in prompt
     assert "## Additional evaluation instructions" not in prompt
 
 

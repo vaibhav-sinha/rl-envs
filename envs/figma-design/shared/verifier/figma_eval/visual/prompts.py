@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-GOOD_DESIGN_CRITERIA = [
+# Defect dimensions are evaluated first and dominate the final score.
+GOOD_DESIGN_DEFECT_CRITERIA = [
+    "no_placeholders_or_broken_media",
+    "layout_proportions",
+    "layout_completeness",
+]
+
+GOOD_DESIGN_QUALITY_CRITERIA = [
     "typography",
     "spacing",
     "color",
@@ -8,6 +15,22 @@ GOOD_DESIGN_CRITERIA = [
     "alignment",
     "visual_hierarchy",
 ]
+
+GOOD_DESIGN_CRITERIA = GOOD_DESIGN_DEFECT_CRITERIA + GOOD_DESIGN_QUALITY_CRITERIA
+
+# Normalized score at or below this threshold (raw 1–5 score <= 2) triggers a hard cap.
+GOOD_DESIGN_DEFECT_SEVERE_THRESHOLD = 0.25
+GOOD_DESIGN_DEFECT_SEVERE_CAP = 0.4
+
+DEFAULT_TASK_COMPLETENESS_QUALITY_INSTRUCTIONS = (
+    "Separate structural presence from visual quality for every requirement.\n"
+    "- present: the required element or behavior exists in the design.\n"
+    "- quality_acceptable: the implementation is production-ready — no placeholder blocks, "
+    "truncated or clipped text, broken layouts, extreme empty space, or obviously unfinished UI.\n"
+    "A requirement counts as fully satisfied only when both present and quality_acceptable are true. "
+    "Do not mark quality_acceptable true just because a colored rectangle, stub label, or broken "
+    "layout implies the intent."
+)
 
 DEFAULT_DESIGN_FIT_PROMPT = (
     "Evaluate how well the agent's changes fit within the original surrounding design. "
@@ -32,6 +55,16 @@ def _numbered_criteria_lines(criteria: list[str]) -> str:
 
 
 def build_good_design_prompt(*, task_instruction: str) -> str:
+    defect_score_lines = ",\n".join(
+        f'    "{key}": 1-5' for key in GOOD_DESIGN_DEFECT_CRITERIA
+    )
+    quality_score_lines = ",\n".join(
+        f'    "{key}": 1-5' for key in GOOD_DESIGN_QUALITY_CRITERIA
+    )
+    explanation_lines = ",\n".join(
+        f'    "{key}": "..."' for key in GOOD_DESIGN_CRITERIA
+    )
+
     return (
         "You are evaluating the visual design quality of a Figma design produced by an agent.\n\n"
         "## Agent task\n"
@@ -40,7 +73,24 @@ def build_good_design_prompt(*, task_instruction: str) -> str:
         "You are given one screenshot of the region that contains the agent's largest design "
         "changes. There is no reference image — judge only whether the result follows sound "
         "design practice.\n\n"
-        "## How to evaluate each dimension (score 1=poor, 5=excellent)\n\n"
+        "## Evaluation order\n"
+        "Evaluate **defect dimensions first**. Be strict: obvious visual defects should receive "
+        "low scores even if the layout is partially usable. Do not treat "
+        "missing imagery, or broken layouts as intentional styling unless clearly deliberate.\n\n"
+        "## Defect dimensions (score 1=poor, 5=excellent)\n\n"
+        "### no_placeholders_or_broken_media\n"
+        "- No large solid-color rectangles used as product imagery or hero visuals.\n"
+        "- Product photos, icons, and illustrations render correctly — not missing or broken.\n"
+        "- Penalize obvious placeholders, render failures, or flat color blocks standing in for content.\n\n"
+        "### layout_proportions\n"
+        "- Related elements have balanced, readable sizes (e.g. thumbnails not dwarfed by empty or placeholder areas).\n"
+        "- Image grids, cards, and badges use sensible aspect ratios and scale relative to each other.\n"
+        "- Penalize extreme size mismatches that make content hard to see or understand.\n\n"
+        "### layout_completeness\n"
+        "- Cards and sections feel finished — no large dead whitespace zones inside components.\n"
+        "- Content fills the intended container; nothing looks half-built or misaligned within its frame.\n"
+        "- Penalize layouts that look empty, lopsided, or abandoned on one side.\n\n"
+        "## Quality dimensions (score 1=poor, 5=excellent)\n\n"
         "### typography\n"
         "- Clear type hierarchy: headings, body, labels, and captions are visually distinct.\n"
         "- Font sizes are appropriate for role (not too small to read, not oversized without reason).\n"
@@ -73,20 +123,11 @@ def build_good_design_prompt(*, task_instruction: str) -> str:
         "Respond with JSON only:\n"
         "{\n"
         '  "scores": {\n'
-        '    "typography": 1-5,\n'
-        '    "spacing": 1-5,\n'
-        '    "color": 1-5,\n'
-        '    "content_not_overflowing": 1-5,\n'
-        '    "alignment": 1-5,\n'
-        '    "visual_hierarchy": 1-5\n'
+        f"{defect_score_lines},\n"
+        f"{quality_score_lines}\n"
         "  },\n"
         '  "explanations": {\n'
-        '    "typography": "...",\n'
-        '    "spacing": "...",\n'
-        '    "color": "...",\n'
-        '    "content_not_overflowing": "...",\n'
-        '    "alignment": "...",\n'
-        '    "visual_hierarchy": "..."\n'
+        f"{explanation_lines}\n"
         "  }\n"
         "}\n"
         "Do not include markdown fences."
@@ -164,17 +205,33 @@ def build_task_completeness_prompt(
     return (
         "You are verifying whether an agent completed a Figma design task.\n\n"
         "## Agent task\n"
-        f"{task_instruction}\n"
+        f"{task_instruction}\n\n"
+        "## Visual quality gate (always apply)\n"
+        f"{DEFAULT_TASK_COMPLETENESS_QUALITY_INSTRUCTIONS}\n"
         f"{extra}\n"
         "Review the screenshot of the design region that contains all changes.\n"
         "1. List each concrete requirement implied by the task.\n"
-        "2. For each requirement, state whether it is satisfied.\n"
-        "3. Set completed to true only if every requirement is satisfied.\n\n"
+        "2. For each requirement, judge present and quality_acceptable separately.\n"
+        "3. Set structurally_complete to true only if every requirement is present.\n"
+        "4. Set quality_acceptable to true only if every present requirement also has "
+        "quality_acceptable true.\n"
+        "5. Set completed to true only if structurally_complete and quality_acceptable are both true.\n\n"
         "Respond with JSON only:\n"
         "{\n"
-        '  "requirements": [{"description": "...", "satisfied": true|false}, ...],\n'
+        '  "requirements": [\n'
+        "    {\n"
+        '      "description": "...",\n'
+        '      "present": true|false,\n'
+        '      "quality_acceptable": true|false,\n'
+        '      "satisfied": true|false\n'
+        "    }\n"
+        "  ],\n"
+        '  "structurally_complete": true|false,\n'
+        '  "quality_acceptable": true|false,\n'
         '  "completed": true|false\n'
         "}\n"
+        "Set satisfied on each requirement to true only when both present and quality_acceptable "
+        "are true.\n"
         "Do not include markdown fences."
     )
 

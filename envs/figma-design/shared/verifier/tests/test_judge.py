@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from figma_eval.judge import (
+    aggregate_good_design_score,
     parse_criteria_scores,
+    parse_good_design_scores,
     parse_numeric_score,
     parse_preference_score,
     parse_response,
@@ -55,7 +57,7 @@ def test_parse_criteria_scores_extracts_explanations():
     assert out["explanations"]["spacing"] == "Padding is consistent."
 
 
-def test_parse_task_completeness_boolean():
+def test_parse_task_completeness_boolean_legacy():
     text = json.dumps({"completed": True, "requirements": []})
     out = parse_task_completeness(text)
     assert out["mean_score"] == 1.0
@@ -63,6 +65,91 @@ def test_parse_task_completeness_boolean():
     text_fail = json.dumps({"completed": False, "requirements": []})
     out_fail = parse_task_completeness(text_fail)
     assert out_fail["mean_score"] == 0.0
+
+
+def test_parse_task_completeness_splits_structure_and_quality():
+    text = json.dumps(
+        {
+            "requirements": [
+                {
+                    "description": "Sale section exists",
+                    "present": True,
+                    "quality_acceptable": False,
+                },
+                {
+                    "description": "Horizontal slider",
+                    "present": True,
+                    "quality_acceptable": True,
+                },
+            ],
+            "structurally_complete": True,
+            "quality_acceptable": False,
+            "completed": False,
+        }
+    )
+    out = parse_task_completeness(text)
+    assert out["structurally_complete"] is True
+    assert out["quality_acceptable"] is False
+    assert out["completed"] is False
+    assert out["mean_score"] == pytest.approx(0.5)
+    assert out["requirements"][0]["satisfied"] is False
+
+
+def test_aggregate_good_design_score_defect_first():
+    scores = {
+        "no_placeholders_or_broken_media": 0.0,
+        "layout_proportions": 0.0,
+        "layout_completeness": 0.0,
+        "typography": 1.0,
+        "spacing": 1.0,
+        "color": 1.0,
+        "content_not_overflowing": 0.75,
+        "alignment": 1.0,
+        "visual_hierarchy": 1.0,
+    }
+    out = aggregate_good_design_score(
+        scores,
+        defect_keys=[
+            "no_placeholders_or_broken_media",
+            "layout_proportions",
+            "layout_completeness",
+        ],
+        quality_keys=[
+            "typography",
+            "spacing",
+            "color",
+            "content_not_overflowing",
+            "alignment",
+            "visual_hierarchy",
+        ],
+    )
+    assert out["defect_min"] == 0.0
+    assert out["quality_mean"] > 0.8
+    assert out["mean_score"] <= 0.4
+
+
+def test_parse_good_design_scores_uses_defect_first_aggregation():
+    text = json.dumps(
+        {
+            "scores": {
+                "no_placeholders_or_broken_media": 1,
+                "layout_proportions": 2,
+                "layout_completeness": 2,
+                "typography": 5,
+                "spacing": 5,
+                "color": 5,
+                "content_not_overflowing": 4,
+                "alignment": 5,
+                "visual_hierarchy": 5,
+            },
+            "explanations": {
+                "no_placeholders_or_broken_media": "Large red placeholder block.",
+            },
+        }
+    )
+    out = parse_good_design_scores(text)
+    assert out["defect_min"] == pytest.approx(0.0)
+    assert out["mean_score"] <= 0.4
 
 
 def test_parse_preference_score_normalizes():

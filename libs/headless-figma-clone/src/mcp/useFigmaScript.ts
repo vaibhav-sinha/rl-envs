@@ -7,6 +7,7 @@ import {
   detachSceneNodeById,
   findComponentIdByKey,
   findEnvelopeNode,
+  reattachSceneNode,
   registerAssetBytesInEnvelope,
   validateTransformModifiers,
   isSceneGraphOperation,
@@ -133,6 +134,8 @@ interface ScriptContext {
   /** Node ids touched during sandbox apply (for commitEnvelope without replay). */
   touchedIds: Set<string>;
   deletedIds: Set<string>;
+  /** Subtrees detached via remove(); eligible for insertChild/appendChild reattach in the same script. */
+  detachedById: Map<string, import('../model/types.js').SceneNode>;
   selectionByPageId: Map<string, string[]>;
   /** Runtime nodes from figma.create* (for detached-node capture at end of script). */
   createdNodes: Set<RuntimeSceneNode>;
@@ -508,6 +511,20 @@ function readChildId(child: RuntimeSceneNode | { id: string }): string {
   throw new Error('appendChild: invalid child');
 }
 
+function scriptRemoveNode(ctx: ScriptContext, id: string): void {
+  if (ctx.deletedIds.has(id)) {
+    throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
+  }
+  const live = scriptLookup(ctx, id);
+  if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
+  ensureWorkingCopy(ctx);
+  const detached = detachSceneNodeById(ctx.working.document, id);
+  ctx.detachedById.set(id, detached);
+  ctx.deletedIds.add(id);
+  ctx.touchedIds.add(id);
+  ctx.indexStale = true;
+}
+
 function appendChildToScriptParent(
   ctx: ScriptContext,
   parentId: string,
@@ -520,6 +537,17 @@ function appendChildToScriptParent(
   }
   const nodeId = readChildId(child);
   if (ctx.deletedIds.has(nodeId)) {
+    const detached = ctx.detachedById.get(nodeId);
+    if (detached) {
+      ensureWorkingCopy(ctx);
+      reattachSceneNode(ctx.working, parentId, index, detached);
+      ctx.detachedById.delete(nodeId);
+      ctx.deletedIds.delete(nodeId);
+      ctx.touchedIds.add(nodeId);
+      ctx.touchedIds.add(parentId);
+      ctx.indexStale = true;
+      return;
+    }
     throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
   }
   const op: EngineOperation = { op: 'moveNode', nodeId, newParentId: parentId, index };
@@ -574,7 +602,7 @@ function nodeExposesChildren(live: import('../model/types.js').AnyTreeNode): boo
 }
 
 function enumerateHandleKeys(live: import('../model/types.js').AnyTreeNode): string[] {
-  const keys = new Set<string>(['id', 'type', 'name', HFC_HANDLE_FLAG]);
+  const keys = new Set<string>(['id', 'type', 'name', 'removed', HFC_HANDLE_FLAG]);
   const allowed = (ENGINE_MATRIX.patchKeysByType as Record<string, Set<string> | undefined>)[live.type];
   if (allowed) {
     for (const k of allowed) keys.add(k);
@@ -694,19 +722,15 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
         return ctx.placeholderByNodeId.get(id) ?? false;
       }
       if (prop === 'parent') {
+        if (ctx.deletedIds.has(id)) return null;
         return scriptParentHandle(ctx, id);
+      }
+      if (prop === 'removed') {
+        return ctx.deletedIds.has(id);
       }
       if (prop === 'remove') {
         return (): void => {
-          if (ctx.deletedIds.has(id)) {
-            throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
-          }
-          const live = scriptLookup(ctx, id);
-          if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
-          const op: EngineOperation = { op: 'deleteNode', nodeId: id };
-          ctx.ops.push(op);
-          applyScriptEngineOp(ctx, op);
-          ctx.deletedIds.add(id);
+          scriptRemoveNode(ctx, id);
         };
       }
       if (prop === 'appendChild') {
@@ -1122,8 +1146,20 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
         return (scriptTraversalMethods(ctx, nid) as Record<string, unknown>)[p];
       }
       if (p === 'parent') {
-        if (!target.attached || nid === null) return null;
+        if (!target.attached || nid === null || ctx.deletedIds.has(nid)) return null;
         return scriptParentHandle(ctx, nid);
+      }
+      if (p === 'removed') {
+        return nid !== null && ctx.deletedIds.has(nid);
+      }
+      if (p === 'remove') {
+        return (): void => {
+          const nodeId = target.getAttachedIdOrNull();
+          if (nodeId === null) {
+            throw new Error('remove requires the node to be appended to the document');
+          }
+          scriptRemoveNode(ctx, nodeId);
+        };
       }
       if (p === 'children') {
         if (!target.attached && runtimeSupportsDetachedTraversal(target.type)) {
@@ -1178,6 +1214,7 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
         return runtimeSupportsDetachedTraversal(target.type);
       }
       if (prop === 'clone' || prop === 'duplicate') return true;
+      if (prop === 'remove' || prop === 'removed') return true;
       if (prop === 'getMainComponentAsync' || prop === 'setProperties' || prop === 'setComponentProperty') {
         return target instanceof RuntimeComponentInstance;
       }
@@ -2851,6 +2888,7 @@ export async function runUseFigmaScript(
     ops: [],
     touchedIds: new Set(),
     deletedIds: new Set(),
+    detachedById: new Map(),
     selectionByPageId: new Map(),
     createdNodes: new Set(),
     sessionAssetBytes: new Map(),

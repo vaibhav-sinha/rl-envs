@@ -39,6 +39,40 @@ def mean_normalized(scores: list[float]) -> float:
     return sum(scores) / len(scores)
 
 
+def aggregate_good_design_score(
+    scores: ScoreMap,
+    *,
+    defect_keys: list[str],
+    quality_keys: list[str],
+    defect_severe_threshold: float = 0.25,
+    defect_severe_cap: float = 0.4,
+) -> dict[str, float]:
+    """Defect-first aggregation: low defect scores cap the overall result."""
+    defect = [scores[k] for k in defect_keys if k in scores]
+    quality = [scores[k] for k in quality_keys if k in scores]
+    if not defect and not quality:
+        return {
+            "mean_score": 0.0,
+            "defect_min": 0.0,
+            "quality_mean": 0.0,
+            "overall_mean": 0.0,
+        }
+
+    defect_min = min(defect) if defect else 1.0
+    quality_mean = mean_normalized(quality) if quality else 0.0
+    overall_mean = mean_normalized(defect + quality)
+    aggregated = min(defect_min, overall_mean) if defect else overall_mean
+    if defect and defect_min <= defect_severe_threshold:
+        aggregated = min(aggregated, defect_severe_cap)
+
+    return {
+        "mean_score": aggregated,
+        "defect_min": defect_min,
+        "quality_mean": quality_mean,
+        "overall_mean": overall_mean,
+    }
+
+
 def _parse_explanations(
     data: dict[str, Any],
     *,
@@ -104,13 +138,86 @@ def parse_criteria_scores(
     return result
 
 
+def parse_good_design_scores(text: str) -> dict[str, Any]:
+    from .visual.prompts import (
+        GOOD_DESIGN_CRITERIA,
+        GOOD_DESIGN_DEFECT_CRITERIA,
+        GOOD_DESIGN_DEFECT_SEVERE_CAP,
+        GOOD_DESIGN_DEFECT_SEVERE_THRESHOLD,
+        GOOD_DESIGN_QUALITY_CRITERIA,
+    )
+
+    parsed = parse_criteria_scores(
+        text,
+        consistency_keys=GOOD_DESIGN_CRITERIA,
+        scores_key="scores",
+        explanations_key="explanations",
+    )
+    scores = parsed.get("consistency_scores") or {}
+    aggregated = aggregate_good_design_score(
+        scores,
+        defect_keys=GOOD_DESIGN_DEFECT_CRITERIA,
+        quality_keys=GOOD_DESIGN_QUALITY_CRITERIA,
+        defect_severe_threshold=GOOD_DESIGN_DEFECT_SEVERE_THRESHOLD,
+        defect_severe_cap=GOOD_DESIGN_DEFECT_SEVERE_CAP,
+    )
+    parsed["mean_score"] = aggregated["mean_score"]
+    parsed["defect_min"] = aggregated["defect_min"]
+    parsed["quality_mean"] = aggregated["quality_mean"]
+    parsed["overall_mean"] = aggregated["overall_mean"]
+    return parsed
+
+
+def _requirement_entry_score(entry: dict[str, Any]) -> float:
+    present = bool(entry.get("present", entry.get("satisfied", False)))
+    quality_ok = bool(entry.get("quality_acceptable", entry.get("satisfied", False)))
+    if present and quality_ok:
+        return 1.0
+    if present:
+        return 0.0
+    return 0.0
+
+
 def parse_task_completeness(text: str) -> dict[str, Any]:
     data = json.loads(_strip_json_fence(text))
+    requirements = data.get("requirements") or []
+    normalized_requirements: list[dict[str, Any]] = []
+    requirement_scores: list[float] = []
+
+    for raw in requirements:
+        if not isinstance(raw, dict):
+            continue
+        entry = dict(raw)
+        if "present" not in entry and "satisfied" in entry:
+            entry["present"] = bool(entry["satisfied"])
+        if "quality_acceptable" not in entry and "satisfied" in entry:
+            entry["quality_acceptable"] = bool(entry["satisfied"])
+        entry["satisfied"] = bool(entry.get("present")) and bool(entry.get("quality_acceptable"))
+        normalized_requirements.append(entry)
+        requirement_scores.append(_requirement_entry_score(entry))
+
+    structurally_complete = bool(data.get("structurally_complete"))
+    quality_acceptable = bool(data.get("quality_acceptable"))
     completed = bool(data.get("completed", False))
+
+    if normalized_requirements:
+        structurally_complete = all(bool(r.get("present")) for r in normalized_requirements)
+        quality_acceptable = all(
+            bool(r.get("quality_acceptable"))
+            for r in normalized_requirements
+            if bool(r.get("present"))
+        ) and structurally_complete
+        completed = all(bool(r.get("satisfied")) for r in normalized_requirements)
+        mean_score = mean_normalized(requirement_scores)
+    else:
+        mean_score = 1.0 if completed else 0.0
+
     return {
         "completed": completed,
-        "requirements": data.get("requirements", []),
-        "mean_score": 1.0 if completed else 0.0,
+        "structurally_complete": structurally_complete,
+        "quality_acceptable": quality_acceptable,
+        "requirements": normalized_requirements,
+        "mean_score": mean_score,
     }
 
 

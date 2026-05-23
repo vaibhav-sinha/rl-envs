@@ -7,6 +7,7 @@ from ..edit_graph import changed_node_ids
 from ..hfc_render import render_node_or_error
 from ..judge import (
     parse_criteria_scores,
+    parse_good_design_scores,
     parse_numeric_score,
     parse_preference_score,
     parse_task_completeness,
@@ -20,7 +21,6 @@ from ..tree import (
 )
 from ..types import EditGraph, Envelope, SubCheckResult, subcheck_weight_from_spec
 from .prompts import (
-    GOOD_DESIGN_CRITERIA,
     build_design_consistency_prompt,
     build_design_fit_prompt,
     build_design_preference_prompt,
@@ -160,12 +160,7 @@ def _run_good_design(
         prompt=prompt,
         images=[{"role": "design", "path": str(shot_path)}],
         model=model,
-        parse_fn=lambda text: parse_criteria_scores(
-            text,
-            consistency_keys=GOOD_DESIGN_CRITERIA,
-            scores_key="scores",
-            explanations_key="explanations",
-        ),
+        parse_fn=parse_good_design_scores,
         retry_hint=(
             'Return ONLY valid JSON with keys "scores" and "explanations". No markdown.'
         ),
@@ -178,6 +173,9 @@ def _run_good_design(
             "screenshot_node_id": screenshot_id,
             "scores": llm.get("consistency_scores"),
             "explanations": llm.get("explanations"),
+            "defect_min": llm.get("defect_min"),
+            "quality_mean": llm.get("quality_mean"),
+            "overall_mean": llm.get("overall_mean"),
         },
     )
 
@@ -408,7 +406,10 @@ def _run_task_completeness(
         images=[{"role": "after", "path": str(shot_path)}],
         model=model,
         parse_fn=parse_task_completeness,
-        retry_hint='Return ONLY valid JSON with keys "requirements" and "completed". No markdown.',
+        retry_hint=(
+            'Return ONLY valid JSON with keys "requirements", "structurally_complete", '
+            '"quality_acceptable", and "completed". No markdown.'
+        ),
     )
     return _visual_result(
         spec,
@@ -417,6 +418,8 @@ def _run_task_completeness(
             "check": "task_completeness",
             "screenshot_node_id": frame_id,
             "completed": llm.get("completed"),
+            "structurally_complete": llm.get("structurally_complete"),
+            "quality_acceptable": llm.get("quality_acceptable"),
             "requirements": llm.get("requirements"),
         },
     )
