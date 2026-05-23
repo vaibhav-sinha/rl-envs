@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   mergeDetachedChildrenIntoRoot,
+  mergeInstanceFromDetached,
   mergeRectangleFromDetached,
   mergeTextFromDetached,
   normalizeSourceFigmaId,
 } from '../../src/render/instanceMerge.js';
-import type { FrameNode, RectangleNode, TextNode } from '../../src/model/types.js';
+import type { FrameNode, InstanceNode, RectangleNode, TextNode } from '../../src/model/types.js';
 
 describe('instanceMerge', () => {
   it('normalizeSourceFigmaId strips instance prefix', () => {
@@ -209,6 +210,50 @@ describe('instanceMerge', () => {
     };
     mergeRectangleFromDetached(master, detached, { warnings: [] });
     expect(master.fills?.[0]).toMatchObject({ type: 'IMAGE', imageHash: 'master-hash' });
+  });
+
+  it('clears master INSTANCE fills when detached has empty fills (variant shell, no overrides map)', () => {
+    const selectedFill = {
+      type: 'SOLID' as const,
+      color: { r: 0.2, g: 0.2, b: 0.2 },
+      visible: true,
+      opacity: 1,
+      blendMode: 'NORMAL' as const,
+    };
+    const master: InstanceNode = {
+      id: 'masterInsp',
+      type: 'INSTANCE',
+      name: '_SegmentedControl/Individual',
+      sourceFigmaId: '1429:68201',
+      mainComponentId: 'comp-set',
+      x: 0,
+      y: 0,
+      width: 164,
+      height: 36,
+      fills: [selectedFill],
+      componentProperties: { State: { type: 'VARIANT', value: 'Selected' } },
+      children: [],
+    };
+    const detached: InstanceNode = {
+      id: 'detachedInsp',
+      type: 'INSTANCE',
+      name: '_SegmentedControl/Individual',
+      sourceFigmaId: 'I2296:202724;2296:202680;1429:68201',
+      mainComponentId: 'comp-set',
+      x: 0,
+      y: 0,
+      width: 164,
+      height: 36,
+      fills: [],
+      componentProperties: {
+        'Text#4003:0': { type: 'TEXT', value: 'Inspiration' },
+        State: { type: 'VARIANT', value: 'Default' },
+      },
+      children: [],
+    };
+    mergeInstanceFromDetached(master, detached, { warnings: [] });
+    expect(master.fills).toEqual([]);
+    expect(master.componentProperties?.State).toEqual({ type: 'VARIANT', value: 'Default' });
   });
 
   it('clears master fills when detached has empty fills with explicit override', () => {

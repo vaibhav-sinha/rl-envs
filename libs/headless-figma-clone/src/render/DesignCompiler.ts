@@ -2228,6 +2228,35 @@ function buildInstanceAppearanceForRoot(
   return appearance;
 }
 
+/**
+ * Drop stale shell paints inherited from a different component-set slot when
+ * `mainComponentId` already points at the resolved variant root.
+ */
+function alignInstanceShellToVariantRoot(inst: InstanceNode, variantRoot: FrameNode): void {
+  const variantFillCount = variantRoot.fills?.length ?? 0;
+  const variantStrokeCount = variantRoot.strokes?.length ?? 0;
+  if (hasOwnAppearanceField(inst, 'fills') && (inst.fills?.length ?? 0) > 0 && variantFillCount === 0) {
+    inst.fills = [];
+    delete inst.fillStyleId;
+  }
+  if (hasOwnAppearanceField(inst, 'strokes') && (inst.strokes?.length ?? 0) > 0 && variantStrokeCount === 0) {
+    inst.strokes = [];
+    delete inst.strokeStyleId;
+  }
+}
+
+/** Ensure explicit empty shell arrays on the instance clear the cloned variant root. */
+function syncClearedShellToComponentRoot(root: FrameNode, inst: InstanceAppearanceFields): void {
+  if (hasOwnAppearanceField(inst, 'fills') && (inst.fills?.length ?? 0) === 0) {
+    root.fills = [];
+    delete root.fillStyleId;
+  }
+  if (hasOwnAppearanceField(inst, 'strokes') && (inst.strokes?.length ?? 0) === 0) {
+    root.strokes = [];
+    delete root.strokeStyleId;
+  }
+}
+
 function prepareInstanceComponentRoot(
   root: FrameNode,
   inst: InstanceAppearanceFields &
@@ -2238,12 +2267,13 @@ function prepareInstanceComponentRoot(
 ): void {
   applyComponentOverridesToTree(root, overrides);
   applyComponentProperties(root, inst.componentProperties);
-  applyInstanceAppearanceToRoot(root, buildInstanceAppearanceForRoot(inst, overrides));
-  applyInstanceShellOverrideToRoot(root, inst.id, overrides);
   const detached = instanceDetachedChildren(inst);
   if (detached) {
     mergeDetachedChildrenIntoRoot(root, detached, mergeCtx);
   }
+  applyInstanceAppearanceToRoot(root, buildInstanceAppearanceForRoot(inst, overrides));
+  applyInstanceShellOverrideToRoot(root, inst.id, overrides);
+  syncClearedShellToComponentRoot(root, inst);
   normalizeInstanceComponentRootForEmit(root, inst);
   prepareClonedComponentSubtreeForEmit(root, env);
 }
@@ -2700,6 +2730,7 @@ function emitInstance(
       warnings.push(`missing_component_root:${component.rootFrameId}`);
       return;
     }
+    alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
     root = cloneComponentRootForInstance(rootNode as FrameNode);
   } else {
     const set = target as ComponentSetNode;
@@ -2719,6 +2750,7 @@ function emitInstance(
       warnings.push(`missing_component_root:${comp.rootFrameId}`);
       return;
     }
+    alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
     root = cloneComponentRootForInstance(rootNode as FrameNode);
 
     const nodeIdMap = set.nodeIdMapByComponentId?.[selectedComponentId];

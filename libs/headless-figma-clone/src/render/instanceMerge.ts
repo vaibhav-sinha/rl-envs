@@ -47,15 +47,25 @@ function hasExplicitPaintOverride(
   return false;
 }
 
+type MergePaintsOptions = {
+  /**
+   * Nested INSTANCE shells export variant appearance as explicit paint arrays
+   * (including `[]` for variants with no fill). Trust those clears during merge.
+   */
+  trustEmptyDetachedPaints?: boolean;
+};
+
 function shouldApplyDetachedPaintClear(
   ctx: InstanceMergeContext,
   masterId: string | undefined,
   detachedId: string | undefined,
   field: MergePaintField,
-  paints: readonly unknown[] | undefined
+  paints: readonly unknown[] | undefined,
+  options?: MergePaintsOptions
 ): boolean {
   if (paints === undefined) return false;
   if (paints.length > 0) return true;
+  if (options?.trustEmptyDetachedPaints) return true;
   return hasExplicitPaintOverride(ctx, masterId, detachedId, field);
 }
 
@@ -159,17 +169,18 @@ function mergePaintsWithClear(
     strokeStyleId?: string | null;
     effectStyleId?: string | null;
   },
-  ctx: InstanceMergeContext
+  ctx: InstanceMergeContext,
+  options?: MergePaintsOptions
 ): void {
-  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'fills', detached.fills)) {
+  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'fills', detached.fills, options)) {
     master.fills = detached.fills!.length > 0 ? structuredClone(detached.fills!) : [];
     if (detached.fills!.length === 0) delete master.fillStyleId;
   }
-  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'strokes', detached.strokes)) {
+  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'strokes', detached.strokes, options)) {
     master.strokes = detached.strokes!.length > 0 ? structuredClone(detached.strokes!) : [];
     if (detached.strokes!.length === 0) delete master.strokeStyleId;
   }
-  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'effects', detached.effects)) {
+  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'effects', detached.effects, options)) {
     master.effects = detached.effects!.length > 0 ? structuredClone(detached.effects!) : [];
     if (detached.effects!.length === 0) delete master.effectStyleId;
   }
@@ -349,7 +360,8 @@ export function mergeInstanceFromDetached(
   copySceneBoundsFromDetached(master, detached);
   copyLayoutSelfFields(master, detached);
   copySceneAppearance(master, detached);
-  mergePaintsWithClear(master, detached, ctx);
+  const instancePaintOptions: MergePaintsOptions = { trustEmptyDetachedPaints: true };
+  mergePaintsWithClear(master, detached, ctx, instancePaintOptions);
   copyStrokeExtras(master, detached);
   copyCornerRadiiFromDetached(master, detached);
   if (detached.clipsContent !== undefined) master.clipsContent = detached.clipsContent;
@@ -361,7 +373,16 @@ export function mergeInstanceFromDetached(
   if (detached.children !== undefined) {
     master.children = structuredClone(detached.children);
   }
-  if (shouldApplyDetachedPaintClear(ctx, master.id, detached.id, 'backgrounds', detached.backgrounds)) {
+  if (
+    shouldApplyDetachedPaintClear(
+      ctx,
+      master.id,
+      detached.id,
+      'backgrounds',
+      detached.backgrounds,
+      instancePaintOptions
+    )
+  ) {
     master.backgrounds =
       detached.backgrounds!.length > 0 ? structuredClone(detached.backgrounds!) : [];
   }
