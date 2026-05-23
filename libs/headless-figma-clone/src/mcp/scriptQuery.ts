@@ -23,6 +23,56 @@ function isPatchKeyForType(nodeType: string, key: string): boolean {
   return Boolean(m[nodeType]?.has(key));
 }
 
+function orderSetPropEntries(props: Record<string, unknown>): [string, unknown][] {
+  const entries = Object.entries(props);
+  return [
+    ...entries.filter(([k]) => SET_PRIORITY_KEYS.includes(k)),
+    ...entries.filter(([k]) => !SET_PRIORITY_KEYS.includes(k)),
+  ];
+}
+
+function buildSetPropPatch(nodeType: string, props: Record<string, unknown>): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of orderSetPropEntries(props)) {
+    if (key === 'width' || key === 'height') continue;
+    if (!isPatchKeyForType(nodeType, key)) {
+      throw new ValidationErr('UNSUPPORTED_PROPERTY', `Unsupported patch key: ${key}`);
+    }
+    if (key === 'primaryAxisSizingMode' || key === 'counterAxisSizingMode') {
+      patch[key] = validateAxisSizingMode(value, key);
+      continue;
+    }
+    patch[key] = value;
+  }
+  return patch;
+}
+
+/** Apply `node.set`-style props to a detached FRAME before it is appended (e.g. `createAutoLayout` props). */
+export interface DetachedFrameSetTarget {
+  width: number;
+  height: number;
+  layoutMode?: string;
+  resize(w: number, h: number): void;
+}
+
+export function applyDetachedFrameSetProps(
+  frame: DetachedFrameSetTarget,
+  props: Record<string, unknown>
+): void {
+  const patch = buildSetPropPatch('FRAME', props);
+  const target = frame as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    target[key] = value;
+  }
+  const hasWidth = 'width' in props;
+  const hasHeight = 'height' in props;
+  if (hasWidth || hasHeight) {
+    const w = hasWidth ? (props.width as number) : frame.width;
+    const h = hasHeight ? (props.height as number) : frame.height;
+    frame.resize(w, h);
+  }
+}
+
 export function applyNodeSetProps(
   deps: ScriptQueryDeps,
   nodeId: string,
@@ -34,27 +84,9 @@ export function applyNodeSetProps(
   const live = findEnvelopeNode(deps.working, nodeId, deps.nodeIndex);
   if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
 
-  const entries = Object.entries(props);
-  const ordered = [
-    ...entries.filter(([k]) => SET_PRIORITY_KEYS.includes(k)),
-    ...entries.filter(([k]) => !SET_PRIORITY_KEYS.includes(k)),
-  ];
-
   const hasWidth = 'width' in props;
   const hasHeight = 'height' in props;
-
-  const patch: Record<string, unknown> = {};
-  for (const [key, value] of ordered) {
-    if (key === 'width' || key === 'height') continue;
-    if (!isPatchKeyForType(live.type, key)) {
-      throw new ValidationErr('UNSUPPORTED_PROPERTY', `Unsupported patch key: ${key}`);
-    }
-    if (key === 'primaryAxisSizingMode' || key === 'counterAxisSizingMode') {
-      patch[key] = validateAxisSizingMode(value, key);
-      continue;
-    }
-    patch[key] = value;
-  }
+  const patch = buildSetPropPatch(live.type, props);
 
   if (Object.keys(patch).length > 0) {
     deps.queueUpdate(nodeId, patch);

@@ -378,7 +378,7 @@ export class TasksStore {
 
     const envDir = join(root, 'environment');
     mkdirSync(envDir, { recursive: true });
-    writeFileSync(join(envDir, 'design.hfc.json'), JSON.stringify(envelope, null, 2) + '\n', 'utf8');
+    writeJsonFile(join(envDir, 'design.hfc.json'), envelope);
     this.copyDesignAssetsSidecar(copyFrom, root);
 
     const state = this.readBuilderState(id);

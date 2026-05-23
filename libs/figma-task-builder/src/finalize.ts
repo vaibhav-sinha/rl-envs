@@ -12,6 +12,7 @@ function sidecarDirForHfcJson(hfcPath: string): string {
   return hfcPath.slice(0, -'.hfc.json'.length) + '.hfc.assets';
 }
 
+/** Keep in sync with envs/figma-design/scripts/dockerfile-template.mjs */
 function renderTaskDockerfile(hasSidecar: boolean): string {
   const lines = [
     'FROM metaphi/figma-design-base:latest',
@@ -20,6 +21,7 @@ function renderTaskDockerfile(hasSidecar: boolean): string {
     'COPY design.hfc.json /tests/design.initial.hfc.json',
     'COPY instruction.md /tests/instruction.md',
     'ENV HFC_INITIAL_FILE=/data/workspace/design.hfc.json',
+    'ENV HFC_PREVIEW_ON_LOAD=0',
     '',
     'COPY assets/ /app/assets/',
   ];

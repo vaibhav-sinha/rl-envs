@@ -177,6 +177,32 @@
     {
       "success": true,
       "at": "2026-05-23T03:40:14.320Z"
+    },
+    {
+      "success": false,
+      "at": "2026-05-23T07:03:11.285Z",
+      "errorCode": "VALIDATION_ERROR",
+      "message": "PNG too short"
+    },
+    {
+      "success": true,
+      "at": "2026-05-23T07:03:24.146Z"
+    },
+    {
+      "success": false,
+      "at": "2026-05-23T07:05:34.135Z",
+      "errorCode": "VALIDATION_ERROR",
+      "message": "PNG too short"
+    },
+    {
+      "success": false,
+      "at": "2026-05-23T07:09:01.512Z",
+      "errorCode": "VALIDATION_ERROR",
+      "message": "PNG too short"
+    },
+    {
+      "success": true,
+      "at": "2026-05-23T07:11:15.413Z"
     }
   ]
 }

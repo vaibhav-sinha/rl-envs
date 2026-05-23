@@ -96,6 +96,46 @@ return {};
     });
   });
 
+  it('createAutoLayout applies props object (direction + props or props-only)', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.createEmptyFile({ fileName: 'AL' });
+      const run = await runUseFigmaScript(
+        `
+const peach = { type: 'SOLID', color: { r: 1, g: 0.92, b: 0.88 } };
+const column = figma.createAutoLayout('VERTICAL', {
+  name: 'Sale - Bundle Deals',
+  itemSpacing: 12,
+  paddingTop: 20,
+  fills: [{ type: 'SOLID', color: peach.color }],
+});
+const card = figma.createAutoLayout({ name: 'Card', itemSpacing: 16 });
+figma.currentPage.appendChild(column);
+figma.currentPage.appendChild(card);
+return { columnName: column.name, cardName: card.name };
+`.trim(),
+        engine
+      );
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+      await commitScriptRun(engine, run);
+      const frames = run.operations
+        .filter((o) => o.op === 'createNode' && o.node.type === 'FRAME')
+        .map((o) => (o.op === 'createNode' ? o.node : null));
+      const column = frames.find((n) => n?.name === 'Sale - Bundle Deals');
+      const card = frames.find((n) => n?.name === 'Card');
+      expect(column?.layoutMode).toBe('VERTICAL');
+      expect(column?.itemSpacing).toBe(12);
+      expect(column?.paddingTop).toBe(20);
+      expect(column?.fills).toEqual([{ type: 'SOLID', color: { r: 1, g: 0.92, b: 0.88 } }]);
+      expect(card?.layoutMode).toBe('HORIZONTAL');
+      expect(card?.itemSpacing).toBe(16);
+    });
+  });
+
   it('createFrame and createAutoLayout default to white fill (Figma parity)', async () => {
     await withWs(async () => {
       const engine = new DocumentEngine({

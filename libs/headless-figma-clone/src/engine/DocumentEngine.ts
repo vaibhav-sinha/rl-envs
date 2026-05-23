@@ -128,7 +128,7 @@ export type NewNodeSpec =
   | (Omit<PageNode, 'id' | 'children'> & { type: 'PAGE' });
 
 export type SceneGraphOperation =
-  | { op: 'createNode'; parentId: string; index?: number; node: NewNodeSpec }
+  | { op: 'createNode'; parentId: string; index?: number; node: NewNodeSpec; nodeId?: string }
   | { op: 'updateNode'; nodeId: string; patch: Record<string, unknown> }
   | { op: 'deleteNode'; nodeId: string }
   | { op: 'moveNode'; nodeId: string; newParentId: string; index?: number }
@@ -1752,10 +1752,21 @@ function removeNodeById(root: DocumentNode, nodeId: string): void {
   list.splice(idx, 1);
 }
 
-function allocNodeId(working: FileEnvelope): string {
+/** Allocates the next HFC internal node id (`I1`, `I2`, …) and advances the envelope counter. */
+export function allocNodeId(working: FileEnvelope): string {
   const id = `I${String(working.nextInternalId)}`;
   working.nextInternalId += 1;
   return id;
+}
+
+function syncNextInternalIdFromReserved(working: FileEnvelope, id: string): void {
+  const n = Number.parseInt(id.slice(1), 10);
+  if (!Number.isFinite(n) || n < 1) {
+    throw new ValidationErr('VALIDATION_ERROR', `Invalid reserved node id ${id}`);
+  }
+  if (n >= working.nextInternalId) {
+    working.nextInternalId = n + 1;
+  }
 }
 
 /** Shallow copy scene node scalars; omit `children` (filled by clone walk). */
@@ -2107,8 +2118,24 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphO
   if (!parentAllowsChild(parent.type, op.node.type)) {
     throw new ValidationErr('VALIDATION_ERROR', `Cannot create ${op.node.type} under ${parent.type}`);
   }
-  const id = `I${String(working.nextInternalId)}`;
-  working.nextInternalId += 1;
+  let id: string;
+  if (op.nodeId !== undefined) {
+    id = op.nodeId;
+    const existing = findNode(working.document, id);
+    if (existing) {
+      if (existing.type !== op.node.type) {
+        throw new ValidationErr(
+          'VALIDATION_ERROR',
+          `Node id ${id} already exists with type ${existing.type}`
+        );
+      }
+      syncNextInternalIdFromReserved(working, id);
+      return id;
+    }
+    syncNextInternalIdFromReserved(working, id);
+  } else {
+    id = allocNodeId(working);
+  }
   let node: PageNode | SceneNode;
   if (op.node.type === 'FRAME') {
     node = normalizeNewFrame(op.node, id, working);
@@ -2479,7 +2506,7 @@ export function collectTouchedNodeIdsFromOps(ops: EngineOperation[]): string[] {
       } else if (op.op === 'moveNode') {
         touched.add(op.nodeId);
         touched.add(op.newParentId);
-      } else if ('nodeId' in op) {
+      } else if (op.op === 'updateNode' || op.op === 'deleteNode') {
         touched.add(op.nodeId);
       }
     }
@@ -2534,7 +2561,7 @@ export async function applyOpsToEnvelope(
       else if (op.op === 'moveNode') {
         touched.add(op.nodeId);
         touched.add(op.newParentId);
-      } else if ('nodeId' in op) {
+      } else if (op.op === 'updateNode' || op.op === 'deleteNode') {
         touched.add(op.nodeId);
       }
     }

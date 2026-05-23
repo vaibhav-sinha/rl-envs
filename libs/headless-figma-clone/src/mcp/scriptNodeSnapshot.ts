@@ -242,7 +242,12 @@ function snapshotRuntimeSceneNode(
   if (node.attached && id !== null) {
     return snapshotNodeById(id, ctx, state);
   }
+  const reservedId =
+    'id' in node && typeof (node as { id: unknown }).id === 'string'
+      ? (node as { id: string }).id
+      : undefined;
   return {
+    ...(reservedId !== undefined ? { id: reservedId } : {}),
     type: node.type,
     name: node.name,
     x: node.x,

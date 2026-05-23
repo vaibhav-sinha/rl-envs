@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
 import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
+import { commitScriptRun } from '../helpers/commitScriptRun.js';
 import { designCompiler } from '../../src/render/DesignCompiler.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
@@ -59,7 +60,7 @@ describe('useFigmaScript styledSegments', () => {
       );
       expect(textCreate?.op === 'createNode' && textCreate.node.styledSegments?.length).toBe(3);
 
-      const applied = await engine.applyTransaction(run.operations);
+      const applied = await commitScriptRun(engine, run);
       expect(applied.success).toBe(true);
 
       const text = findText(engine.getActiveFile()!);

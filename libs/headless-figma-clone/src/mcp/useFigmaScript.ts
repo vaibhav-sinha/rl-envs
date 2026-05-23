@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import {
+  allocNodeId,
   applyCreateNodeOp,
   applyEngineOp,
   detachSceneNodeById,
@@ -33,7 +34,12 @@ import { lookupAssetRecord, resolveAssetBytes } from '../images/resolveAssetByte
 import type { RasterMime } from '../images/rasterMime.js';
 import { getImmediateSceneChildren } from '../traversal/findNodes.js';
 import { createTraversalMethods } from './scriptTraversal.js';
-import { applyNodeSetProps, runNodeMatches, type ScriptQueryDeps } from './scriptQuery.js';
+import {
+  applyDetachedFrameSetProps,
+  applyNodeSetProps,
+  runNodeMatches,
+  type ScriptQueryDeps,
+} from './scriptQuery.js';
 import { createDocumentTraversalMethods } from './scriptDocumentTraversal.js';
 import {
   createDetachedTraversalMethods,
@@ -223,7 +229,7 @@ function recordTouchedFromOp(ctx: ScriptContext, op: EngineOperation, resultId?:
   else if (op.op === 'moveNode') {
     ctx.touchedIds.add(op.nodeId);
     ctx.touchedIds.add(op.newParentId);
-  } else if ('nodeId' in op) {
+  } else if (op.op === 'updateNode' || op.op === 'deleteNode') {
     ctx.touchedIds.add(op.nodeId);
   }
 }
@@ -261,6 +267,65 @@ function scriptQueryDeps(ctx: ScriptContext): ScriptQueryDeps {
     signal: ctx.signal,
     graphIndexes: getGraphIndexes(ctx),
   };
+}
+
+const AUTO_LAYOUT_DIRECTIONS = new Set(['HORIZONTAL', 'VERTICAL']);
+
+function isPlainPropsObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function parseCreateAutoLayoutArgs(
+  arg0?: unknown,
+  arg1?: unknown
+): { direction?: 'HORIZONTAL' | 'VERTICAL'; props?: Record<string, unknown> } {
+  if (arg0 === undefined) {
+    if (arg1 !== undefined) {
+      throw new ValidationErr('VALIDATION_ERROR', 'createAutoLayout: props object must be the first argument');
+    }
+    return {};
+  }
+  if (AUTO_LAYOUT_DIRECTIONS.has(arg0 as string)) {
+    if (arg1 !== undefined && !isPlainPropsObject(arg1)) {
+      throw new ValidationErr('VALIDATION_ERROR', 'createAutoLayout: second argument must be a props object');
+    }
+    return {
+      direction: arg0 as 'HORIZONTAL' | 'VERTICAL',
+      props: isPlainPropsObject(arg1) ? arg1 : undefined,
+    };
+  }
+  if (isPlainPropsObject(arg0)) {
+    if (arg1 !== undefined) {
+      throw new ValidationErr(
+        'VALIDATION_ERROR',
+        'createAutoLayout: unexpected second argument when props are first'
+      );
+    }
+    return { direction: 'HORIZONTAL', props: arg0 };
+  }
+  throw new ValidationErr(
+    'VALIDATION_ERROR',
+    'createAutoLayout: first argument must be "HORIZONTAL", "VERTICAL", or a props object'
+  );
+}
+
+function configureAutoLayoutDirection(f: RuntimeFrame, direction?: 'HORIZONTAL' | 'VERTICAL'): void {
+  if (direction === 'VERTICAL') {
+    f.layoutMode = 'VERTICAL';
+    /** Explicit vertical AL: primary (height) hugs; cross-axis width keeps default until resize (symmetric to HORIZONTAL). */
+    f.primaryAxisSizingMode = 'AUTO';
+    f.counterAxisSizingMode = 'FIXED';
+  } else if (direction === 'HORIZONTAL') {
+    f.layoutMode = 'HORIZONTAL';
+    /** Explicit horizontal AL: cross-axis keeps default frame height until resize (Figma pill pattern). */
+    f.primaryAxisSizingMode = 'AUTO';
+    f.counterAxisSizingMode = 'FIXED';
+  } else {
+    /** `createAutoLayout()` no-arg: both axes hug (toolbars, stacks); not the explicit-HORIZONTAL pill case. */
+    f.layoutMode = 'HORIZONTAL';
+    f.primaryAxisSizingMode = 'AUTO';
+    f.counterAxisSizingMode = 'AUTO';
+  }
 }
 
 function scriptTraversalMethods(ctx: ScriptContext, containerId: string) {
@@ -921,6 +986,7 @@ const LIVE_MIRROR_PROPS = new Set([
 ]);
 
 function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext): N {
+  node.reserveScriptNodeId(ctx);
   const proxied = new Proxy(node, {
     get(target, prop, receiver) {
       const p = prop as string;
@@ -1201,11 +1267,16 @@ abstract class RuntimeSceneNode {
     return this;
   }
 
+  /** Reserve an HFC id for a detached runtime node (Figma: `node.id` exists before appendChild). */
+  reserveScriptNodeId(ctx: ScriptContext): void {
+    if (this._id !== null) return;
+    ensureWorkingCopy(ctx);
+    this._id = allocNodeId(ctx.working);
+  }
+
   get id(): string {
     if (this._id === null) {
-      throw new Error(
-        'Node id is not available until the node has been appended with parent.appendChild(node)'
-      );
+      throw new Error('Node id is not available');
     }
     return this._id;
   }
@@ -1226,9 +1297,9 @@ abstract class RuntimeSceneNode {
     return this.clone();
   }
 
-  /** Used by script helpers outside subclasses (reparent / booleans). */
+  /** Document id when attached; null while the node is still detached (reserved id is on `.id`). */
   getAttachedIdOrNull(): string | null {
-    return this._id;
+    return this.attached ? this._id : null;
   }
 
   /** Plugin API: child sets its own grid anchor (not on the parent frame). */
@@ -1263,10 +1334,17 @@ abstract class RuntimeSceneNode {
     if (embedded.length > 0) {
       (nodeSpec as NewNodeSpec & { children?: SceneNode[] }).children = embedded;
     }
-    const op: EngineOperation = { op: 'createNode', parentId, index, node: nodeSpec };
+    const reservedId = this._id;
+    if (reservedId === null) {
+      throw new Error('Node id is not available');
+    }
+    const op: EngineOperation = { op: 'createNode', parentId, index, node: nodeSpec, nodeId: reservedId };
     ctx.ops.push(op);
     try {
-      this._id = applyScriptCreateNodeOp(ctx, op);
+      const committedId = applyScriptCreateNodeOp(ctx, op);
+      if (committedId !== reservedId) {
+        throw new Error(`Internal error: createNode id mismatch (expected ${reservedId}, got ${committedId})`);
+      }
     } catch (e) {
       ctx.ops.pop();
       for (let i = 0; i < journalDeleteIds.length; i++) ctx.ops.pop();
@@ -3082,23 +3160,15 @@ export async function runUseFigmaScript(
       });
       return createHandleProxy(ctx, tgId);
     },
-    createAutoLayout: (direction?: 'HORIZONTAL' | 'VERTICAL'): RuntimeFrame => {
+    createAutoLayout: (
+      arg0?: 'HORIZONTAL' | 'VERTICAL' | Record<string, unknown>,
+      arg1?: Record<string, unknown>
+    ): RuntimeFrame => {
+      const { direction, props } = parseCreateAutoLayoutArgs(arg0, arg1);
       const f = new RuntimeFrame();
-      if (direction === 'VERTICAL') {
-        f.layoutMode = 'VERTICAL';
-        /** Explicit vertical AL: primary (height) hugs; cross-axis width keeps default until resize (symmetric to HORIZONTAL). */
-        f.primaryAxisSizingMode = 'AUTO';
-        f.counterAxisSizingMode = 'FIXED';
-      } else if (direction === 'HORIZONTAL') {
-        f.layoutMode = 'HORIZONTAL';
-        /** Explicit horizontal AL: cross-axis keeps default frame height until resize (Figma pill pattern). */
-        f.primaryAxisSizingMode = 'AUTO';
-        f.counterAxisSizingMode = 'FIXED';
-      } else {
-        /** `createAutoLayout()` no-arg: both axes hug (toolbars, stacks); not the explicit-HORIZONTAL pill case. */
-        f.layoutMode = 'HORIZONTAL';
-        f.primaryAxisSizingMode = 'AUTO';
-        f.counterAxisSizingMode = 'AUTO';
+      configureAutoLayoutDirection(f, direction);
+      if (props) {
+        applyDetachedFrameSetProps(f, props);
       }
       return wrapRuntimeNode(f.bindContext(ctx), ctx);
     },
