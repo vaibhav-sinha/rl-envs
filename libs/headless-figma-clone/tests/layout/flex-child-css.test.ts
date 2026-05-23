@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FrameNode, RectangleNode } from '../../src/model/types.js';
+import type { FrameNode, InstanceNode, RectangleNode, TextNode } from '../../src/model/types.js';
 import { constraintPositionCss, flexChildLayoutCss } from '../../src/layout/flexChildCss.js';
 
 describe('flexChildCss', () => {
@@ -30,6 +30,27 @@ describe('flexChildCss', () => {
     const css = flexChildLayoutCss(child, true, { absX: 0, absY: 0, width: 40, height: 20 }, parentRow);
     expect(css).toContain('flex:0 0 auto');
     expect(css).toContain('height:20px');
+  });
+
+  it('emits HUG instance with fixed main-axis basis and no shrink in a horizontal row', () => {
+    const child: InstanceNode = {
+      id: 'I9150',
+      type: 'INSTANCE',
+      name: 'ProductUI',
+      x: 0,
+      y: 0,
+      width: 220,
+      height: 298,
+      mainComponentId: 'I74183',
+      layoutSizingHorizontal: 'HUG',
+      layoutSizingVertical: 'HUG',
+      layoutGrow: 0,
+    };
+    const css = flexChildLayoutCss(child, true, { absX: 0, absY: 0, width: 220, height: 298 }, parentRow);
+    expect(css).toContain('flex:0 0 220px');
+    expect(css).not.toContain('flex:0 1 auto');
+    expect(css).toContain('height:298px');
+    expect(css).not.toContain('height:auto');
   });
 
   it('emits absolute positioning inside flex when layoutPositioning is ABSOLUTE', () => {
@@ -144,5 +165,43 @@ describe('flexChildCss', () => {
     const css = flexChildLayoutCss(bar, true, { absX: 0, absY: 0, width: 108, height: 5 }, parentCol);
     expect(css).toMatch(/flex:\s*0\s+0\s+5px/);
     expect(css).toContain('width:108px');
+  });
+
+  it('does not center text horizontally in vertical auto-layout when textAlignVertical is CENTER', () => {
+    const parentCol: FrameNode = { ...parentRow, layoutMode: 'VERTICAL', width: 480, height: 100 };
+    const title = {
+      id: 'I9288',
+      type: 'TEXT',
+      name: 'Popular collections',
+      x: 0,
+      y: 0,
+      width: 328,
+      height: 20,
+      layoutSizingHorizontal: 'FIXED',
+      layoutSizingVertical: 'HUG',
+      textAlignVertical: 'CENTER',
+      textAlignHorizontal: 'LEFT',
+    } as TextNode;
+    const css = flexChildLayoutCss(title, true, { absX: 0, absY: 0, width: 328, height: 20 }, parentCol);
+    expect(css).not.toContain('align-self:center');
+  });
+
+  it('centers text vertically in horizontal auto-layout when textAlignVertical is CENTER', () => {
+    const parentRowTall: FrameNode = { ...parentRow, height: 100 };
+    const title = {
+      id: 'I1',
+      type: 'TEXT',
+      name: 'Label',
+      x: 0,
+      y: 40,
+      width: 200,
+      height: 20,
+      layoutSizingHorizontal: 'FIXED',
+      layoutSizingVertical: 'HUG',
+      textAlignVertical: 'CENTER',
+      textAlignHorizontal: 'LEFT',
+    } as TextNode;
+    const css = flexChildLayoutCss(title, true, { absX: 0, absY: 40, width: 200, height: 20 }, parentRowTall);
+    expect(css).toContain('align-self:center');
   });
 });

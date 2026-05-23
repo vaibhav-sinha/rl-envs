@@ -102,7 +102,7 @@ describe('verification scenarios 07 line stroke and 09 rotation', () => {
       expect(rect?.y).toBe(120);
 
       const blob = `${compiled.css}\n${compiled.html}`;
-      expect(blob).toContain('transform:rotate(-45deg)');
+      expect(blob).toContain('transform:matrix(');
       expect(blob).toContain('transform-origin:top left');
       expect(blob).not.toContain('transform-origin:center center');
       expect(blob).not.toContain('transform:rotate(45deg)');

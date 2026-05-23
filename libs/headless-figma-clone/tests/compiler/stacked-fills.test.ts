@@ -55,6 +55,60 @@ describe('stacked fills', () => {
     expect(out.css).toContain('background-color:transparent');
   });
 
+  it('renders solid under image fill on full ellipse', () => {
+    const ellipse: EllipseNode = {
+      id: 'I10',
+      type: 'ELLIPSE',
+      name: 'Logo circle',
+      x: 0,
+      y: 0,
+      width: 60,
+      height: 60,
+      visible: true,
+      fills: [
+        {
+          type: 'SOLID',
+          color: { r: 0.7764706015586853, g: 0.8392156958580017, b: 0.8980392217636108 },
+          visible: true,
+        },
+        {
+          type: 'IMAGE',
+          imageHash: 'logo-hash',
+          scaleMode: 'FIT',
+          visible: true,
+        },
+      ],
+    };
+    const envelope: FileEnvelope = {
+      document: {
+        id: 'D1',
+        name: 'Doc',
+        children: [
+          {
+            id: 'P1',
+            type: 'PAGE',
+            name: 'Page',
+            children: [ellipse],
+          },
+        ],
+      },
+    };
+    const out = designCompiler.compileSubtree({
+      envelope,
+      rootNodeId: 'I10',
+      options: {
+        viewportPaddingPx: 0,
+        includeCss: true,
+        inlineCss: false,
+        imageDataUrlByHash: { 'logo-hash': 'data:image/png;base64,abc' },
+      },
+    });
+    expect(out.css).toContain('border-radius:50%');
+    expect(out.css).toContain('linear-gradient(rgba(198,214,229,1), rgba(198,214,229,1))');
+    expect(out.css).toContain('url("data:image/png;base64,abc")');
+    expect(out.css).toContain('background-size:contain,100% 100%');
+  });
+
   it('renders pattern fill from ellipse source (scenario 20)', () => {
     const tile: EllipseNode = {
       id: 'I2',

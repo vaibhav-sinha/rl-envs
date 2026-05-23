@@ -8,6 +8,7 @@ import type {
   StrokeJoin,
 } from '../model/types.js';
 import type { ImportReport } from './importReport.js';
+import type { FigmaIdMap } from './idMap.js';
 
 export function prop(props: Record<string, unknown>, key: string): unknown {
   return props[key];
@@ -34,6 +35,13 @@ export function optStyleId(v: unknown): string | null | undefined {
   if (v === undefined) return undefined;
   if (v === null || v === '') return null;
   return typeof v === 'string' ? v : undefined;
+}
+
+/** Remap Figma style ids to stable HFC ids (matches {@link mapPaintStyles} allocation). */
+export function mapStyleId(idMap: FigmaIdMap, raw: unknown): string | null | undefined {
+  const tri = optStyleId(raw);
+  if (tri === undefined || tri === null) return tri;
+  return idMap.get(tri) ?? idMap.allocate(tri);
 }
 
 /** Like mapEffects but preserves explicit empty arrays from Figma resets. */
@@ -201,6 +209,17 @@ export function mapBlendOpacity(props: Record<string, unknown>): Record<string, 
   const out: Record<string, unknown> = {};
   const rot = optNum(prop(props, 'rotation'));
   if (rot !== undefined) out.rotation = rot;
+  const rt = prop(props, 'relativeTransform');
+  if (
+    Array.isArray(rt) &&
+    rt.length === 2 &&
+    Array.isArray(rt[0]) &&
+    Array.isArray(rt[1]) &&
+    rt[0].length === 3 &&
+    rt[1].length === 3
+  ) {
+    out.relativeTransform = rt;
+  }
   const op = optNum(prop(props, 'opacity'));
   if (op !== undefined) out.opacity = op;
   const bm = prop(props, 'blendMode');

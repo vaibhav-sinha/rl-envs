@@ -314,8 +314,12 @@ export function effectiveVerticalItemSpacingPx(f: FrameNode): number {
   return gap;
 }
 
+function isLayoutVisibleChild(n: SceneNode): boolean {
+  return n.visible !== false;
+}
+
 function sumPrimaryHeightsVert(f: FrameNode, env: FileEnvelope | undefined): number {
-  const kids = f.children;
+  const kids = f.children.filter(isLayoutVisibleChild);
   if (kids.length === 0) return 0;
   const gap = f.itemSpacing ?? 0;
   let s = 0;
@@ -333,7 +337,7 @@ function intrinsicMainSizeAsFlexChildVert(n: SceneNode, env: FileEnvelope | unde
 }
 
 function sumPrimaryWidthsHoriz(f: FrameNode, env: FileEnvelope | undefined): number {
-  const kids = f.children;
+  const kids = f.children.filter(isLayoutVisibleChild);
   if (kids.length === 0) return 0;
   const gap = f.itemSpacing ?? 0;
   let s = 0;
@@ -347,6 +351,50 @@ function sumPrimaryWidthsHoriz(f: FrameNode, env: FileEnvelope | undefined): num
 
 function intrinsicMainSizeAsFlexChildHoriz(n: SceneNode, env: FileEnvelope | undefined): number {
   return isFlexFrame(n as FrameNode) ? (n as FrameNode).width : maxCrossWidthVertStack(n, env);
+}
+
+/**
+ * Counter-axis (height) for horizontal auto-layout with `layoutWrap: WRAP` — pack children
+ * into rows using the frame's inner width, then sum row max heights + row gaps.
+ */
+function sumWrappedCrossHeightsHoriz(f: FrameNode, env: FileEnvelope | undefined): number {
+  const kids = f.children.filter(isLayoutVisibleChild);
+  if (kids.length === 0) return 0;
+
+  const colGap = f.itemSpacing ?? 0;
+  const rowGap = f.counterAxisSpacing ?? colGap;
+  const availableWidth = Math.max(0, f.width - padX(f));
+
+  let totalHeight = 0;
+  let rowWidth = 0;
+  let rowMaxHeight = 0;
+  let rowCount = 0;
+
+  for (const c of kids) {
+    const childWidth = intrinsicMainSizeAsFlexChildHoriz(c, env);
+    const childHeight = maxCrossHeightHorizRow(c, env);
+    const needsNewRow = rowWidth > 0 && rowWidth + colGap + childWidth > availableWidth;
+
+    if (needsNewRow) {
+      totalHeight += rowMaxHeight;
+      if (rowCount > 0) totalHeight += rowGap;
+      rowCount++;
+      rowWidth = childWidth;
+      rowMaxHeight = childHeight;
+      continue;
+    }
+
+    if (rowWidth > 0) rowWidth += colGap;
+    rowWidth += childWidth;
+    rowMaxHeight = Math.max(rowMaxHeight, childHeight);
+  }
+
+  if (rowWidth > 0) {
+    if (rowCount > 0) totalHeight += rowGap;
+    totalHeight += rowMaxHeight;
+  }
+
+  return totalHeight;
 }
 
 /**
@@ -492,8 +540,14 @@ export function applyAutoLayoutIntrinsicSizingDeep(
       newW = primaryMode === 'AUTO' ? target : Math.max(f.width, target);
     }
     if (counterIntrinsic) {
-      let cross = 0;
-      for (const c of f.children) cross = Math.max(cross, maxCrossHeightHorizRow(c, env));
+      const cross =
+        f.layoutWrap === 'WRAP'
+          ? sumWrappedCrossHeightsHoriz(f, env)
+          : (() => {
+              let mx = 0;
+              for (const c of f.children) mx = Math.max(mx, maxCrossHeightHorizRow(c, env));
+              return mx;
+            })();
       const target = cross + padY(f);
       newH = counterMode === 'AUTO' ? target : Math.max(f.height, target);
     }

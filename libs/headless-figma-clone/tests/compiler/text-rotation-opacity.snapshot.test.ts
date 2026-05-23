@@ -19,7 +19,7 @@ describe('compiler rotation and opacity', () => {
       rootNodeId: 'I6',
       options: { viewportPaddingPx: 0, includeCss: true, inlineCss: false },
     });
-    expect(c.css).toContain('rotate(-12deg)');
+    expect(c.css).toContain('transform:matrix(');
     expect(c.css).toContain('transform-origin:top left');
     const envT = loadFx('phase2-minimal.valid.json');
     const ct = designCompiler.compileSubtree({

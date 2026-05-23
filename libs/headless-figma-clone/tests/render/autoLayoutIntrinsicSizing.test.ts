@@ -153,4 +153,134 @@ describe('autoLayoutIntrinsicSizing — exported hug text + parent cross cap', (
     expect(t.width).toBeLessThan(heuristic);
     expect(t.width).toBe(metrics);
   });
+
+  it('sums wrapped row heights for horizontal auto-layout with layoutWrap WRAP', () => {
+    const mkCard = (id: string, height: number): FrameNode => ({
+      id,
+      name: id,
+      type: 'FRAME',
+      x: 0,
+      y: 0,
+      width: 156,
+      height,
+      layoutMode: 'VERTICAL',
+      layoutSizingHorizontal: 'HUG',
+      layoutSizingVertical: 'HUG',
+      children: [],
+    });
+    const grid: FrameNode = {
+      id: 'grid',
+      name: 'grid',
+      type: 'FRAME',
+      x: 0,
+      y: 0,
+      width: 328,
+      height: 460,
+      layoutMode: 'HORIZONTAL',
+      layoutWrap: 'WRAP',
+      layoutSizingHorizontal: 'FIXED',
+      layoutSizingVertical: 'HUG',
+      primaryAxisSizingMode: 'FIXED',
+      counterAxisSizingMode: 'AUTO',
+      itemSpacing: 16,
+      children: [mkCard('a', 230), mkCard('b', 214), mkCard('c', 214), mkCard('d', 214)],
+    };
+    const parent: FrameNode = {
+      id: 'root',
+      name: 'root',
+      type: 'FRAME',
+      x: 0,
+      y: 0,
+      width: 328,
+      height: 488,
+      layoutMode: 'VERTICAL',
+      layoutSizingHorizontal: 'HUG',
+      layoutSizingVertical: 'HUG',
+      primaryAxisSizingMode: 'AUTO',
+      counterAxisSizingMode: 'AUTO',
+      itemSpacing: 8,
+      children: [
+        {
+          id: 'header',
+          name: 'header',
+          type: 'FRAME',
+          x: 0,
+          y: 0,
+          width: 328,
+          height: 20,
+          layoutMode: 'HORIZONTAL',
+          layoutSizingHorizontal: 'FIXED',
+          layoutSizingVertical: 'HUG',
+          children: [],
+        },
+        grid,
+      ],
+    };
+
+    applyAutoLayoutIntrinsicSizingDeep(parent, undefined, undefined);
+    expect(grid.height).toBe(460);
+    expect(parent.height).toBe(488);
+  });
+
+  it('excludes visible:false children from vertical hug stack height', () => {
+    const desc: FrameNode = {
+      id: 'desc',
+      name: 'Product Description',
+      type: 'FRAME',
+      x: 0,
+      y: 228,
+      width: 220,
+      height: 70,
+      layoutMode: 'VERTICAL',
+      layoutSizingHorizontal: 'FILL',
+      layoutSizingVertical: 'HUG',
+      primaryAxisSizingMode: 'AUTO',
+      counterAxisSizingMode: 'FIXED',
+      itemSpacing: 8,
+      children: [
+        {
+          id: 'textBlock',
+          name: 'textBlock',
+          type: 'FRAME',
+          x: 0,
+          y: 0,
+          width: 220,
+          height: 70,
+          layoutMode: 'VERTICAL',
+          layoutSizingVertical: 'HUG',
+          primaryAxisSizingMode: 'AUTO',
+          itemSpacing: 2,
+          children: [
+            {
+              id: 'brand',
+              name: 'Brand',
+              type: 'TEXT',
+              x: 0,
+              y: 0,
+              width: 220,
+              height: 16,
+              characters: 'Brand',
+              fontSize: 14,
+              fills: [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 }, visible: true, opacity: 1 }],
+            },
+          ],
+        },
+        {
+          id: 'atc',
+          name: 'Button',
+          type: 'FRAME',
+          x: 0,
+          y: 62,
+          width: 220,
+          height: 32,
+          visible: false,
+          layoutMode: 'HORIZONTAL',
+          children: [],
+        },
+      ],
+    };
+    applyAutoLayoutIntrinsicSizingDeep(desc, undefined, undefined);
+    expect(desc.height).toBe(16);
+    expect(desc.height).not.toBe(110);
+  });
 });

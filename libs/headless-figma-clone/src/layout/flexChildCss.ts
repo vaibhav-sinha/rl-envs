@@ -10,6 +10,12 @@ function isTextNode(n: SceneNode): boolean {
   return n.type === 'TEXT';
 }
 
+/** HUG children whose subtree is positioned out-of-flow need an explicit main-axis flex basis (px). */
+function hugMainAxisUsesPxBasis(node: SceneNode, mainSizing: 'FIXED' | 'HUG' | 'FILL' | undefined): boolean {
+  if (mainSizing !== 'HUG') return false;
+  return isAutoLayoutFrameNode(node) || isTextNode(node) || node.type === 'INSTANCE';
+}
+
 export interface BoxPos {
   absX: number;
   absY: number;
@@ -133,7 +139,7 @@ export function flexChildLayoutCss(
     const px = Math.round(mainSize);
     basisMain = `${String(px)}px`;
   }
-  if ((isAutoLayoutFrameNode(node) || isTextNode(node)) && mainSizing === 'HUG') {
+  if (hugMainAxisUsesPxBasis(node, mainSizing)) {
     basisMain = `${String(Math.round(mainSize))}px`;
   }
   let alignSelf =
@@ -161,26 +167,27 @@ export function flexChildLayoutCss(
   if (
     !alignSelf &&
     isTextNode(node) &&
-    parentFrame &&
+    parentFrame?.layoutMode === 'HORIZONTAL' &&
     (node as TextNode).textAlignVertical === 'CENTER'
   ) {
-    const isRow = parentFrame.layoutMode !== 'VERTICAL';
-    const crossSizing = isRow ? n.layoutSizingVertical : n.layoutSizingHorizontal;
-    if (crossSizing !== 'FILL' && n.layoutAlign !== 'STRETCH') {
-      const parentCross = isRow ? (parentFrame.height ?? 0) : (parentFrame.width ?? 0);
-      const textCross = isRow ? (node.height ?? 0) : (node.width ?? 0);
+    const crossSizingVertical = n.layoutSizingVertical;
+    if (crossSizingVertical !== 'FILL' && n.layoutAlign !== 'STRETCH') {
+      const parentCross = parentFrame.height ?? 0;
+      const textCross = node.height ?? 0;
       if (parentCross > 0 && textCross > 0 && parentCross >= textCross) {
         alignSelf = 'align-self:center;';
       }
     }
   }
+  const hugCrossUsesPxSize =
+    crossSizing === 'HUG' && !isAutoLayoutFrameNode(node) && (isTextNode(node) || node.type === 'INSTANCE');
   const crossDim =
     crossSizing === 'HUG' && !isAutoLayoutFrameNode(node)
       ? isRow
-        ? isTextNode(node)
+        ? hugCrossUsesPxSize
           ? `height:${String(Math.round(crossSize))}px;`
           : 'height:auto;'
-        : isTextNode(node)
+        : hugCrossUsesPxSize
           ? `width:${String(Math.round(crossSize))}px;`
           : 'width:auto;'
       : crossSizing === 'FILL'

@@ -15,6 +15,7 @@ import {
   resolveBooleanDisplayFill,
 } from './booleanPaths.js';
 import { ellipseArcPathD, ellipsePathD, isPlainFullEllipse } from './shapePaths.js';
+import { buildSvgStackedFillPaths } from './svgStackedFills.js';
 import { linearGradientCss, radialGradientCss, svgLinearGradientEndpoints, svgRadialGradientAttrs } from './gradientCss.js';
 import {
   buildPatternTileSvgDataUrl,
@@ -25,6 +26,12 @@ import {
 } from './patternTiles.js';
 import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
 import { frameGridInnerStyle, isGridFrame } from '../layout/gridLayout.js';
+import {
+  isRotatedAutoLayoutFrame,
+  nodeTransformCss,
+  rotatePointFigma,
+  type NodeTransformCssOptions,
+} from './figmaTransform.js';
 import { allEffectsCss, type EffectResolveContext } from './effectsCss.js';
 import {
   effectiveTextBaseFontSizePx,
@@ -58,7 +65,6 @@ import {
   resolveVariableToRgb,
 } from '../variables/resolution.js';
 import type {
-  BlendMode,
   BooleanOperationNode,
   ComponentInstanceNode,
   ComponentNode,
@@ -324,6 +330,21 @@ function sceneChildPos(
   parentFrame?: FrameNode
 ): string {
   return flexChildLayoutCss(n, insideFlex, { absX, absY, width: n.width, height: n.height }, parentFrame);
+}
+
+function instanceOuterPosCss(
+  inst: Pick<InstanceNode, 'width' | 'height' | 'layoutGrow' | 'layoutAlign' | 'layoutPositioning' | 'layoutSizingHorizontal' | 'layoutSizingVertical' | 'minWidth' | 'maxWidth' | 'minHeight' | 'maxHeight' | 'x' | 'y'>,
+  insideFlex: boolean,
+  absX: number,
+  absY: number,
+  parentFrame?: FrameNode
+): string {
+  return flexChildLayoutCss(
+    inst as SceneNode,
+    insideFlex,
+    { absX, absY, width: inst.width, height: inst.height },
+    parentFrame
+  );
 }
 
 function findSceneInList(nodes: SceneNode[], id: string): SceneNode | null {
@@ -712,54 +733,9 @@ function frameNeedsLayeredBackground(f: FrameNode): boolean {
   return (f.backgrounds?.length ?? 0) > 0;
 }
 
-function mixBlendCss(m: BlendMode | undefined): string {
-  if (!m || m === 'PASS_THROUGH' || m === 'NORMAL') return '';
-  const map: Partial<Record<BlendMode, string>> = {
-    MULTIPLY: 'multiply',
-    SCREEN: 'screen',
-    OVERLAY: 'overlay',
-    DARKEN: 'darken',
-    LIGHTEN: 'lighten',
-    COLOR_DODGE: 'color-dodge',
-    COLOR_BURN: 'color-burn',
-    HARD_LIGHT: 'hard-light',
-    SOFT_LIGHT: 'soft-light',
-    DIFFERENCE: 'difference',
-    EXCLUSION: 'exclusion',
-    HUE: 'hue',
-    SATURATION: 'saturation',
-    COLOR: 'color',
-    LUMINOSITY: 'luminosity',
-  };
-  const v = map[m];
-  return v ? `mix-blend-mode:${v};` : '';
-}
 
-/** Rotate a point with Figma's relativeTransform matrix (positive deg = CCW in y-down space). */
-function rotatePointFigma(cx: number, cy: number, px: number, py: number, deg: number): { x: number; y: number } {
-  const rad = (deg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const dx = px - cx;
-  const dy = py - cy;
-  return { x: cx + dx * cos + dy * sin, y: cy - dx * sin + dy * cos };
-}
-
-function transformOpacityCss(n: SceneNode, opts?: { skipRotation?: boolean }): string {
-  let s = '';
-  if (!opts?.skipRotation && n.rotation !== undefined && n.rotation !== 0) {
-    // Pivot at node top-left (Figma Plugin API). Negate angle: Figma +θ is CCW in y-down,
-    // CSS rotate(+θ) is CW — use rotate(-θ) so visual direction matches Figma.
-    s += `transform:rotate(${String(-n.rotation)}deg);transform-origin:top left;`;
-  }
-  if (n.opacity !== undefined && n.opacity !== 1) {
-    s += `opacity:${String(n.opacity)};`;
-  }
-  if (n.visible === false) {
-    s += 'display:none;';
-  }
-  s += mixBlendCss(n.blendMode);
-  return s;
+function transformOpacityCss(n: SceneNode, opts?: NodeTransformCssOptions): string {
+  return nodeTransformCss(n, opts);
 }
 
 function fillBackgroundStyles(
@@ -1141,6 +1117,19 @@ function operandPathD(op: SceneNode): string {
   return 'M0,0';
 }
 
+function booleanOperationFills(b: BooleanOperationNode): Paint[] {
+  const visible = (b.fills ?? []).filter((f) => f.visible !== false);
+  if (visible.length > 0) return b.fills ?? [];
+  return [resolveBooleanDisplayFill(b)];
+}
+
+function appendSvgStrokeToPaths(pathsHtml: string, strokePart: string): string {
+  if (!strokePart) return pathsHtml;
+  const last = pathsHtml.lastIndexOf('/>');
+  if (last < 0) return pathsHtml;
+  return `${pathsHtml.slice(0, last)}${strokePart}${pathsHtml.slice(last)}`;
+}
+
 function emitBooleanOperation(
   b: BooleanOperationNode,
   absX: number,
@@ -1149,18 +1138,14 @@ function emitBooleanOperation(
   opRot: string,
   htmlParts: string[],
   cssParts: string[],
-  _imgMap: Record<string, string>,
+  imgMap: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope
 ): void {
   const w = b.width;
   const h = b.height;
-  const fill = resolveBooleanDisplayFill(b);
-  const fillAttr =
-    fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)
-      ? `fill="${escapeAttr(rgbaFromSolid(fill))}"`
-      : 'fill="rgba(0,100,200,0.85)"';
+  const fills = booleanOperationFills(b);
   const shadow = nodeEffectsCss(b.effects, env, b, warnings, 'boolean');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;flex:${String(b.layoutGrow ?? 0)} 1 auto;min-width:0;`
@@ -1168,13 +1153,26 @@ function emitBooleanOperation(
   htmlParts.push(`<div class="hfc-node-${b.id}" data-hfc-id="${b.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(b.id)}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
 
+  const stackedForPath = (pathD: string, pathId: string) => {
+    const stacked = buildSvgStackedFillPaths(pathD, fills, pathId, w, h, imgMap, warnings, `boolean:${b.id}`, env);
+    return {
+      defs: stacked.defs,
+      pathsHtml: stacked.pathsHtml,
+    };
+  };
+
   const boolPaths = computeBooleanPathData(b);
   if (!boolPaths.failed && boolPaths.pathData.length > 0) {
+    let defs = '';
     const pathHtml = boolPaths.pathData
-      .map((d) => `<path d="${escapeAttr(d)}" ${fillAttr} fill-rule="nonzero"/>`)
+      .map((d, i) => {
+        const stacked = stackedForPath(d, `${b.id}-p${String(i)}`);
+        defs += stacked.defs;
+        return stacked.pathsHtml.replace(/<path /g, '<path fill-rule="nonzero" ');
+      })
       .join('');
     htmlParts.push(
-      `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${pathHtml}</svg></div>`
+      `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}${pathHtml}</svg></div>`
     );
     return;
   }
@@ -1183,14 +1181,17 @@ function emitBooleanOperation(
     warnings.push(`boolean_op_failed:${b.id}:${b.booleanOperation}`);
   }
 
+  let defs = '';
   const chunks = b.children
     .map((ch) => {
       const d0 = operandPathD(ch);
-      return `<g transform="translate(${String(ch.x)},${String(ch.y)})"><path d="${escapeAttr(d0)}" ${fillAttr} fill-rule="nonzero"/></g>`;
+      const stacked = stackedForPath(d0, `${b.id}-${ch.id}`);
+      defs += stacked.defs;
+      return `<g transform="translate(${String(ch.x)},${String(ch.y)})">${stacked.pathsHtml.replace(/<path /g, '<path fill-rule="nonzero" ')}</g>`;
     })
     .join('');
   htmlParts.push(
-    `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${chunks}</svg></div>`
+    `<svg class="hfc-boolean-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}${chunks}</svg></div>`
   );
   if (boolPaths.failed) {
     warnings.push(`boolean_op_fallback:${b.id}:${b.booleanOperation}`);
@@ -1205,7 +1206,7 @@ function emitVector(
   opRot: string,
   htmlParts: string[],
   cssParts: string[],
-  _imgMap: Record<string, string>,
+  imgMap: Record<string, string>,
   warnings: string[],
   insideFlex: boolean,
   env: FileEnvelope
@@ -1214,47 +1215,36 @@ function emitVector(
   const w = Math.max(v.width, vp?.width ?? 0);
   const h = Math.max(v.height, vp?.height ?? 0);
   const viewBox = vp?.viewBox ?? `0 0 ${String(w)} ${String(h)}`;
-  const fill = v.fills?.[0];
-  let fillAttr = 'fill="transparent"';
-  if (fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)) {
-    fillAttr = `fill="${escapeAttr(rgbaFromSolid(fill))}"`;
-  } else if (fill && (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL')) {
-    fillAttr = `fill="url(#grad-${v.id})"`;
-  }
   const shadow = nodeEffectsCss(v.effects, env, v, warnings, 'vector');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;flex:${String(v.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
   htmlParts.push(`<div class="hfc-node-${v.id}" data-hfc-id="${v.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(v.id)}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
-  let defs = '';
-  if (fill?.type === 'GRADIENT_LINEAR') {
-    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
-    defs += `<linearGradient id="grad-${v.id}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
-    for (const s of fill.gradientStops) {
-      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
-    }
-    defs += `</linearGradient>`;
-  } else if (fill?.type === 'GRADIENT_RADIAL') {
-    const ra = svgRadialGradientAttrs(fill);
-    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
-    defs += `<radialGradient id="grad-${v.id}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
-    for (const s of fill.gradientStops) {
-      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
-    }
-    defs += `</radialGradient>`;
-  }
   const sw = v.strokeWeight ?? 0;
   const sp = v.strokes?.[0];
   const strokePart =
     sp && sp.type === 'SOLID' && sw > 0
       ? ` ${svgStrokeAttrs({ strokes: v.strokes, strokeWeight: sw, strokeCap: v.strokeCap, strokeJoin: v.strokeJoin })}${dashArrayAttr(v)}`
       : '';
+  let defs = '';
   const pathHtml = v.vectorPaths
-    .map(
-      (p) =>
-        `<path d="${escapeAttr(p.data)}" fill-rule="${p.windingRule.toLowerCase()}" ${fillAttr}${strokePart}/>`
-    )
+    .map((p, i) => {
+      const stacked = buildSvgStackedFillPaths(
+        p.data,
+        v.fills,
+        `${v.id}-p${String(i)}`,
+        w,
+        h,
+        imgMap,
+        warnings,
+        `vector:${v.id}`,
+        env
+      );
+      defs += stacked.defs;
+      const paths = appendSvgStrokeToPaths(stacked.pathsHtml, strokePart);
+      return paths.replace(/<path /g, `<path fill-rule="${p.windingRule.toLowerCase()}" `);
+    })
     .join('');
   htmlParts.push(
     `<svg class="hfc-vector-svg" viewBox="${viewBox}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}${pathHtml}</svg></div>`
@@ -1589,7 +1579,8 @@ function emitChildrenWithMasks(
   patternTiles: Record<string, string>,
   warnings: string[],
   flexInner: boolean,
-  env: FileEnvelope
+  env: FileEnvelope,
+  inheritedAutoLayoutRotationDeg = 0
 ): void {
   const childList =
     parentFrame?.itemReverseZIndex && flexInner ? [...ctn.children].reverse() : ctn.children;
@@ -1639,7 +1630,9 @@ function emitChildrenWithMasks(
       env,
       ctn.children,
       parentFrame,
-      !flexInner
+      !flexInner,
+      undefined,
+      inheritedAutoLayoutRotationDeg
     );
     i++;
   }
@@ -1660,9 +1653,28 @@ function emitFrameChildren(
   patternTiles: Record<string, string>,
   warnings: string[],
   flexInner: boolean,
-  env: FileEnvelope
+  env: FileEnvelope,
+  inheritedAutoLayoutRotationDeg = 0
 ): void {
-  emitChildrenWithMasks(f, f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, flexInner, env);
+  emitChildrenWithMasks(
+    f,
+    f,
+    frameAbsX,
+    frameAbsY,
+    originX,
+    originY,
+    shiftX,
+    shiftY,
+    htmlParts,
+    cssParts,
+    z,
+    imgMap,
+    patternTiles,
+    warnings,
+    flexInner,
+    env,
+    inheritedAutoLayoutRotationDeg
+  );
 }
 
 function emitScene(
@@ -1682,7 +1694,8 @@ function emitScene(
   parentChildren: SceneNode[] | null,
   parentFrame?: FrameNode,
   useParentCoords = false,
-  coordGroupParent?: GroupNode
+  coordGroupParent?: GroupNode,
+  inheritedAutoLayoutRotationDeg = 0
 ): void {
   if (n.type === 'SECTION') return;
 
@@ -1716,7 +1729,10 @@ function emitScene(
   const absX = groupLocal ? groupLocal.x : useParentCoords ? n.x : pageX;
   const absY = groupLocal ? groupLocal.y : useParentCoords ? n.y : pageY;
   const zIndex = z.value++;
-  const opRot = transformOpacityCss(n);
+  const opRot = transformOpacityCss(n, {
+    insideFlex,
+    inheritedAutoLayoutRotationDeg,
+  });
 
   if (n.type === 'TEXT') {
     const t = n;
@@ -1822,6 +1838,14 @@ function emitScene(
     const flex = frameUsesFlexCss(f);
     const frameAbsX = pageX;
     const frameAbsY = pageY;
+    const rotatedAutoLayout = isRotatedAutoLayoutFrame(f);
+    const childInheritedRotation =
+      inheritedAutoLayoutRotationDeg + (rotatedAutoLayout ? (f.rotation ?? 0) : 0);
+    const frameOpRot = transformOpacityCss(f, {
+      skipRotation: rotatedAutoLayout,
+      insideFlex,
+      inheritedAutoLayoutRotationDeg,
+    });
     const frameOuterCss = insideFlex
       ? sceneChildPos(f, insideFlex, absX, absY, parentFrame)
       : f.constraints && parentFrame
@@ -1831,17 +1855,51 @@ function emitScene(
     if (!layered) {
       htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
       cssParts.push(
-        `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;${fillCss}border:${border};${radiusCss}${clip}${opRot}${shadow}}`
+        `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;${fillCss}border:${border};${radiusCss}${clip}${frameOpRot}${shadow}}`
       );
       if (strokeResult.svgOverlay) htmlParts.push(strokeResult.svgOverlay);
       if (flex) {
         htmlParts.push(
           `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;${frameFlexInnerStyle(f, env)}">`
         );
-        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, true, env);
+        emitFrameChildren(
+          f,
+          frameAbsX,
+          frameAbsY,
+          originX,
+          originY,
+          shiftX,
+          shiftY,
+          htmlParts,
+          cssParts,
+          z,
+          imgMap,
+          patternTiles,
+          warnings,
+          true,
+          env,
+          childInheritedRotation
+        );
         htmlParts.push('</div>');
       } else {
-        emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env);
+        emitFrameChildren(
+          f,
+          frameAbsX,
+          frameAbsY,
+          originX,
+          originY,
+          shiftX,
+          shiftY,
+          htmlParts,
+          cssParts,
+          z,
+          imgMap,
+          patternTiles,
+          warnings,
+          false,
+          env,
+          childInheritedRotation
+        );
       }
       htmlParts.push('</div>');
       return;
@@ -1855,7 +1913,7 @@ function emitScene(
 
     htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;border:${border};background-color:transparent;${radiusCss}${clip}${opRot}${shadow}}`
+      `${hfcNodeCssSel(f.id)}{${frameOuterCss}box-sizing:border-box;border:${border};background-color:transparent;${radiusCss}${clip}${frameOpRot}${shadow}}`
     );
     cssParts.push(
       `${hfcNodeCssSel(f.id)} > .hfc-bg-layer{${bgCss}}${hfcNodeCssSel(f.id)} > .hfc-fill-layer{${fillCss}}`
@@ -1870,10 +1928,44 @@ function emitScene(
       htmlParts.push(
         `<div class="hfc-frame-flex-inner hfc-frame-flex-${f.id}" style="position:absolute;left:0;top:0;right:0;bottom:0;z-index:2;${frameFlexInnerStyle(f, env)}">`
       );
-      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, true, env);
+      emitFrameChildren(
+        f,
+        frameAbsX,
+        frameAbsY,
+        originX,
+        originY,
+        shiftX,
+        shiftY,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        patternTiles,
+        warnings,
+        true,
+        env,
+        childInheritedRotation
+      );
       htmlParts.push('</div>');
     } else {
-      emitFrameChildren(f, frameAbsX, frameAbsY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env);
+      emitFrameChildren(
+        f,
+        frameAbsX,
+        frameAbsY,
+        originX,
+        originY,
+        shiftX,
+        shiftY,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        patternTiles,
+        warnings,
+        false,
+        env,
+        childInheritedRotation
+      );
     }
     htmlParts.push('</div>');
     return;
@@ -1939,15 +2031,72 @@ function emitScene(
     return;
   }
   if (n.type === 'COMPONENT') {
-    emitPlacedComponent(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+    emitPlacedComponent(
+      n,
+      absX,
+      absY,
+      zIndex,
+      opRot,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      insideFlex,
+      env,
+      originX,
+      originY,
+      shiftX,
+      shiftY,
+      parentFrame
+    );
     return;
   }
   if (n.type === 'COMPONENT_INSTANCE') {
-    emitComponentInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+    emitComponentInstance(
+      n,
+      absX,
+      absY,
+      zIndex,
+      opRot,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      insideFlex,
+      env,
+      originX,
+      originY,
+      shiftX,
+      shiftY,
+      parentFrame
+    );
     return;
   }
   if (n.type === 'INSTANCE') {
-    emitInstance(n, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+    emitInstance(
+      n,
+      absX,
+      absY,
+      zIndex,
+      opRot,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      insideFlex,
+      env,
+      originX,
+      originY,
+      shiftX,
+      shiftY,
+      parentFrame
+    );
     return;
   }
 }
@@ -1980,7 +2129,7 @@ function emitTable(
       idx += 1;
       const w = tb.columnWidths[c]!;
       const h = tb.rowHeights[r]!;
-      const bg = fillBackgroundStyles(cell.fills?.[0], imgMap, patternTiles, warnings, `table_cell:${tb.id}:${String(r)}:${String(c)}`, env);
+      const bg = stackedFillsCss(cell.fills ?? [], imgMap, patternTiles, warnings, `table_cell:${tb.id}:${String(r)}:${String(c)}`, env);
       tds.push(
         `<td class="hfc-table-cell" style="width:${String(w)}px;height:${String(h)}px;border:1px solid rgba(0,0,0,0.12);vertical-align:middle;padding:4px;box-sizing:border-box;${bg}">${escapeHtmlText(cell.text)}</td>`
       );
@@ -2016,8 +2165,13 @@ function instanceHasDropShadow(effects: Effect[] | undefined): boolean {
   return effects?.some((e) => e.visible !== false && e.type === 'DROP_SHADOW') ?? false;
 }
 
-function instanceOverflowCss(effects: Effect[] | undefined): string {
-  return instanceHasDropShadow(effects) ? 'overflow:visible;' : 'overflow:hidden;';
+function instanceWrapperOverflowCss(
+  inst: { clipsContent?: boolean },
+  effects: Effect[] | undefined
+): string {
+  if (instanceHasDropShadow(effects)) return 'overflow:visible;';
+  if (inst.clipsContent === true) return 'overflow:hidden;';
+  return 'overflow:visible;';
 }
 
 function instancePaintShellCss(
@@ -2064,7 +2218,7 @@ function emitInstancePaintShell(
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
   htmlParts.push(`<div class="hfc-node-${inst.id} hfc-instance-shell" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}"></div>`);
   cssParts.push(
-    `${hfcNodeCssSel(inst.id)}{${pos}box-sizing:border-box;${fillCss}${instanceOverflowCss(effects)}${opRot}}`
+    `${hfcNodeCssSel(inst.id)}{${pos}box-sizing:border-box;${fillCss}${instanceWrapperOverflowCss(inst, effects)}${opRot}}`
   );
   return true;
 }
@@ -2117,7 +2271,8 @@ function emitPlacedComponent(
   originX: number,
   originY: number,
   shiftX: number,
-  shiftY: number
+  shiftY: number,
+  parentFrame?: FrameNode
 ): void {
   if (
     tryEmitExportedSvgIcon(
@@ -2152,7 +2307,26 @@ function emitPlacedComponent(
     layoutSizingHorizontal: comp.layoutSizingHorizontal,
     layoutSizingVertical: comp.layoutSizingVertical,
   };
-  emitInstance(inst, absX, absY, zIndex, opRot, htmlParts, cssParts, z, imgMap, patternTiles, warnings, insideFlex, env, originX, originY, shiftX, shiftY);
+  emitInstance(
+    inst,
+    absX,
+    absY,
+    zIndex,
+    opRot,
+    htmlParts,
+    cssParts,
+    z,
+    imgMap,
+    patternTiles,
+    warnings,
+    insideFlex,
+    env,
+    originX,
+    originY,
+    shiftX,
+    shiftY,
+    parentFrame
+  );
 }
 
 function emitComponentInstance(
@@ -2172,7 +2346,8 @@ function emitComponentInstance(
   originX: number,
   originY: number,
   shiftX: number,
-  shiftY: number
+  shiftY: number,
+  parentFrame?: FrameNode
 ): void {
   if (
     tryEmitExportedSvgIcon(
@@ -2199,11 +2374,12 @@ function emitComponentInstance(
     warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
   }
   prepareInstanceComponentRoot(root, inst, env, inst.overrides, { warnings });
-  const pos = insideFlex
-    ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(inst.layoutGrow ?? 0)} 1 auto;min-width:0;`
-    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(inst.height)}px;`;
+  const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
+  const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
   htmlParts.push(`<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;overflow:hidden;${opRot}}`);
+  cssParts.push(
+    `.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceWrapperOverflowCss(inst, instEffects)}${opRot}}`
+  );
   withInstanceCssScope(inst.id, () => {
     emitScene(
       root,
@@ -2327,7 +2503,8 @@ function emitInstanceDetachedSubtree(
   originX: number,
   originY: number,
   shiftX: number,
-  shiftY: number
+  shiftY: number,
+  parentFrame?: FrameNode
 ): boolean {
   const children = instanceDetachedChildren(inst);
   if (!children) return false;
@@ -2355,18 +2532,12 @@ function emitInstanceDetachedSubtree(
   applyComponentOverridesToTree(root, inst.overrides as ComponentInstanceNode['overrides']);
   prepareClonedComponentSubtreeForEmit(root, env);
 
-  const pos = insideFlex
-    ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
-        inst.layoutGrow ?? 0
-      )} 1 auto;min-width:0;`
-    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(
-        inst.height
-      )}px;`;
+  const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
   htmlParts.push(
     `<div class="hfc-node-${inst.id} hfc-component-instance hfc-instance-detached" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
   );
   const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
-  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceOverflowCss(instEffects)}${opRot}}`);
+  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceWrapperOverflowCss(inst, instEffects)}${opRot}}`);
   withInstanceCssScope(inst.id, () => {
     emitScene(
       root,
@@ -2408,7 +2579,8 @@ function emitInstance(
   originX: number,
   originY: number,
   shiftX: number,
-  shiftY: number
+  shiftY: number,
+  parentFrame?: FrameNode
 ): void {
   if (
     tryEmitExportedSvgIcon(
@@ -2436,19 +2608,13 @@ function emitInstance(
       prepareInstanceComponentRoot(root, inst, env, inst.overrides as ComponentInstanceNode['overrides'], {
         warnings,
       });
-      const pos = insideFlex
-        ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
-            inst.layoutGrow ?? 0
-          )} 1 auto;min-width:0;`
-        : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(
-            inst.width
-          )}px;height:${String(inst.height)}px;`;
+      const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
       const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
       htmlParts.push(
         `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
       );
       cssParts.push(
-        `.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceOverflowCss(instEffects)}${opRot}}`
+        `.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceWrapperOverflowCss(inst, instEffects)}${opRot}}`
       );
       withInstanceCssScope(inst.id, () => {
         emitScene(
@@ -2494,7 +2660,8 @@ function emitInstance(
         originX,
         originY,
         shiftX,
-        shiftY
+        shiftY,
+        parentFrame
       )
     ) {
       return;
@@ -2562,19 +2729,13 @@ function emitInstance(
     warnings,
   });
 
-  const pos = insideFlex
-    ? `position:relative;left:0;top:0;width:${String(inst.width)}px;height:${String(inst.height)}px;flex:${String(
-        inst.layoutGrow ?? 0
-      )} 1 auto;min-width:0;`
-    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(inst.width)}px;height:${String(
-        inst.height
-      )}px;`;
+  const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
 
   const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
   htmlParts.push(
     `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
   );
-  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceOverflowCss(instEffects)}${opRot}}`);
+  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceWrapperOverflowCss(inst, instEffects)}${opRot}}`);
   withInstanceCssScope(inst.id, () => {
     emitScene(
       root,
@@ -2704,7 +2865,7 @@ function emitEllipse(
     return;
   }
   const shadow = nodeEffectsCss(e.effects, env, e, warnings, 'ellipse');
-  const fillCss = fillBackgroundStyles(e.fills?.[0], imgMap, patternTiles, warnings, `ellipse:${e.id}`, env);
+  const fillCss = stackedFillsCss(e.fills ?? [], imgMap, patternTiles, warnings, `ellipse:${e.id}`, env);
   const pos = insideFlex
     ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(e.width)}px;height:${String(e.height)}px;`;
@@ -2740,54 +2901,22 @@ function emitEllipseArcSvg(
   const w = e.width;
   const h = e.height;
   const d = ellipseArcPathD(w, h, e.arcData!);
-  const fill = e.fills?.[0];
-  let fillAttr = 'fill="transparent"';
-  if (fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)) {
-    fillAttr = `fill="${escapeAttr(rgbaFromSolid(fill))}"`;
-  } else if (fill && (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL')) {
-    fillAttr = `fill="url(#grad-${e.id})"`;
-  } else if (fill?.type === 'IMAGE') {
-    fillAttr = `fill="url(#img-${e.id})"`;
-  }
   const shadow = nodeEffectsCss(e.effects, env, e, warnings, 'ellipse');
   const pos = insideFlex
     ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${e.id}" data-hfc-id="${e.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(e.id)}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
-  let defs = '';
-  if (fill?.type === 'GRADIENT_LINEAR') {
-    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
-    defs += `<linearGradient id="grad-${e.id}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
-    for (const s of fill.gradientStops) {
-      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
-    }
-    defs += `</linearGradient>`;
-  } else if (fill?.type === 'GRADIENT_RADIAL') {
-    const ra = svgRadialGradientAttrs(fill);
-    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
-    defs += `<radialGradient id="grad-${e.id}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
-    for (const s of fill.gradientStops) {
-      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
-    }
-    defs += `</radialGradient>`;
-  }
-  if (fill?.type === 'IMAGE') {
-    const url = imgMap[fill.imageHash];
-    if (url) {
-      defs += `<pattern id="img-${e.id}" patternUnits="userSpaceOnUse" width="${String(w)}" height="${String(h)}"><image href="${escapeAttr(url)}" width="${String(w)}" height="${String(h)}" preserveAspectRatio="xMidYMid slice"/></pattern>`;
-    } else {
-      warnings.push(`missing_image_data_url:ellipse:${fill.imageHash}`);
-    }
-  }
+  const stacked = buildSvgStackedFillPaths(d, e.fills, e.id, w, h, imgMap, warnings, `ellipse_arc:${e.id}`, env);
   const sw = e.strokeWeight ?? 0;
   const sp = e.strokes?.[0];
   const strokePart =
     sp && sp.type === 'SOLID' && sw > 0
       ? ` ${svgStrokeAttrs({ strokes: e.strokes, strokeWeight: sw, strokeCap: e.strokeCap, strokeJoin: e.strokeJoin })}${dashArrayAttr(e)}`
       : '';
+  const pathsHtml = appendSvgStrokeToPaths(stacked.pathsHtml, strokePart);
   htmlParts.push(
-    `<svg class="hfc-shape-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}<path d="${escapeAttr(d)}" ${fillAttr}${strokePart}/></svg></div>`
+    `<svg class="hfc-shape-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${stacked.defs ? `<defs>${stacked.defs}</defs>` : ''}${pathsHtml}</svg></div>`
   );
 }
 
@@ -2886,54 +3015,22 @@ function emitPolygon(
   const w = p.width;
   const h = p.height;
   const d = polygonPointsD(p.pointCount, w, h);
-  const fill = p.fills?.[0];
-  let fillAttr = 'fill="transparent"';
-  if (fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)) {
-    fillAttr = `fill="${escapeAttr(rgbaFromSolid(fill))}"`;
-  } else if (fill && (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL')) {
-    fillAttr = `fill="url(#grad-${p.id})"`;
-  } else if (fill?.type === 'IMAGE') {
-    fillAttr = `fill="url(#img-${p.id})"`;
-  }
   const shadow = nodeEffectsCss(p.effects, env, p, warnings, 'polygon');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(p.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${p.id}" data-hfc-id="${p.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(p.id)}{${pos}${opRot}${shadow}}`);
-  let defs = '';
-  if (fill?.type === 'GRADIENT_LINEAR') {
-    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
-    defs += `<linearGradient id="grad-${p.id}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
-    for (const s of fill.gradientStops) {
-      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
-    }
-    defs += `</linearGradient>`;
-  } else if (fill?.type === 'GRADIENT_RADIAL') {
-    const ra = svgRadialGradientAttrs(fill);
-    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
-    defs += `<radialGradient id="grad-${p.id}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
-    for (const s of fill.gradientStops) {
-      defs += `<stop offset="${String(s.position)}" stop-color="${escapeAttr(rgbaFromRgba(s.color))}"/>`;
-    }
-    defs += `</radialGradient>`;
-  }
-  if (fill?.type === 'IMAGE') {
-    const url = imgMap[fill.imageHash];
-    if (url) {
-      defs += `<pattern id="img-${p.id}" patternUnits="userSpaceOnUse" width="${String(w)}" height="${String(h)}"><image href="${escapeAttr(url)}" width="${String(w)}" height="${String(h)}" preserveAspectRatio="xMidYMid slice"/></pattern>`;
-    } else {
-      warnings.push(`missing_image_data_url:polygon:${fill.imageHash}`);
-    }
-  }
+  const stacked = buildSvgStackedFillPaths(d, p.fills, p.id, w, h, imgMap, warnings, `polygon:${p.id}`, env);
   const sw = p.strokeWeight ?? 0;
   const sp = p.strokes?.[0];
   const strokePart =
     sp && sp.type === 'SOLID' && sw > 0
       ? ` ${svgStrokeAttrs({ strokes: p.strokes, strokeWeight: sw, strokeCap: p.strokeCap, strokeJoin: p.strokeJoin })}${dashArrayAttr(p)}`
       : '';
+  const pathsHtml = appendSvgStrokeToPaths(stacked.pathsHtml, strokePart);
   htmlParts.push(
-    `<svg class="hfc-shape-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}<path d="${escapeAttr(d)}" ${fillAttr}${strokePart}/></svg></div>`
+    `<svg class="hfc-shape-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${stacked.defs ? `<defs>${stacked.defs}</defs>` : ''}${pathsHtml}</svg></div>`
   );
 }
 
@@ -2953,54 +3050,22 @@ function emitStar(
   const w = s.width;
   const h = s.height;
   const d = starPathD(s.pointCount, s.innerRadius, w, h);
-  const fill = s.fills?.[0];
-  let fillAttr = 'fill="transparent"';
-  if (fill && fill.type === 'SOLID' && (fill.visible === undefined || fill.visible)) {
-    fillAttr = `fill="${escapeAttr(rgbaFromSolid(fill))}"`;
-  } else if (fill && (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL')) {
-    fillAttr = `fill="url(#grad-${s.id})"`;
-  } else if (fill?.type === 'IMAGE') {
-    fillAttr = `fill="url(#img-${s.id})"`;
-  }
   const shadow = nodeEffectsCss(s.effects, env, s, warnings, 'star');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(s.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${s.id}" data-hfc-id="${s.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(s.id)}{${pos}${opRot}${shadow}}`);
-  let defs = '';
-  if (fill?.type === 'GRADIENT_LINEAR') {
-    const { x1, y1, x2, y2 } = svgLinearGradientEndpoints(fill, w, h);
-    defs += `<linearGradient id="grad-${s.id}" gradientUnits="userSpaceOnUse" x1="${String(x1)}" y1="${String(y1)}" x2="${String(x2)}" y2="${String(y2)}">`;
-    for (const st of fill.gradientStops) {
-      defs += `<stop offset="${String(st.position)}" stop-color="${escapeAttr(rgbaFromRgba(st.color))}"/>`;
-    }
-    defs += `</linearGradient>`;
-  } else if (fill?.type === 'GRADIENT_RADIAL') {
-    const ra = svgRadialGradientAttrs(fill);
-    const gt = ra.gradientTransform ? ` gradientTransform="${ra.gradientTransform}"` : '';
-    defs += `<radialGradient id="grad-${s.id}" gradientUnits="objectBoundingBox" cx="${ra.cx}" cy="${ra.cy}" r="${ra.r}"${gt}>`;
-    for (const st of fill.gradientStops) {
-      defs += `<stop offset="${String(st.position)}" stop-color="${escapeAttr(rgbaFromRgba(st.color))}"/>`;
-    }
-    defs += `</radialGradient>`;
-  }
-  if (fill?.type === 'IMAGE') {
-    const url = imgMap[fill.imageHash];
-    if (url) {
-      defs += `<pattern id="img-${s.id}" patternUnits="userSpaceOnUse" width="${String(w)}" height="${String(h)}"><image href="${escapeAttr(url)}" width="${String(w)}" height="${String(h)}" preserveAspectRatio="xMidYMid slice"/></pattern>`;
-    } else {
-      warnings.push(`missing_image_data_url:star:${fill.imageHash}`);
-    }
-  }
+  const stacked = buildSvgStackedFillPaths(d, s.fills, s.id, w, h, imgMap, warnings, `star:${s.id}`, env);
   const sw = s.strokeWeight ?? 0;
   const sp = s.strokes?.[0];
   const strokePart =
     sp && sp.type === 'SOLID' && sw > 0
       ? ` ${svgStrokeAttrs({ strokes: s.strokes, strokeWeight: sw, strokeCap: s.strokeCap, strokeJoin: s.strokeJoin })}${dashArrayAttr(s)}`
       : '';
+  const pathsHtml = appendSvgStrokeToPaths(stacked.pathsHtml, strokePart);
   htmlParts.push(
-    `<svg class="hfc-shape-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${defs ? `<defs>${defs}</defs>` : ''}<path d="${escapeAttr(d)}" ${fillAttr}${strokePart}/></svg></div>`
+    `<svg class="hfc-shape-svg" viewBox="0 0 ${String(w)} ${String(h)}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">${stacked.defs ? `<defs>${stacked.defs}</defs>` : ''}${pathsHtml}</svg></div>`
   );
 }
 

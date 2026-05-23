@@ -306,6 +306,62 @@ async function serializeStyleRecord(style: { id: string; name: string } & Record
   return out;
 }
 
+export type ReferencedStyleIds = {
+  paint: Set<string>;
+  text: Set<string>;
+  effect: Set<string>;
+  grid: Set<string>;
+};
+
+/** Collect style ids referenced by nodes in the live document (includes library/team styles). */
+export function collectReferencedStyleIds(root: BaseNode): ReferencedStyleIds {
+  const paint = new Set<string>();
+  const text = new Set<string>();
+  const effect = new Set<string>();
+  const grid = new Set<string>();
+
+  function addStyleId(field: string, id: unknown, bucket: Set<string>): void {
+    if (typeof id === 'string' && id.length > 0) bucket.add(id);
+  }
+
+  function walk(node: BaseNode): void {
+    if ('fillStyleId' in node) addStyleId('fillStyleId', node.fillStyleId, paint);
+    if ('strokeStyleId' in node) addStyleId('strokeStyleId', node.strokeStyleId, paint);
+    if ('textStyleId' in node) addStyleId('textStyleId', node.textStyleId, text);
+    if ('effectStyleId' in node) addStyleId('effectStyleId', node.effectStyleId, effect);
+    if ('gridStyleId' in node) addStyleId('gridStyleId', node.gridStyleId, grid);
+    if ('children' in node) {
+      for (const child of node.children) walk(child);
+    }
+  }
+
+  walk(root);
+  return { paint, text, effect, grid };
+}
+
+async function appendReferencedStyles(
+  localRecords: Record<string, unknown>[],
+  referencedIds: Set<string>,
+  styleType: 'PAINT' | 'TEXT' | 'EFFECT' | 'GRID'
+): Promise<Record<string, unknown>[]> {
+  const out = [...localRecords];
+  const known = new Set(out.map((s) => String(s.id)));
+  for (const id of referencedIds) {
+    if (known.has(id)) continue;
+    try {
+      const style = await figma.getStyleByIdAsync(id);
+      if (!style || style.type !== styleType) continue;
+      out.push(
+        await serializeStyleRecord(style as unknown as { id: string; name: string } & Record<string, unknown>)
+      );
+      known.add(id);
+    } catch {
+      /* skip unreadable library styles */
+    }
+  }
+  return out;
+}
+
 export async function serializeMetaAndStyles(): Promise<{
   variableCollections: Record<string, unknown>[];
   paintStyles: Record<string, unknown>[];
@@ -328,13 +384,25 @@ export async function serializeMetaAndStyles(): Promise<{
   );
   const variableCollections = await serializeVariableCollections();
 
+  const referenced = collectReferencedStyleIds(figma.root);
+  const paintStylesWithRefs = await appendReferencedStyles(paintStyles, referenced.paint, 'PAINT');
+  const textStylesWithRefs = await appendReferencedStyles(textStyles, referenced.text, 'TEXT');
+  const effectStylesWithRefs = await appendReferencedStyles(effectStyles, referenced.effect, 'EFFECT');
+  const gridStylesWithRefs = await appendReferencedStyles(gridStyles, referenced.grid, 'GRID');
+
   return {
     variableCollections,
-    paintStyles,
-    textStyles,
-    effectStyles,
-    gridStyles,
-    styleRecords: [...paintStyles, ...textStyles, ...effectStyles, ...gridStyles, ...variableCollections],
+    paintStyles: paintStylesWithRefs,
+    textStyles: textStylesWithRefs,
+    effectStyles: effectStylesWithRefs,
+    gridStyles: gridStylesWithRefs,
+    styleRecords: [
+      ...paintStylesWithRefs,
+      ...textStylesWithRefs,
+      ...effectStylesWithRefs,
+      ...gridStylesWithRefs,
+      ...variableCollections,
+    ],
   };
 }
 

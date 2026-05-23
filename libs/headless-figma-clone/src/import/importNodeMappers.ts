@@ -484,7 +484,9 @@ const INSTANCE_SHELL_PAINT_FIELDS: (keyof InstanceAppearanceFields)[] = [
 export function applyInstanceShellOverridesFromFigmaApi(
   appearance: Partial<InstanceAppearanceFields>,
   figmaNodeId: string,
-  properties: Record<string, unknown>
+  properties: Record<string, unknown>,
+  imageHashRemap: (figmaHash: string) => string | undefined,
+  idMap: FigmaIdMap
 ): void {
   const inferred: string[] = [];
   const raw = properties.overrides;
@@ -508,7 +510,6 @@ export function applyInstanceShellOverridesFromFigmaApi(
       const o = self as Record<string, unknown>;
       for (const field of INSTANCE_SHELL_PAINT_FIELDS) {
         if (!Object.prototype.hasOwnProperty.call(o, field)) continue;
-        if (Object.prototype.hasOwnProperty.call(appearance, field)) continue;
         if (field === 'effects') {
           appearance.effects = mapEffectsPreservingEmpty(o.effects) ?? [];
           inferred.push(field);
@@ -517,6 +518,12 @@ export function applyInstanceShellOverridesFromFigmaApi(
         const rawPaint = o[field];
         if (rawPaint === undefined || (Array.isArray(rawPaint) && rawPaint.length === 0)) {
           (appearance as Record<string, unknown>)[field] = [];
+          inferred.push(field);
+          continue;
+        }
+        if (Array.isArray(rawPaint) && rawPaint.length > 0) {
+          (appearance as Record<string, unknown>)[field] =
+            mapPaintsPreservingEmpty(rawPaint, imageHashRemap, idMap) ?? [];
           inferred.push(field);
         }
       }

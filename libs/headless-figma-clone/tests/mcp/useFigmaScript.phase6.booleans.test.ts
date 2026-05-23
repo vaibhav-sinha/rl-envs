@@ -118,7 +118,7 @@ return { boolId: bool.id };
         options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
       });
       expect(out.html).toContain('hfc-boolean-svg');
-      expect(out.html).toContain('<path d=');
+      expect(out.html).toMatch(/<path\b[^>]*\bd=/);
     });
   });
 });

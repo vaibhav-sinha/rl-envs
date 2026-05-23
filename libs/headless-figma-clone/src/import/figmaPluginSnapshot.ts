@@ -35,7 +35,7 @@ import {
   mapStrokeExtras,
   optNum,
   optStr,
-  optStyleId,
+  mapStyleId,
   prop,
   str,
 } from './propertyMappers.js';
@@ -681,10 +681,10 @@ function importSceneNode(
         ...mapFrameLayout(p, b.width),
         clipsContent: prop(p, 'clipsContent') === true,
         layoutMode: optStr(prop(p, 'layoutMode')) as 'NONE' | 'HORIZONTAL' | 'VERTICAL' | 'GRID' | undefined,
-        fillStyleId: optStr(prop(p, 'fillStyleId')),
-        strokeStyleId: optStr(prop(p, 'strokeStyleId')),
-        effectStyleId: optStr(prop(p, 'effectStyleId')),
-        gridStyleId: optStr(prop(p, 'gridStyleId')),
+        fillStyleId: mapStyleId(idMap, prop(p, 'fillStyleId')),
+        strokeStyleId: mapStyleId(idMap, prop(p, 'strokeStyleId')),
+        effectStyleId: mapStyleId(idMap, prop(p, 'effectStyleId')),
+        gridStyleId: mapStyleId(idMap, prop(p, 'gridStyleId')),
       } as SceneNode;
     }
     case 'TEXT': {
@@ -711,8 +711,8 @@ function importSceneNode(
         textAlignHorizontal: optStr(prop(p, 'textAlignHorizontal')) as 'LEFT' | 'CENTER' | 'RIGHT' | 'JUSTIFIED' | undefined,
         textAlignVertical: optStr(prop(p, 'textAlignVertical')) as 'TOP' | 'CENTER' | 'BOTTOM' | undefined,
         textAutoResize: optStr(prop(p, 'textAutoResize')) as 'NONE' | 'WIDTH_AND_HEIGHT' | 'HEIGHT' | 'TRUNCATE' | undefined,
-        textStyleId: optStr(prop(p, 'textStyleId')),
-        fillStyleId: optStr(prop(p, 'fillStyleId')),
+        textStyleId: mapStyleId(idMap, prop(p, 'textStyleId')),
+        fillStyleId: mapStyleId(idMap, prop(p, 'fillStyleId')),
         ...mapTypography(p),
       } as SceneNode;
     }
@@ -733,9 +733,9 @@ function importSceneNode(
         ...strokeExtras,
         ...corners,
         ...mapIndividualStrokes(p),
-        fillStyleId: optStr(prop(p, 'fillStyleId')),
-        strokeStyleId: optStr(prop(p, 'strokeStyleId')),
-        effectStyleId: optStr(prop(p, 'effectStyleId')),
+        fillStyleId: mapStyleId(idMap, prop(p, 'fillStyleId')),
+        strokeStyleId: mapStyleId(idMap, prop(p, 'strokeStyleId')),
+        effectStyleId: mapStyleId(idMap, prop(p, 'effectStyleId')),
       } as SceneNode;
     }
     case 'ELLIPSE': {
@@ -753,9 +753,9 @@ function importSceneNode(
         ...corners,
         ...mapIndividualStrokes(p),
         ...mapArcData(p),
-        fillStyleId: optStr(prop(p, 'fillStyleId')),
-        strokeStyleId: optStr(prop(p, 'strokeStyleId')),
-        effectStyleId: optStr(prop(p, 'effectStyleId')),
+        fillStyleId: mapStyleId(idMap, prop(p, 'fillStyleId')),
+        strokeStyleId: mapStyleId(idMap, prop(p, 'strokeStyleId')),
+        effectStyleId: mapStyleId(idMap, prop(p, 'effectStyleId')),
       } as SceneNode;
     }
     case 'VECTOR': {
@@ -772,7 +772,7 @@ function importSceneNode(
         effects,
         ...strokeExtras,
         vectorPaths: Array.isArray(vectorPaths) ? vectorPaths : [],
-        fillStyleId: optStr(prop(p, 'fillStyleId')),
+        fillStyleId: mapStyleId(idMap, prop(p, 'fillStyleId')),
       } as SceneNode;
     }
     case 'BOOLEAN_OPERATION': {
@@ -871,13 +871,13 @@ function importSceneNode(
         instanceAppearance.effects = mapEffectsPreservingEmpty(prop(p, 'effects'));
       }
       if (Object.prototype.hasOwnProperty.call(p, 'fillStyleId')) {
-        instanceAppearance.fillStyleId = optStyleId(prop(p, 'fillStyleId'));
+        instanceAppearance.fillStyleId = mapStyleId(idMap, prop(p, 'fillStyleId'));
       }
       if (Object.prototype.hasOwnProperty.call(p, 'strokeStyleId')) {
-        instanceAppearance.strokeStyleId = optStyleId(prop(p, 'strokeStyleId'));
+        instanceAppearance.strokeStyleId = mapStyleId(idMap, prop(p, 'strokeStyleId'));
       }
       if (Object.prototype.hasOwnProperty.call(p, 'effectStyleId')) {
-        instanceAppearance.effectStyleId = optStyleId(prop(p, 'effectStyleId'));
+        instanceAppearance.effectStyleId = mapStyleId(idMap, prop(p, 'effectStyleId'));
       }
       if (Object.prototype.hasOwnProperty.call(p, 'boundVariables')) {
         instanceAppearance.boundVariables = mapBoundVariables(p, idMap) ?? {};
@@ -887,7 +887,7 @@ function importSceneNode(
       } else if (Object.prototype.hasOwnProperty.call(p, 'clipsContent')) {
         instanceAppearance.clipsContent = false;
       }
-      applyInstanceShellOverridesFromFigmaApi(instanceAppearance, node.id, p);
+      applyInstanceShellOverridesFromFigmaApi(instanceAppearance, node.id, p, imageRemap, idMap);
       const inst = {
         ...base,
         type: 'INSTANCE',

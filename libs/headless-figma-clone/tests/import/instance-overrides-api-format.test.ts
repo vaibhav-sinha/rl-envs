@@ -166,4 +166,70 @@ describe('INSTANCE Figma API overrides array', () => {
     expect(inst.fills).toEqual([]);
     expect(inst.strokes).toEqual([]);
   });
+
+  it('hoists non-empty shell strokes from expanded overrides map over properties []', () => {
+    const snapshot = parseFigmaPluginSnapshot({
+      snapshotVersion: 1,
+      exportedAt: '2026-05-22T00:00:00.000Z',
+      figmaFileKey: 'test-overrides-shell-stroke',
+      figmaFileName: 'Overrides Shell Stroke',
+      document: {
+        id: '0:0',
+        type: 'DOCUMENT',
+        name: 'Document',
+        properties: {},
+        children: [
+          {
+            id: '0:1',
+            type: 'PAGE',
+            name: 'Page',
+            properties: { absoluteBoundingBox: { x: 0, y: 0, width: 400, height: 200 } },
+            children: [
+              {
+                id: '1778:42317',
+                type: 'INSTANCE',
+                name: 'Collection',
+                properties: {
+                  absoluteBoundingBox: { x: 0, y: 0, width: 232, height: 314 },
+                  mainComponentId: '1315:185271',
+                  strokes: [],
+                  overrides: {
+                    '1778:42317': {
+                      strokes: [
+                        {
+                          type: 'SOLID',
+                          color: { r: 0.8841349482536316, g: 0.8841349482536316, b: 0.8841349482536316 },
+                          visible: true,
+                          opacity: 1,
+                          blendMode: 'NORMAL',
+                        },
+                      ],
+                    },
+                  },
+                },
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+      variableCollections: [],
+      paintStyles: [],
+      textStyles: [],
+      effectStyles: [],
+      gridStyles: [],
+      assets: [],
+    });
+
+    const { envelope } = importFigmaPluginSnapshot(snapshot, { fileName: 'Overrides Shell Stroke' });
+    const page = envelope.document.children.find((p) => p.name === 'Page');
+    const inst = page?.children.find((c) => c.type === 'INSTANCE' && c.name === 'Collection');
+    expect(inst?.type).toBe('INSTANCE');
+    if (inst?.type !== 'INSTANCE') return;
+    expect(inst.strokes).toHaveLength(1);
+    expect(inst.strokes?.[0]?.type).toBe('SOLID');
+    if (inst.strokes?.[0]?.type === 'SOLID') {
+      expect(inst.strokes[0].color.r).toBeCloseTo(0.884, 2);
+    }
+  });
 });

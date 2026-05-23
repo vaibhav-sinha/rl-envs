@@ -42,7 +42,7 @@ describe('boolean SUBTRACT (two rectangles)', () => {
       options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
     });
     expect(out.html).toContain('hfc-boolean-svg');
-    expect(out.html).toContain('<path d=');
+    expect(out.html).toMatch(/<path\b[^>]*\bd=/);
     expect(out.html).not.toContain('boolean_op_fallback');
   });
 });
@@ -76,7 +76,7 @@ describe('boolean SUBTRACT (rectangle + ellipse)', () => {
       options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
     });
     expect(out.html).toContain('hfc-boolean-svg');
-    expect(out.html).toContain('<path d=');
+    expect(out.html).toMatch(/<path\b[^>]*\bd=/);
     expect(out.html).not.toContain('boolean_op_fallback');
     expect(out.warnings.filter((w) => w.startsWith('boolean_op_'))).toHaveLength(0);
   });

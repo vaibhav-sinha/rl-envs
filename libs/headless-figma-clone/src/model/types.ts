@@ -307,6 +307,8 @@ export interface NodeBase {
   visible?: boolean;
   /** Original Figma node id from import (e.g. "123:456"). Used for copy-export exclusions. */
   sourceFigmaId?: string;
+  /** Figma Plugin API relativeTransform when present in import snapshot. */
+  relativeTransform?: [[number, number, number], [number, number, number]];
   /**
    * Layer field → component property name (from `componentPropertyDefinitions`).
    * Used to apply instance `componentProperties` without name-based heuristics.
@@ -873,6 +875,7 @@ export interface ComponentInstanceNode extends NodeBase, LayoutSelfFields {
   rotation?: number;
   opacity?: number;
   blendMode?: BlendMode;
+  clipsContent?: boolean;
   mainComponentId: string;
   /** Keys are node ids inside {@link ComponentDefinition.root}. */
   overrides?: Record<string, ComponentOverrideFields>;
