@@ -41,6 +41,12 @@ import type { Logger } from '../util/logger.js';
 import type { EngineErrorCode } from '../util/errors.js';
 import { ValidationErr } from '../util/errors.js';
 import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } from './envelopeOps.js';
+import { applyComponentPropertiesToInstanceChildren } from '../instances/componentProperties.js';
+import { preorderSceneEntries, type PreorderSceneEntry } from '../import/componentNodeIdMap.js';
+import {
+  applyAutoLayoutIntrinsicSizingDeep,
+  syncTextNodeIntrinsicMetrics,
+} from '../render/autoLayoutIntrinsicSizing.js';
 import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
 import { normalizeLayoutGrids } from './figmaInterop.js';
 import {
@@ -1864,6 +1870,124 @@ export function refreshInstanceChildrenFromMain(working: FileEnvelope, inst: Ins
   }
 }
 
+function collectInstanceDetachedPreorder(inst: InstanceNode): PreorderSceneEntry[] {
+  const out: PreorderSceneEntry[] = [];
+  for (const child of inst.children ?? []) {
+    if (child.type === 'FRAME') {
+      out.push(...preorderSceneEntries(child));
+    }
+  }
+  return out;
+}
+
+export function cloneSceneSubtreePreservingIds(
+  working: FileEnvelope,
+  node: SceneNode,
+  oldPreorder: PreorderSceneEntry[],
+  cursor: { index: number },
+  signal?: AbortSignal
+): SceneNode {
+  engineThrowIfAborted(signal);
+  const oldEntry = oldPreorder[cursor.index];
+  const newId = oldEntry && oldEntry.type === node.type ? oldEntry.id : allocNodeId(working);
+  cursor.index += 1;
+
+  if (
+    node.type === 'FRAME' ||
+    node.type === 'TRANSFORM_GROUP' ||
+    node.type === 'GROUP' ||
+    node.type === 'SECTION'
+  ) {
+    const cloned = shallowCloneSceneNodeShell(node, newId) as FrameNode;
+    cloned.children = node.children.map((c) =>
+      cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal)
+    );
+    return cloned;
+  }
+
+  if (node.type === 'BOOLEAN_OPERATION') {
+    const cloned = shallowCloneSceneNodeShell(node, newId) as BooleanOperationNode;
+    cloned.children = node.children.map(
+      (c) =>
+        cloneSceneSubtreePreservingIds(working, c as SceneNode, oldPreorder, cursor, signal) as BooleanOperationNode['children'][number]
+    );
+    return cloned;
+  }
+
+  if (node.type === 'INSTANCE') {
+    const cloned = shallowCloneSceneNodeShell(node, newId) as InstanceNode;
+    if (node.children?.length) {
+      cloned.children = node.children.map((c) =>
+        cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal)
+      );
+    }
+    return cloned;
+  }
+
+  return shallowCloneSceneNodeShell(node, newId);
+}
+
+/** Rebuild detached children when variant root changes; reuse ids by preorder + type alignment. */
+export function refreshInstanceChildrenPreservingIds(
+  working: FileEnvelope,
+  inst: InstanceNode,
+  signal?: AbortSignal
+): void {
+  try {
+    const root = resolveInstanceRootFrame(working, inst);
+    const oldPreorder = collectInstanceDetachedPreorder(inst);
+    const cursor = { index: 0 };
+    inst.children = root.children.map((c) =>
+      cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal)
+    );
+  } catch {
+    delete inst.children;
+  }
+}
+
+/** Selected COMPONENT id for an instance (COMPONENT_SET variant resolution). */
+export function resolveSelectedComponentId(working: FileEnvelope, inst: InstanceNode): string {
+  const target = findNode(working.document, inst.mainComponentId);
+  if (!target) {
+    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId missing');
+  }
+  if (target.type === 'COMPONENT') return target.id;
+  if (target.type === 'COMPONENT_SET') {
+    const set = target as ComponentSetNode;
+    const key = set.variantPropertyKey ?? 'variant';
+    const raw = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
+    const options = set.variantOptions ?? set.componentIds;
+    const idx = options.indexOf(String(raw));
+    return set.componentIds[idx] ?? set.componentIds[0]!;
+  }
+  return inst.mainComponentId;
+}
+
+function syncInstanceAfterComponentProperties(
+  env: FileEnvelope,
+  inst: InstanceNode,
+  prevProps: Record<string, ComponentPropertyValue> | undefined,
+  nextProps: Record<string, ComponentPropertyValue> | undefined
+): void {
+  const prevProbe: InstanceNode = { ...inst, componentProperties: prevProps };
+  const nextProbe: InstanceNode = { ...inst, componentProperties: nextProps };
+  let prevCompId: string;
+  let nextCompId: string;
+  try {
+    prevCompId = resolveSelectedComponentId(env, prevProbe);
+    nextCompId = resolveSelectedComponentId(env, nextProbe);
+  } catch {
+    refreshInstanceChildrenFromMain(env, inst);
+    return;
+  }
+  if (prevCompId === nextCompId) {
+    applyComponentPropertiesToInstanceChildren(inst, nextProps);
+  } else {
+    refreshInstanceChildrenPreservingIds(env, inst);
+    applyComponentPropertiesToInstanceChildren(inst, nextProps);
+  }
+}
+
 function resolveInstanceRootFrame(working: FileEnvelope, inst: InstanceNode): FrameNode {
   const target = findNode(working.document, inst.mainComponentId);
   if (!target) {
@@ -2043,6 +2167,12 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphO
   }
   if (node.type !== 'PAGE' && (sceneShapeTypes as readonly string[]).includes(node.type)) {
     validateLayoutSizingNodeContextForParent(working.document, node as SceneNode, parent);
+  }
+  if (node.type === 'TEXT') {
+    syncTextNodeIntrinsicMetrics(node as TextNode, working);
+    if (parent.type === 'FRAME' && (parent.layoutMode === 'HORIZONTAL' || parent.layoutMode === 'VERTICAL')) {
+      applyAutoLayoutIntrinsicSizingDeep(parent, working);
+    }
   }
   return id;
 }
@@ -3241,6 +3371,23 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       if (bv === undefined) delete t.boundVariables;
       else t.boundVariables = bv as TextVariableBindings;
     }
+    const restyleMetrics =
+      'characters' in patch ||
+      'fontSize' in patch ||
+      'fontName' in patch ||
+      'textStyleId' in patch ||
+      'lineHeight' in patch ||
+      'letterSpacing' in patch ||
+      'textAutoResize' in patch ||
+      'styledSegments' in patch;
+    syncTextNodeIntrinsicMetrics(t, env, restyleMetrics);
+    const textParent = findParent(env.document, node.id);
+    if (
+      textParent?.type === 'FRAME' &&
+      (textParent.layoutMode === 'HORIZONTAL' || textParent.layoutMode === 'VERTICAL')
+    ) {
+      applyAutoLayoutIntrinsicSizingDeep(textParent, env);
+    }
     return;
   }
   if (node.type === 'RECTANGLE') {
@@ -4034,8 +4181,12 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     if ('componentProperties' in patch) {
       const cp = patch.componentProperties;
+      const prevProps = inst.componentProperties
+        ? { ...inst.componentProperties }
+        : undefined;
       if (cp === undefined || cp === null) {
         delete inst.componentProperties;
+        syncInstanceAfterComponentProperties(env, inst, prevProps, undefined);
       } else {
         if (!isRecord(cp)) throw new ValidationErr('VALIDATION_ERROR', 'componentProperties must be object');
         const next: Record<string, import('../model/types.js').ComponentPropertyValue> = {};
@@ -4043,8 +4194,8 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
           next[k] = validateComponentPropertyValue(v, `componentProperties.${k}`);
         }
         inst.componentProperties = next;
+        syncInstanceAfterComponentProperties(env, inst, prevProps, next);
       }
-      refreshInstanceChildrenFromMain(env, inst);
     }
     validateShapeBox(inst as unknown as import('../model/types.js').FrameNode);
     if ('visible' in patch) {

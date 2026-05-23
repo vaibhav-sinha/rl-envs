@@ -1,4 +1,8 @@
 import {
+  applyComponentProperties,
+  resolveVariantPropertyValue,
+} from '../instances/componentProperties.js';
+import {
   applyAutoLayoutIntrinsicSizingDeep,
   effectiveVerticalItemSpacingPx,
   syncHugTextLayoutMetricsDeep,
@@ -1996,108 +2000,6 @@ function cloneComponentRootForInstance(root: FrameNode): FrameNode {
   const cloned = cloneComponentRoot(root);
   cloned.visible = true;
   return cloned;
-}
-
-function componentPropertyLabel(key: string): string {
-  const i = key.indexOf('#');
-  return (i >= 0 ? key.slice(0, i) : key).trim();
-}
-
-/** Resolve VARIANT value from instance properties (Figma uses suffixed keys like `Size#0:1`). */
-function resolveVariantPropertyValue(
-  componentProperties: Record<string, ComponentPropertyValue> | undefined,
-  set: ComponentSetNode
-): string | undefined {
-  const key = set.variantPropertyKey ?? 'variant';
-  const direct = componentProperties?.[key];
-  if (direct?.type === 'VARIANT') return direct.value;
-  for (const [k, val] of Object.entries(componentProperties ?? {})) {
-    if (val.type === 'VARIANT' && (k === key || componentPropertyLabel(k) === componentPropertyLabel(key))) {
-      return val.value;
-    }
-  }
-  for (const val of Object.values(componentProperties ?? {})) {
-    if (val.type === 'VARIANT') return val.value;
-  }
-  return set.variantOptions?.[0];
-}
-
-function collectSceneNodes(root: SceneNode): SceneNode[] {
-  const out: SceneNode[] = [];
-  const stack: SceneNode[] = [root];
-  while (stack.length) {
-    const n = stack.pop()!;
-    out.push(n);
-    if (n.type === 'FRAME' || n.type === 'GROUP' || n.type === 'TRANSFORM_GROUP' || n.type === 'SECTION') {
-      for (const ch of n.children) stack.push(ch);
-    } else if (n.type === 'BOOLEAN_OPERATION') {
-      for (const ch of n.children as unknown as SceneNode[]) stack.push(ch);
-    } else if (n.type === 'INSTANCE' && n.children?.length) {
-      for (const ch of n.children) stack.push(ch);
-    }
-  }
-  return out;
-}
-
-function componentPropertyValuesByName(
-  props: Record<string, ComponentPropertyValue>
-): Map<string, ComponentPropertyValue> {
-  const byName = new Map<string, ComponentPropertyValue>();
-  for (const [key, val] of Object.entries(props)) {
-    byName.set(key, val);
-    byName.set(componentPropertyLabel(key), val);
-  }
-  return byName;
-}
-
-function applyComponentPropertyToNodeField(
-  node: SceneNode,
-  field: string,
-  val: ComponentPropertyValue
-): void {
-  if (val.type === 'BOOLEAN' && field === 'visible') {
-    node.visible = val.value;
-    return;
-  }
-  if (val.type === 'TEXT' && node.type === 'TEXT') {
-    if (field === 'characters') {
-      node.characters = val.value;
-      return;
-    }
-    if (field === 'fontSize') {
-      const n = Number(val.value);
-      if (!Number.isNaN(n)) node.fontSize = n;
-      return;
-    }
-    if (field === 'textAlignHorizontal') {
-      const v = val.value;
-      if (v === 'LEFT' || v === 'CENTER' || v === 'RIGHT' || v === 'JUSTIFIED') {
-        node.textAlignHorizontal = v;
-      }
-      return;
-    }
-  }
-  if (val.type === 'INSTANCE_SWAP' && field === 'mainComponent' && node.type === 'INSTANCE') {
-    node.mainComponentId = val.value;
-    return;
-  }
-}
-
-/**
- * Apply instance `componentProperties` via exported `componentPropertyReferences` on layers.
- * VARIANT properties are handled when selecting the component variant before clone.
- */
-function applyComponentProperties(root: FrameNode, props?: Record<string, ComponentPropertyValue>): void {
-  if (!props) return;
-  const byName = componentPropertyValuesByName(props);
-  for (const node of collectSceneNodes(root)) {
-    const refs = node.componentPropertyReferences;
-    if (!refs) continue;
-    for (const [field, propName] of Object.entries(refs)) {
-      const val = byName.get(propName);
-      if (val) applyComponentPropertyToNodeField(node, field, val);
-    }
-  }
 }
 
 /** Fit cloned component root to instance bounds without scaling child geometry (Figma parity). */

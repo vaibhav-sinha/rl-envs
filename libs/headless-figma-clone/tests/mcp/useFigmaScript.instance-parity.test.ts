@@ -135,7 +135,7 @@ const inst = figma.createInstance(comp);
 figma.currentPage.appendChild(inst);
 const main = await inst.getMainComponentAsync();
 const hasMain = main !== null;
-inst.setProperties({ 'Text#1:0': 'Stop' });
+inst.setProperties({ Text: 'Stop' });
 const textProp = inst.componentProperties['Text#1:0'];
 return { hasMain, mainId: main?.id, textValue: textProp?.value };
 `.trim(),

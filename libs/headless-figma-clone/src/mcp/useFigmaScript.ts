@@ -44,6 +44,10 @@ import {
   HFC_RUNTIME_PAGE_MARKER,
   snapshotForReturn,
 } from './scriptNodeSnapshot.js';
+import {
+  componentPropertyDefinitionKeys,
+  mergeComponentPropertyValues,
+} from '../instances/componentProperties.js';
 import { parseStyledSegmentsInput } from '../engine/styledSegmentsNormalize.js';
 import { ENGINE_MATRIX } from '../engine/phase-matrix.js';
 import type {
@@ -478,26 +482,6 @@ function resolveMainComponentHandle(
   return null;
 }
 
-function mergeComponentPropertyValues(
-  current: Record<string, ComponentPropertyValue> | undefined,
-  values: Record<string, string | boolean>
-): Record<string, ComponentPropertyValue> {
-  const next: Record<string, ComponentPropertyValue> = { ...(current ?? {}) };
-  for (const [key, raw] of Object.entries(values)) {
-    const existing = current?.[key];
-    if (existing?.type === 'VARIANT') {
-      next[key] = { type: 'VARIANT', value: String(raw) };
-    } else if (existing?.type === 'BOOLEAN' || typeof raw === 'boolean') {
-      next[key] = { type: 'BOOLEAN', value: Boolean(raw) };
-    } else if (existing?.type === 'INSTANCE_SWAP') {
-      next[key] = { type: 'INSTANCE_SWAP', value: String(raw) };
-    } else {
-      next[key] = { type: 'TEXT', value: String(raw) };
-    }
-  }
-  return next;
-}
-
 const AXIS_SIZING_PROPS = new Set(['primaryAxisSizingMode', 'counterAxisSizingMode']);
 
 function nodeSupportsAxisSizing(type: string): boolean {
@@ -615,7 +599,11 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
             throw new ValidationErr('VALIDATION_ERROR', `${String(prop)} requires INSTANCE node`);
           }
           const inst = live as InstanceNode;
-          const next = mergeComponentPropertyValues(inst.componentProperties, values);
+          const next = mergeComponentPropertyValues(
+            inst.componentProperties,
+            values,
+            definitionKeysForInstance(ctx, inst)
+          );
           queueUpdate(ctx, id, { componentProperties: next });
         };
       }
@@ -742,15 +730,20 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (prop === 'resize') {
         return (w: number, h: number): void => {
           const live = scriptLookup(ctx, id);
+          let height = h;
+          if (live?.type === 'TEXT' && height <= 0) {
+            const intrinsic = live.height ?? 0;
+            if (intrinsic > 0) height = intrinsic;
+          }
           const patch =
             live?.type === 'TEXT'
               ? {
                   width: w,
-                  height: h,
+                  height,
                   layoutSizingHorizontal: 'FIXED' as const,
                   layoutSizingVertical: 'FIXED' as const,
                 }
-              : { width: w, height: h };
+              : { width: w, height };
           queueUpdate(ctx, id, patch);
         };
       }
@@ -889,11 +882,35 @@ export function collectDetachedSnapshots(ctx: ScriptContext): unknown[] {
   return collectUnattachedRoots(ctx).map((n) => toDetachedSubtreeSpec(n));
 }
 
+/** Attached runtime handles mirror live engine fields Figma reads after mutations. */
+const LIVE_MIRROR_PROPS = new Set([
+  'x',
+  'y',
+  'width',
+  'height',
+  'characters',
+  'fontSize',
+  'fontWeight',
+  'fontName',
+  'textAutoResize',
+  'textAlignHorizontal',
+  'textAlignVertical',
+  'visible',
+  'opacity',
+  'rotation',
+]);
+
 function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext): N {
   const proxied = new Proxy(node, {
     get(target, prop, receiver) {
       const p = prop as string;
       const nid = target.getAttachedIdOrNull();
+      if (target.attached && nid !== null && LIVE_MIRROR_PROPS.has(p)) {
+        const live = scriptLookup(ctx, nid);
+        if (live && p in live) {
+          return (live as unknown as Record<string, unknown>)[p];
+        }
+      }
       if (p === 'set') {
         return (props: Record<string, unknown>): unknown => {
           const nodeId = target.getAttachedIdOrNull();
@@ -1523,6 +1540,10 @@ class RuntimeText extends RuntimeSceneNode {
   characters = '';
   fontSize = 12;
   fontWeight = 400;
+  fontName?: TextNode['fontName'];
+  textAutoResize?: TextNode['textAutoResize'];
+  textAlignHorizontal?: TextNode['textAlignHorizontal'];
+  textAlignVertical?: TextNode['textAlignVertical'];
   fills?: FrameNode['fills'];
   textStyleId?: string;
   textOnPath?: { pathId: string; startOffset?: number };
@@ -1573,6 +1594,10 @@ class RuntimeText extends RuntimeSceneNode {
       characters: this.characters,
       fontSize: this.fontSize,
       fontWeight: this.fontWeight,
+      fontName: this.fontName,
+      textAutoResize: this.textAutoResize,
+      textAlignHorizontal: this.textAlignHorizontal,
+      textAlignVertical: this.textAlignVertical,
       fills: this.fills,
       strokes: this.strokes,
       strokeWeight: this.strokeWeight,
@@ -2225,7 +2250,12 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
     if (nid === null) {
       throw new ValidationErr('VALIDATION_ERROR', 'setProperties requires the instance to be appended');
     }
-    const next = mergeComponentPropertyValues(this.componentProperties, values);
+    const live = scriptLookup(this.ctx, nid);
+    const defKeys =
+      live?.type === 'INSTANCE'
+        ? definitionKeysForInstance(this.ctx, live as import('../model/types.js').InstanceNode)
+        : [];
+    const next = mergeComponentPropertyValues(this.componentProperties, values, defKeys);
     this.componentProperties = next;
     queueUpdate(this.ctx, nid, { componentProperties: next });
   }
@@ -2542,6 +2572,15 @@ export interface RunUseFigmaScriptErr {
   kind: 'error';
   errorCode: string;
   message: string;
+}
+
+function definitionKeysForInstance(
+  ctx: ScriptContext,
+  inst: import('../model/types.js').InstanceNode
+): string[] {
+  const main = scriptLookup(ctx, inst.mainComponentId);
+  if (!main || (main.type !== 'COMPONENT' && main.type !== 'COMPONENT_SET')) return [];
+  return componentPropertyDefinitionKeys(main.componentPropertyDefinitions);
 }
 
 function createComponentInstanceFromMainId(

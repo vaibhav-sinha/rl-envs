@@ -46,6 +46,14 @@ import { isCheckCatalog, useCheckCatalog } from './useCheckCatalog';
 
 const STEPS = WIZARD_STEPS.map((s) => s.id);
 
+const DIFFICULTY_LEVELS = ['easy', 'medium', 'hard'] as const;
+
+function normalizeDifficulty(value: string): (typeof DIFFICULTY_LEVELS)[number] {
+  return (DIFFICULTY_LEVELS as readonly string[]).includes(value)
+    ? (value as (typeof DIFFICULTY_LEVELS)[number])
+    : 'easy';
+}
+
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -133,7 +141,10 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     setTask(t);
     setTaskId(id);
     setInstruction(t.instruction);
-    setMeta(t.builderState.metadata);
+    setMeta({
+      ...t.builderState.metadata,
+      difficulty: normalizeDifficulty(t.builderState.metadata.difficulty),
+    });
     if (t.evalSpec) {
       setEvalSpec(ensureDefaultVisualChecks(normalizeEvalSpec(t.evalSpec as Record<string, unknown>)));
     }
@@ -575,7 +586,17 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
             </div>
             <div className="space-y-1">
               <Label>Difficulty</Label>
-              <Input value={meta.difficulty} onChange={(e) => setMeta({ ...meta, difficulty: e.target.value })} />
+              <select
+                className="w-full h-8 rounded border border-[#555] bg-[#1e1e1e] text-[11px] px-2 text-foreground"
+                value={normalizeDifficulty(meta.difficulty)}
+                onChange={(e) => setMeta({ ...meta, difficulty: e.target.value })}
+              >
+                {DIFFICULTY_LEVELS.map((level) => (
+                  <option key={level} value={level}>
+                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                  </option>
+                ))}
+              </select>
             </div>
           </>
         )}

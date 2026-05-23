@@ -47,9 +47,10 @@ function hugTextIntrinsicWidthPx(t: TextNode, env: FileEnvelope | undefined): nu
     if (t.layoutSizingHorizontal === 'HUG') {
       return reasonableExportedTextWidth(exported, approx);
     }
-    if (t.layoutSizingHorizontal !== 'FIXED') {
+    if (t.layoutSizingHorizontal === 'FIXED') {
       return exported;
     }
+    return reasonableExportedTextWidth(exported, approx);
   }
   return approx;
 }
@@ -398,6 +399,36 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
     (t.layoutSizingHorizontal === 'FILL' && (t.width ?? 0) <= 0) ||
     (t.layoutSizingHorizontal !== 'FIXED' && (t.width ?? 0) <= 0);
   const needsIntrinsicH =
+    (t.layoutSizingVertical === 'HUG' &&
+      !(t.textAutoResize === 'HEIGHT' && (t.height ?? 0) > 0)) ||
+    (t.layoutSizingVertical === 'FILL' && (t.height ?? 0) <= 0) ||
+    (t.layoutSizingVertical !== 'FIXED' && (t.height ?? 0) <= 0);
+  if (needsIntrinsicW) {
+    t.width = hugTextIntrinsicWidthPx(t, env);
+  }
+  if (needsIntrinsicH) {
+    t.height = hugTextIntrinsicHeightPx(t, env);
+  }
+}
+
+/**
+ * Update TEXT width/height in the document model during engine/script edits (Figma auto-resize parity).
+ */
+export function syncTextNodeIntrinsicMetrics(
+  t: TextNode,
+  env?: FileEnvelope,
+  force = false
+): void {
+  if (t.textOnPath) return;
+  const needsIntrinsicW =
+    force ||
+    t.layoutSizingHorizontal === 'HUG' ||
+    (t.layoutSizingHorizontal === 'FILL' && (t.width ?? 0) <= 0) ||
+    (t.layoutSizingHorizontal !== 'FIXED' && (t.width ?? 0) <= 0);
+  const needsIntrinsicH =
+    force ||
+    t.textAutoResize === 'HEIGHT' ||
+    t.textAutoResize === 'WIDTH_AND_HEIGHT' ||
     (t.layoutSizingVertical === 'HUG' &&
       !(t.textAutoResize === 'HEIGHT' && (t.height ?? 0) > 0)) ||
     (t.layoutSizingVertical === 'FILL' && (t.height ?? 0) <= 0) ||
