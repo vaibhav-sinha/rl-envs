@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "gates": {
+    "require_change": true,
+    "no_detached_nodes": true,
+    "additions_only": true,
+    "allowed_change_inside_ids": [
+      "2289:196084"
+    ]
+  },
+  "checks": [
+    {
+      "id": "must_contain_text_1",
+      "type": "must_contain_text",
+      "required": true,
+      "contains": "share",
+      "scope": "new_frames"
+    }
+  ],
+  "visual": [
+    {
+      "id": "good_design_1",
+      "type": "good_design"
+    },
+    {
+      "id": "task_completeness_1",
+      "type": "task_completeness",
+      "evaluation_instructions": "- The bottom sheet should be closable\n- It should be clear to the user which collection is being shared\n- The alignment for checkboxes, friend images, and names should be proper in each row and across rows\n- The size for images, names and checkboxes should be chosen properly and must have good proportions"
+    },
+    {
+      "id": "design_consistency_3",
+      "type": "design_consistency",
+      "reference_asset": "ref-design_consistency_3.png",
+      "criteria": [
+        "- The collection page in the new design should look similar to the provided existing collection page",
+        "- The share with friends icon/button should be clear and present at the top of the page along with other icons (edit, upload)",
+        "- The share with friends icon/button should look primary compared to others",
+        "- The bottom sheet and the share UI should seem like being part of the same app. Hence, fonts selections, paddings, empty spaces, buttons, icons, etc should all look and feel similar."
+      ]
+    },
+    {
+      "id": "design_preference_4",
+      "type": "design_preference",
+      "reference_asset": "ref-design_preference_4.png"
+    }
+  ],
+  "category_importance": {
+    "commands": 0.15,
+    "checks": 0.35,
+    "design_system": 0.2,
+    "visual": 0.41,
+    "metadata": 0.1,
+    "heuristics": 0.1
+  }
+}

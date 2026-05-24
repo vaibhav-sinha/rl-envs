@@ -21,3 +21,7 @@ digest = "sha256:ed68e53ec8af01e9c430ff55eccdfabffca1026f7add250c4c3b4a61dca6d29
 name = "metaphi/figma-design-oker-create-sale-section"
 digest = "sha256:c27422562c8f2cde63df6a54d40001885d0c1ba931863a4e1d09824f1b47dfc0"
 
+[[tasks]]
+name = "metaphi/figma-design-oker-create-share-collection"
+digest = "sha256:664ff8c1d22e17027f768e359bf482e187425ae3969a0bc49f34f329549ed004"
+

@@ -1,5 +1,26 @@
-import { chromium, type Browser } from 'playwright';
+import { randomUUID } from 'node:crypto';
+import { unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { chromium, type Browser, type Page } from 'playwright';
 import type { CompiledDesign, Rect } from '../render/DesignCompiler.js';
+
+function htmlUsesFileUrls(html: string): boolean {
+  return html.includes('file://');
+}
+
+/** Load compiled HTML; `file://` asset refs require a on-disk document (not `about:blank`). */
+async function loadCompiledHtml(page: Page, html: string, timeoutMs: number): Promise<string | undefined> {
+  if (!htmlUsesFileUrls(html)) {
+    await page.setContent(html, { waitUntil: 'load', timeout: timeoutMs });
+    return undefined;
+  }
+  const tempHtmlPath = join(tmpdir(), `hfc-screenshot-${randomUUID()}.html`);
+  await writeFile(tempHtmlPath, html, 'utf8');
+  await page.goto(pathToFileURL(tempHtmlPath).href, { waitUntil: 'load', timeout: timeoutMs });
+  return tempHtmlPath;
+}
 export interface PlaywrightScreenshotService {
   capture(params: {
     compiled: CompiledDesign;
@@ -43,11 +64,9 @@ export const playwrightScreenshotService: PlaywrightScreenshotService = {
         height: Math.ceil(params.compiled.viewportHeight),
       },
     });
+    let tempHtmlPath: string | undefined;
     try {
-      await page.setContent(params.compiled.html, {
-        waitUntil: 'load',
-        timeout: params.timeoutMs,
-      });
+      tempHtmlPath = await loadCompiledHtml(page, params.compiled.html, params.timeoutMs);
       const fontsReady = page.evaluate('document.fonts.ready');
       await Promise.race([
         fontsReady,
@@ -79,6 +98,9 @@ export const playwrightScreenshotService: PlaywrightScreenshotService = {
       return { bytes: buf, width: pixelW, height: pixelH, mimeType };
     } finally {
       await page.close();
+      if (tempHtmlPath) {
+        await unlink(tempHtmlPath).catch(() => undefined);
+      }
     }
   },
 };
