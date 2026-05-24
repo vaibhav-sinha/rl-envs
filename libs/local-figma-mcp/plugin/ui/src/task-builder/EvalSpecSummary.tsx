@@ -7,7 +7,15 @@ import {
   humanVisualType,
   truncateId,
 } from './catalog-helpers';
-import type { CheckCatalog } from './types';
+import { enabledNoveltyLabels } from './novelty-helpers';
+import type { AllowNoveltyConfig, CheckCatalog } from './types';
+
+function formatNoveltySummary(config: AllowNoveltyConfig, catalog: CheckCatalog | null): string {
+  const labels = enabledNoveltyLabels(config, catalog);
+  if (!labels.length) return 'Strict token adherence';
+  if (labels.length >= 14) return 'Novelty allowed for all properties';
+  return `Novelty: ${labels.join(', ')}`;
+}
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   if (!value) return null;
@@ -266,15 +274,14 @@ export function EvalSpecSummary({
             )}
           </section>
 
-          {spec.design_system ? (
+          {spec.design_system?.allow_novelty ? (
             <section>
               <DetailRow
                 label="Design system"
-                value={
-                  spec.design_system.allow_novelty
-                    ? 'New tokens/styles allowed'
-                    : 'Strict token adherence'
-                }
+                value={formatNoveltySummary(
+                  spec.design_system.allow_novelty as AllowNoveltyConfig,
+                  catalog
+                )}
               />
             </section>
           ) : null}

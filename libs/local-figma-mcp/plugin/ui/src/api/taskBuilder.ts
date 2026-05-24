@@ -1,5 +1,5 @@
 import { TB_URL } from '../lib/constants';
-import type { CheckCatalog } from '../task-builder/types';
+import type { AllowNoveltyConfig, CheckCatalog } from '../task-builder/types';
 
 async function tbFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${TB_URL}${path}`, {
@@ -53,7 +53,7 @@ export interface EvalSpec {
   checks?: Record<string, unknown>[];
   visual?: Record<string, unknown>[];
   metadata_checks?: Record<string, unknown>[];
-  design_system?: { allow_novelty?: boolean };
+  design_system?: { allow_novelty: AllowNoveltyConfig };
   weights?: Record<string, number>;
   category_importance?: Record<string, number>;
   screenshot?: {

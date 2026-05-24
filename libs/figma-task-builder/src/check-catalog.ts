@@ -1,5 +1,7 @@
 /** SME-facing descriptions for eval spec fields (shown in the Task Builder UI). */
 
+import { NOVELTY_CATEGORIES } from './novelty-catalog.js';
+
 export const CHECK_CATALOG = {
   gates: {
     title: 'Gates',
@@ -106,13 +108,15 @@ export const CHECK_CATALOG = {
   design_system: {
     title: 'Design system',
     description:
-      'Token and style adherence on new/changed content. Always evaluated; configure allow_novelty only.',
+      'Token and style adherence on new/changed content. Allow novelty per property to skip allowlist checks for specific tokens.',
     fields: {
       allow_novelty: {
         label: 'Allow novelty',
-        description: 'When false, new colors/fonts outside baseline allowlists reduce the score.',
+        description:
+          'When enabled, selected properties may use values outside baseline allowlists. Turn off individual properties to enforce strict tokens.',
       },
     },
+    novelty_categories: NOVELTY_CATEGORIES,
   },
   visual: {
     title: 'Visual (LLM) checks',

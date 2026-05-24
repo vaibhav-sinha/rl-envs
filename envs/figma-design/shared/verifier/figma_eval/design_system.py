@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .edit_graph import EditGraph, is_metadata_only_change
+from .novelty import resolve_allowed_roles
 from .tokens import AUTO_LAYOUT_MODES, TokenRole, extract_node_tokens, value_to_display
 from .tree import descendant_ids, find_node, is_instance_node
 from .types import CanonicalValue, DesignCatalog, Envelope, SubCheckResult, TreeNode
@@ -71,26 +72,12 @@ def collect_content_node_ids(graph: EditGraph, after: Envelope) -> set[str]:
     return ids
 
 
-def _allow_novelty(ds_spec: dict[str, Any] | None) -> bool:
-    if not ds_spec:
-        return False
-    return bool(ds_spec.get("allow_novelty", False))
-
-
 def _check_token_adherence(
     after: Envelope,
     content_ids: set[str],
     catalog: DesignCatalog,
-    allow_novelty: bool,
+    allowed_roles: set[str],
 ) -> SubCheckResult:
-    if allow_novelty:
-        return _ds_result(
-            "design_system.token_adherence",
-            1.0,
-            False,
-            {"reason": "novelty_allowed"},
-        )
-
     if not catalog.has_allowlists:
         return _ds_result(
             "design_system.token_adherence",
@@ -110,11 +97,13 @@ def _check_token_adherence(
             continue
         for role, value in extract_node_tokens(node, after):
             role_key = role.value
-            allowed = catalog.allowlists.get(role_key)
-            if not allowed:
+            if role_key in allowed_roles:
+                continue
+            allowlist = catalog.allowlists.get(role_key)
+            if not allowlist:
                 continue
             checked += 1
-            if value not in allowed:
+            if value not in allowlist:
                 violations += 1
                 by_role[role_key] = by_role.get(role_key, 0) + 1
                 if len(samples) < 8:
@@ -127,11 +116,16 @@ def _check_token_adherence(
                     )
 
     if checked == 0:
+        reason = (
+            "all_roles_novelty_allowed"
+            if allowed_roles
+            else "no_enforceable_tokens_in_content"
+        )
         return _ds_result(
             "design_system.token_adherence",
             1.0,
             False,
-            {"reason": "no_enforceable_tokens_in_content"},
+            {"reason": reason, "allowed_roles": sorted(allowed_roles)},
         )
 
     score = 1.0 - violations / checked
@@ -144,6 +138,7 @@ def _check_token_adherence(
             "violations": violations,
             "violations_by_role": by_role,
             "sample_violations": samples,
+            "allowed_roles": sorted(allowed_roles),
         },
     )
 
@@ -251,7 +246,7 @@ def run_design_system_checks(
     ds_spec: dict[str, Any] | None = None,
 ) -> list[SubCheckResult]:
     content_ids = collect_content_node_ids(graph, after)
-    allow_novelty = _allow_novelty(ds_spec)
+    allowed_roles = resolve_allowed_roles(ds_spec)
 
     if not content_ids:
         reason = {"reason": "no_content_changes"}
@@ -261,7 +256,7 @@ def run_design_system_checks(
             _ds_result("design_system.edited_regression", 1.0, False, reason),
         ]
 
-    token_adherence = _check_token_adherence(after, content_ids, catalog, allow_novelty)
+    token_adherence = _check_token_adherence(after, content_ids, catalog, allowed_roles)
     style_reuse = _check_style_variable_reuse(after, content_ids, catalog)
     edited_regression = _check_edited_regression(before, after, graph)
 

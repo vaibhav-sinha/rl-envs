@@ -32,7 +32,9 @@ import { buildCheckOptions, buildMetadataOptions, buildVisualOptions, TypeSelect
 import { MetadataCard } from './components/MetadataCard';
 import { VisualCard } from './components/VisualCard';
 import { EvalSpecSummary } from './EvalSpecSummary';
+import { NoveltyPanel } from './components/NoveltyPanel';
 import { isCheckCatalog, useCheckCatalog } from './useCheckCatalog';
+import type { AllowNoveltyConfig } from './types';
 
 const SCREENSHOT_STRATEGIES = [
   'auto',
@@ -812,18 +814,18 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
               title={catalog.design_system.title}
               description={catalog.design_system.description}
             />
-            <div className="flex items-start gap-2">
-              <Switch
-                checked={!!evalSpec.design_system?.allow_novelty}
-                onCheckedChange={(v) =>
-                  setEvalSpec({ ...evalSpec, design_system: { allow_novelty: v } })
+            <NoveltyPanel
+              catalog={catalog}
+              config={evalSpec.design_system?.allow_novelty}
+              onChange={(allow_novelty: AllowNoveltyConfig | undefined) => {
+                if (!allow_novelty) {
+                  const { design_system: _ds, ...rest } = evalSpec;
+                  setEvalSpec(rest);
+                  return;
                 }
-              />
-              <FieldHelp
-                label={catalog.design_system.fields.allow_novelty.label}
-                description={catalog.design_system.fields.allow_novelty.description}
-              />
-            </div>
+                setEvalSpec({ ...evalSpec, design_system: { allow_novelty } });
+              }}
+            />
             <p className="text-[10px] text-muted m-0">{catalog.heuristics.description}</p>
           </>
         ) : null}

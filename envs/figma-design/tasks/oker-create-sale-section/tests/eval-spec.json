@@ -48,7 +48,26 @@
     }
   ],
   "design_system": {
-    "allow_novelty": true
+    "allow_novelty": {
+      "text": {
+        "color": false,
+        "font_size": false,
+        "font_family": false,
+        "font_weight": false
+      },
+      "frames": {
+        "fill": false,
+        "background": true,
+        "stroke_color": false,
+        "stroke_width": false,
+        "corner_radius": false,
+        "effects": false,
+        "item_spacing": false,
+        "counter_axis_spacing": false,
+        "padding": false,
+        "layout_grid": false
+      }
+    }
   },
   "category_importance": {
     "commands": 0.15,

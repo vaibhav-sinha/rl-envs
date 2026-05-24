@@ -49,13 +49,15 @@ export interface DesignListItem {
   updated_at: string;
 }
 
+import type { AllowNoveltyConfig } from './novelty-catalog.js';
+
 export interface EvalSpec {
   schema_version: 1;
   gates?: Record<string, unknown>;
   checks?: Record<string, unknown>[];
   visual?: Record<string, unknown>[];
   metadata_checks?: Record<string, unknown>[];
-  design_system?: { allow_novelty?: boolean };
+  design_system?: { allow_novelty: AllowNoveltyConfig };
   /** @deprecated Legacy field; normalized to category_importance on read/write. */
   weights?: Record<string, number>;
   category_importance?: Record<string, number>;

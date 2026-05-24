@@ -30,8 +30,9 @@
     "design_system": {
       "type": "object",
       "properties": {
-        "allow_novelty": { "type": "boolean", "default": false }
+        "allow_novelty": { "$ref": "#/$defs/allowNovelty" }
       },
+      "required": ["allow_novelty"],
       "additionalProperties": false
     },
     "category_importance": {
@@ -49,6 +50,54 @@
     "screenshot": { "$ref": "#/$defs/screenshot" }
   },
   "$defs": {
+    "allowNoveltyText": {
+      "type": "object",
+      "properties": {
+        "color": { "type": "boolean" },
+        "font_size": { "type": "boolean" },
+        "font_family": { "type": "boolean" },
+        "font_weight": { "type": "boolean" }
+      },
+      "required": ["color", "font_size", "font_family", "font_weight"],
+      "additionalProperties": false
+    },
+    "allowNoveltyFrames": {
+      "type": "object",
+      "properties": {
+        "fill": { "type": "boolean" },
+        "background": { "type": "boolean" },
+        "stroke_color": { "type": "boolean" },
+        "stroke_width": { "type": "boolean" },
+        "corner_radius": { "type": "boolean" },
+        "effects": { "type": "boolean" },
+        "item_spacing": { "type": "boolean" },
+        "counter_axis_spacing": { "type": "boolean" },
+        "padding": { "type": "boolean" },
+        "layout_grid": { "type": "boolean" }
+      },
+      "required": [
+        "fill",
+        "background",
+        "stroke_color",
+        "stroke_width",
+        "corner_radius",
+        "effects",
+        "item_spacing",
+        "counter_axis_spacing",
+        "padding",
+        "layout_grid"
+      ],
+      "additionalProperties": false
+    },
+    "allowNovelty": {
+      "type": "object",
+      "properties": {
+        "text": { "$ref": "#/$defs/allowNoveltyText" },
+        "frames": { "$ref": "#/$defs/allowNoveltyFrames" }
+      },
+      "required": ["text", "frames"],
+      "additionalProperties": false
+    },
     "screenshot": {
       "type": "object",
       "properties": {

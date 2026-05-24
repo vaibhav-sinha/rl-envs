@@ -40,19 +40,65 @@ def test_schema_file_loads():
     assert schema.get("type") == "object"
 
 
+def _allow_novelty_object(**overrides: object) -> dict:
+    base = {
+        "text": {
+            "color": False,
+            "font_size": False,
+            "font_family": False,
+            "font_weight": False,
+        },
+        "frames": {
+            "fill": False,
+            "background": True,
+            "stroke_color": False,
+            "stroke_width": False,
+            "corner_radius": False,
+            "effects": False,
+            "item_spacing": False,
+            "counter_axis_spacing": False,
+            "padding": False,
+            "layout_grid": False,
+        },
+    }
+    for key, val in overrides.items():
+        if key in base["text"]:
+            base["text"][key] = val
+        elif key in base["frames"]:
+            base["frames"][key] = val
+    return base
+
+
 def test_design_system_spec_validates():
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump(
             {
                 "schema_version": 1,
-                "design_system": {"allow_novelty": False},
+                "design_system": {"allow_novelty": _allow_novelty_object()},
             },
             f,
         )
         path = f.name
     try:
         spec = load_and_validate_eval_spec(path)
-        assert spec["design_system"]["allow_novelty"] is False
+        assert spec["design_system"]["allow_novelty"]["frames"]["background"] is True
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+def test_design_system_boolean_novelty_rejected():
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(
+            {
+                "schema_version": 1,
+                "design_system": {"allow_novelty": True},
+            },
+            f,
+        )
+        path = f.name
+    try:
+        with pytest.raises(Exception):
+            load_and_validate_eval_spec(path)
     finally:
         Path(path).unlink(missing_ok=True)
 
