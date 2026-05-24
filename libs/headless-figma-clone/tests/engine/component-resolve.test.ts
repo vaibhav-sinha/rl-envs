@@ -7,6 +7,7 @@ import {
 import {
   resolveComponentOrSetInEnvelope,
   resolveInstanceRootFrameInEnvelope,
+  resolveInstanceRootFrameOptional,
   resolveNodeInEnvelope,
   resolveSelectedComponentIdInEnvelope,
 } from '../../src/engine/componentResolve.js';
@@ -66,6 +67,37 @@ describe('componentResolve', () => {
     const comp = resolveComponentOrSetInEnvelope(env, compId);
     expect(comp?.type).toBe('COMPONENT');
     expect(comp?.id).toBe(compId);
+  });
+
+  it('resolveInstanceRootFrameOptional returns null when master is missing', () => {
+    const env = emptyEnvelope();
+    const inst: InstanceNode = {
+      id: 'I80',
+      type: 'INSTANCE',
+      name: 'Inst',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      mainComponentId: 'I_missing',
+    };
+    expect(resolveInstanceRootFrameOptional(env, inst)).toBeNull();
+  });
+
+  it('resolveInstanceRootFrameOptional returns frame when master lives in components[]', () => {
+    const { env, compId } = envelopeWithSidecarComponent();
+    const inst: InstanceNode = {
+      id: 'I81',
+      type: 'INSTANCE',
+      name: 'Inst',
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 20,
+      mainComponentId: compId,
+    };
+    const root = resolveInstanceRootFrameOptional(env, inst);
+    expect(root?.id).toBe('I51');
   });
 
   it('resolveInstanceRootFrameInEnvelope reads master from components[]', () => {

@@ -121,11 +121,7 @@ function convertComponentInstances(nodes: unknown[]): void {
   }
 }
 
-function attachComponentLibrary(
-  env: FileEnvelope,
-  components: ComponentDefinition[],
-  hasGraphComponents: boolean
-): void {
+function attachComponentLibrary(env: FileEnvelope, components: ComponentDefinition[]): void {
   const mastersPage = ensureComponentMastersPage(env);
 
   for (const comp of components) {
@@ -133,8 +129,7 @@ function attachComponentLibrary(
       mastersPage.children.push(comp.root);
     }
 
-    // True legacy: masters only lived in components[] — add COMPONENT wrappers on the masters page.
-    if (!hasGraphComponents && !nodeExistsInDocument(env.document, comp.id)) {
+    if (!nodeExistsInDocument(env.document, comp.id)) {
       mastersPage.children.push({
         id: comp.id,
         type: 'COMPONENT',
@@ -168,8 +163,7 @@ export function componentIdExistsInEnvelope(env: FileEnvelope, componentId: stri
 export function normalizeComponentEnvelope(env: FileEnvelope): void {
   if (!env.components || env.components.length === 0) return;
 
-  const hasGraph = documentHasGraphComponents(env.document);
-  attachComponentLibrary(env, env.components, hasGraph);
+  attachComponentLibrary(env, env.components);
 
   for (const page of env.document.children) {
     convertComponentInstances(page.children as unknown[]);

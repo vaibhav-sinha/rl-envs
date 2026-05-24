@@ -43,6 +43,6 @@ describe('clone abort', () => {
     });
     const ac = new AbortController();
     ac.abort(new Error('dup abort'));
-    expect(() => duplicateNodeInEnvelope(env, rectId, ac.signal)).toThrow(/dup abort/);
+    expect(() => duplicateNodeInEnvelope(env, rectId, { signal: ac.signal })).toThrow(/dup abort/);
   });
 });

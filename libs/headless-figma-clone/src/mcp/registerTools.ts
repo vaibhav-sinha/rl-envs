@@ -425,6 +425,9 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
                   })
                 : await engine.applyTransaction(run.operations, { signal });
             if (!r.success) {
+              if (run.preApplied) {
+                await engine.reloadActiveFileFromDisk();
+              }
               commandErrorCode = r.errorCode;
               commandMessage = r.message;
               return {

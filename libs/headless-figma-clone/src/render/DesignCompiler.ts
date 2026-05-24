@@ -1,9 +1,6 @@
 import { findNodeInDocument } from '../engine/componentResolve.js';
 import { buildGraphIndexes } from '../engine/nodeIndex.js';
-import {
-  applyComponentProperties,
-  resolveVariantPropertyValue,
-} from '../instances/componentProperties.js';
+import { resolveVariantPropertyValue } from '../instances/componentProperties.js';
 import {
   applyAutoLayoutIntrinsicSizingDeep,
   effectiveVerticalItemSpacingPx,
@@ -47,19 +44,14 @@ import {
 } from './typographyCss.js';
 import { injectFontFacesIntoHtml } from '../fonts/injectFonts.js';
 import { normalizeFigmaText, rawTextCharacters, splitFigmaParagraphRanges } from './figmaTextParagraphs.js';
+import { applyComponentOverridesToTree } from './instanceOverrideApply.js';
 import {
-  applyInstanceAppearanceToRoot,
-  hasOwnAppearanceField,
-  type InstanceAppearanceFields,
-} from './instanceAppearance.js';
-import {
-  applyComponentOverridesToTree,
-  applyInstanceShellOverrideToRoot,
-} from './instanceOverrideApply.js';
-import {
-  mergeDetachedChildrenIntoRoot,
-  type InstanceMergeContext,
-} from './instanceMerge.js';
+  alignInstanceShellToVariantRoot,
+  cloneComponentRootForInstance,
+  instanceDetachedChildren,
+  prepareClonedComponentSubtreeForEmit,
+  prepareInstanceComponentRoot,
+} from './instancePrepare.js';
 import { computeStrokeBorder, borderCssDeclaration, rgbaFromSolid as strokeRgbaFromSolid } from './strokeRender.js';
 import { svgViewportForPathData, svgViewportForVectorPaths } from './vectorPathBounds.js';
 import {
@@ -73,7 +65,6 @@ import type {
   BooleanOperationNode,
   ComponentInstanceNode,
   ComponentNode,
-  ComponentOverrideFields,
   ComponentSetNode,
   InstanceNode,
   Effect,
@@ -2155,26 +2146,6 @@ function emitTable(
   );
 }
 
-function cloneComponentRoot(root: FrameNode): FrameNode {
-  return structuredClone(root) as FrameNode;
-}
-
-/** Component masters are often hidden on the canvas; instances must still render their contents. */
-function cloneComponentRootForInstance(root: FrameNode): FrameNode {
-  const cloned = cloneComponentRoot(root);
-  cloned.visible = true;
-  return cloned;
-}
-
-/** Fit cloned component root to instance bounds without scaling child geometry (Figma parity). */
-function normalizeInstanceComponentRootForEmit(
-  root: FrameNode,
-  inst: Pick<InstanceNode, 'width' | 'height'>
-): void {
-  root.width = inst.width;
-  root.height = inst.height;
-}
-
 function instanceHasDropShadow(effects: Effect[] | undefined): boolean {
   return effects?.some((e) => e.visible !== false && e.type === 'DROP_SHADOW') ?? false;
 }
@@ -2235,97 +2206,6 @@ function emitInstancePaintShell(
     `${hfcNodeCssSel(inst.id)}{${pos}box-sizing:border-box;${fillCss}${instanceWrapperOverflowCss(inst, effects)}${opRot}}`
   );
   return true;
-}
-
-/**
- * Prepare a cloned component master for instance emit.
- * Plugin exports store per-layer overrides in `instance.children` (detached subtree merge).
- * The optional `overrides` map is applied when present on the INSTANCE node.
- */
-function buildInstanceAppearanceForRoot(
-  inst: InstanceAppearanceFields & Pick<InstanceNode, 'id'>,
-  overrides: ComponentInstanceNode['overrides'] | undefined
-): InstanceAppearanceFields {
-  const appearance: InstanceAppearanceFields = { ...inst };
-  const shell = overrides?.[inst.id];
-  if (
-    hasOwnAppearanceField(appearance, 'strokes') &&
-    (appearance.strokes?.length ?? 0) === 0 &&
-    (shell?.strokes?.length ?? 0) > 0
-  ) {
-    delete appearance.strokes;
-  }
-  return appearance;
-}
-
-/**
- * Drop stale shell paints inherited from a different component-set slot when
- * `mainComponentId` already points at the resolved variant root.
- */
-function alignInstanceShellToVariantRoot(inst: InstanceNode, variantRoot: FrameNode): void {
-  const variantFillCount = variantRoot.fills?.length ?? 0;
-  const variantStrokeCount = variantRoot.strokes?.length ?? 0;
-  if (hasOwnAppearanceField(inst, 'fills') && (inst.fills?.length ?? 0) > 0 && variantFillCount === 0) {
-    inst.fills = [];
-    delete inst.fillStyleId;
-  }
-  if (hasOwnAppearanceField(inst, 'strokes') && (inst.strokes?.length ?? 0) > 0 && variantStrokeCount === 0) {
-    inst.strokes = [];
-    delete inst.strokeStyleId;
-  }
-}
-
-/** Ensure explicit empty shell arrays on the instance clear the cloned variant root. */
-function syncClearedShellToComponentRoot(
-  root: FrameNode,
-  inst: InstanceAppearanceFields,
-  overrides?: Record<string, ComponentOverrideFields>,
-  instanceId?: string
-): void {
-  const shell = instanceId ? overrides?.[instanceId] : undefined;
-  if (
-    hasOwnAppearanceField(inst, 'fills') &&
-    (inst.fills?.length ?? 0) === 0 &&
-    !(shell && Object.prototype.hasOwnProperty.call(shell, 'fills'))
-  ) {
-    root.fills = [];
-    delete root.fillStyleId;
-  }
-  if (
-    hasOwnAppearanceField(inst, 'strokes') &&
-    (inst.strokes?.length ?? 0) === 0 &&
-    !(shell && Object.prototype.hasOwnProperty.call(shell, 'strokes'))
-  ) {
-    root.strokes = [];
-    delete root.strokeStyleId;
-  }
-}
-
-function prepareInstanceComponentRoot(
-  root: FrameNode,
-  inst: InstanceAppearanceFields &
-    Pick<InstanceNode, 'width' | 'height' | 'children' | 'componentProperties' | 'id'>,
-  env: FileEnvelope,
-  overrides: ComponentInstanceNode['overrides'] | undefined,
-  mergeCtx: InstanceMergeContext
-): void {
-  applyComponentOverridesToTree(root, overrides);
-  applyComponentProperties(root, inst.componentProperties);
-  const detached = instanceDetachedChildren(inst);
-  if (detached) {
-    mergeDetachedChildrenIntoRoot(root, detached, mergeCtx);
-  }
-  applyInstanceAppearanceToRoot(root, buildInstanceAppearanceForRoot(inst, overrides));
-  applyInstanceShellOverrideToRoot(root, inst.id, overrides);
-  syncClearedShellToComponentRoot(root, inst, overrides, inst.id);
-  normalizeInstanceComponentRootForEmit(root, inst);
-  prepareClonedComponentSubtreeForEmit(root, env);
-}
-
-/** Instance/component clones are not in compile roots; run the same intrinsic pass as {@link compileRootScenes}. */
-function prepareClonedComponentSubtreeForEmit(root: SceneNode, env: FileEnvelope): void {
-  applyAutoLayoutIntrinsicSizingDeep(root, env);
-  syncHugTextLayoutMetricsDeep(root, env);
 }
 
 /** COMPONENT nodes placed on the canvas (common in plugin exports) render like instances. */
@@ -2500,12 +2380,6 @@ function remapOverridesForVariant(
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;
-}
-
-/** Figma plugin exports often include a detached subtree while `mainComponent` fails to remap. */
-function instanceDetachedChildren(inst: Pick<InstanceNode, 'children'>): SceneNode[] | undefined {
-  const ch = inst.children;
-  return ch?.length ? ch : undefined;
 }
 
 function emitInstanceDetachedSubtree(

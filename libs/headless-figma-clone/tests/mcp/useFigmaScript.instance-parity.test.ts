@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -272,6 +272,116 @@ return { before, after, textValue: row.componentProperties['Text#1:0']?.value };
       expect(r.after).toBe(r.before);
       expect(r.textValue).toBe('Stop');
     });
+  });
+
+  it('mainComponent is non-null when master exists only in components[] sidecar', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'hfc-sidecar-main-'));
+    const ws = join(base, 'ws');
+    const designPath = join(ws, 'design.hfc.json');
+    const prev = process.env.HFC_WORKSPACE_DIR;
+    process.env.HFC_WORKSPACE_DIR = ws;
+    try {
+      mkdirSync(ws, { recursive: true });
+      const envelope = {
+        schemaVersion: 1,
+        fileKey: 'sidecar-test',
+        fileName: 'sidecar-test',
+        nextInternalId: 200,
+        document: {
+          id: 'I1',
+          type: 'DOCUMENT',
+          name: 'Doc',
+          children: [
+            {
+              id: 'I2',
+              type: 'PAGE',
+              name: 'Page 1',
+              x: 0,
+              y: 0,
+              width: 1,
+              height: 1,
+              children: [
+                {
+                  id: 'I60',
+                  type: 'INSTANCE',
+                  name: 'SidecarInst',
+                  x: 0,
+                  y: 0,
+                  width: 40,
+                  height: 20,
+                  mainComponentId: 'I50',
+                  children: [
+                    {
+                      id: 'I62',
+                      type: 'FRAME',
+                      name: 'Detached',
+                      x: 0,
+                      y: 0,
+                      width: 40,
+                      height: 20,
+                      children: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        components: [
+          {
+            id: 'I50',
+            name: 'SidecarButton',
+            root: {
+              id: 'I51',
+              type: 'FRAME',
+              name: 'Master',
+              x: 0,
+              y: 0,
+              width: 40,
+              height: 20,
+              children: [
+                {
+                  id: 'I52',
+                  type: 'RECTANGLE',
+                  name: 'Box',
+                  x: 0,
+                  y: 0,
+                  width: 10,
+                  height: 10,
+                },
+              ],
+            },
+          },
+        ],
+      };
+      writeFileSync(designPath, JSON.stringify(envelope));
+
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.loadFromDisk({ absolutePath: designPath, save: false });
+
+      const run = await runUseFigmaScript(
+        `
+const inst = await figma.getNodeByIdAsync('I60');
+const main = inst.mainComponent;
+return { hasMain: main !== null, mainId: main?.id, mainName: main?.name };
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+      const r = run.result as { hasMain: boolean; mainId: string; mainName: string };
+      expect(r.hasMain).toBe(true);
+      expect(r.mainId).toBe('I50');
+      expect(r.mainName).toBe('SidecarButton');
+    } finally {
+      if (prev === undefined) delete process.env.HFC_WORKSPACE_DIR;
+      else process.env.HFC_WORKSPACE_DIR = prev;
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   it('Object.keys on getNodeById handle includes type and width', async () => {

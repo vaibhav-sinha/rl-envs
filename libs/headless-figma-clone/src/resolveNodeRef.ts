@@ -53,17 +53,23 @@ function walkComponentDefinition(def: ComponentDefinition, index: Map<string, st
   walkNode(def.root, index);
 }
 
+export type ResolveNodeRefCache = {
+  refIndex?: ReadonlyMap<string, string>;
+  nodeIndex?: ReadonlyMap<string, AnyTreeNode>;
+};
+
 /**
  * Resolve a Figma node id (`sourceFigmaId`, e.g. `123:456`) to the envelope's HFC `id`.
  * Returns null when no node carries that `sourceFigmaId`.
  */
 export function resolveHfcNodeIdBySourceFigmaId(
   envelope: FileEnvelope,
-  sourceFigmaId: string
+  sourceFigmaId: string,
+  cache?: ResolveNodeRefCache
 ): string | null {
   if (!sourceFigmaId) return null;
-  const hfcId = buildNodeRefIndex(envelope).get(sourceFigmaId);
+  const hfcId = (cache?.refIndex ?? buildNodeRefIndex(envelope)).get(sourceFigmaId);
   if (!hfcId) return null;
-  const nodeIndex = buildNodeIndex(envelope);
+  const nodeIndex = cache?.nodeIndex ?? buildNodeIndex(envelope);
   return nodeIndex.has(hfcId) ? hfcId : null;
 }

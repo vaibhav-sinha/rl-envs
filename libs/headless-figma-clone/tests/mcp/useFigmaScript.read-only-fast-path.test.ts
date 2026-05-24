@@ -39,12 +39,13 @@ describe('use_figma read-only fast path', () => {
     cloneSpy.mockRestore();
   });
 
-  it('structuredClone runs on first mutating op', async () => {
+  it('mutating script does not structuredClone the envelope', async () => {
     const engine = new DocumentEngine({
       persistence: new JsonPersistence(),
       logger: createConsoleLogger('error'),
     });
     await engine.createEmptyFile({ fileName: 'Write' });
+    const activeBefore = engine.getActiveFile();
     const cloneSpy = vi.spyOn(globalThis, 'structuredClone');
 
     const run = await runUseFigmaScript(
@@ -55,7 +56,8 @@ return figma.currentPage.name;
       engine
     );
     expect(run.kind).toBe('ok');
-    expect(cloneSpy).toHaveBeenCalled();
+    expect(cloneSpy).not.toHaveBeenCalled();
+    expect(engine.getActiveFile()).toBe(activeBefore);
     cloneSpy.mockRestore();
   });
 

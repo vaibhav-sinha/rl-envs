@@ -40,10 +40,13 @@ import { relativeAssetFile, sidecarDirForHfcJson } from '../persistence/assetPat
 import type { Logger } from '../util/logger.js';
 import type { EngineErrorCode } from '../util/errors.js';
 import { ValidationErr } from '../util/errors.js';
+import { cloneTimingEnabled, elapsedMs, logCloneTiming } from './cloneTiming.js';
 import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } from './envelopeOps.js';
 import { applyComponentPropertiesToInstanceChildren } from '../instances/componentProperties.js';
 import {
   resolveInstanceRootFrameInEnvelope,
+  resolveInstanceRootFrameOptional,
+  resolveNodeInEnvelope,
   resolveSelectedComponentIdInEnvelope,
 } from './componentResolve.js';
 import { preorderSceneEntries, type PreorderSceneEntry } from '../import/componentNodeIdMap.js';
@@ -94,6 +97,42 @@ import {
   assertTextFontsLoadedForNewText,
   assertTextFontsLoadedForPatch,
 } from '../fonts/textFontLoading.js';
+import { buildGraphIndexes, resolveParentNode, type GraphIndexes } from './nodeIndex.js';
+import { buildNodeRefIndex } from '../resolveNodeRef.js';
+import {
+  applyIndexAfterDeleteOp,
+  applyIndexForEngineOp,
+  collectDeleteUnindexIdsForOp,
+} from './nodeIndexMutations.js';
+
+export interface EngineOpContext {
+  signal?: AbortSignal;
+  indexes?: GraphIndexes;
+}
+
+function lookupNodeForOp(
+  working: FileEnvelope,
+  nodeId: string,
+  ctx?: EngineOpContext
+): AnyTreeNode | null {
+  if (ctx?.indexes) {
+    const hit = ctx.indexes.nodes.get(nodeId);
+    if (hit) return hit;
+  }
+  return findNode(working.document, nodeId);
+}
+
+function lookupParentForOp(
+  working: FileEnvelope,
+  nodeId: string,
+  ctx?: EngineOpContext
+): ReturnType<typeof findParentNode> {
+  if (ctx?.indexes) {
+    const par = resolveParentNode(ctx.indexes, nodeId);
+    if (par) return par as ReturnType<typeof findParentNode>;
+  }
+  return findParent(working.document, nodeId);
+}
 
 export type { EngineErrorCode } from '../util/errors.js';
 
@@ -1826,24 +1865,55 @@ export function cloneSceneSubtreeWithNewIds(
 export function duplicateNodeInEnvelope(
   working: FileEnvelope,
   nodeId: string,
-  signal?: AbortSignal
+  ctx?: EngineOpContext
 ): string {
-  const node = findNode(working.document, nodeId);
+  const signal = ctx?.signal;
+  const timing = cloneTimingEnabled();
+  const t0 = timing ? performance.now() : 0;
+
+  const node = lookupNodeForOp(working, nodeId, ctx);
   if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') {
     throw new ValidationErr('VALIDATION_ERROR', 'duplicate: node must be a scene node');
   }
-  const parent = findParent(working.document, nodeId);
+  const tAfterFindNode = timing ? performance.now() : 0;
+
+  const parent = lookupParentForOp(working, nodeId, ctx);
   if (!parent || parent.type === 'DOCUMENT') {
     throw new ValidationErr('VALIDATION_ERROR', 'duplicate: node has no parent');
   }
+  const tAfterFindParent = timing ? performance.now() : 0;
+
   const list = mutableChildList(parent);
   const idx = list.findIndex((c) => c.id === nodeId);
   if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
+
+  const tBeforeSubtree = timing ? performance.now() : 0;
   const cloned = cloneSceneSubtreeWithNewIds(working, node as SceneNode, signal);
+  const tAfterSubtree = timing ? performance.now() : 0;
+
+  let instanceHydrateMs = 0;
   if (cloned.type === 'INSTANCE' && !cloned.children?.length) {
+    const tBeforeHydrate = timing ? performance.now() : 0;
     refreshInstanceChildrenFromMain(working, cloned);
+    if (timing) instanceHydrateMs = elapsedMs(tBeforeHydrate);
   }
+
   list.splice(idx + 1, 0, cloned);
+
+  if (timing) {
+    logCloneTiming('duplicateNode', {
+      sourceId: nodeId,
+      sourceName: node.name,
+      sourceType: node.type,
+      cloneId: cloned.id,
+      findNodeMs: Math.round(tAfterFindNode - t0),
+      findParentMs: Math.round(tAfterFindParent - tAfterFindNode),
+      subtreeCloneMs: Math.round(tAfterSubtree - tBeforeSubtree),
+      instanceHydrateMs,
+      totalMs: elapsedMs(t0),
+    });
+  }
+
   return cloned.id;
 }
 
@@ -2000,12 +2070,16 @@ function resolveInstanceRootFrame(working: FileEnvelope, inst: InstanceNode): Fr
 }
 
 /** Detach an INSTANCE in-place; returns the FRAME node id (same as instance id — Figma parity). */
-export function detachInstanceInEnvelope(working: FileEnvelope, instanceId: string): string {
-  const inst = findNode(working.document, instanceId);
+export function detachInstanceInEnvelope(
+  working: FileEnvelope,
+  instanceId: string,
+  ctx?: EngineOpContext
+): string {
+  const inst = lookupNodeForOp(working, instanceId, ctx);
   if (!inst || inst.type !== 'INSTANCE') {
     throw new ValidationErr('VALIDATION_ERROR', 'detachInstance requires INSTANCE node');
   }
-  const parent = findParent(working.document, instanceId);
+  const parent = lookupParentForOp(working, instanceId, ctx);
   if (!parent || parent.type === 'DOCUMENT') {
     throw new ValidationErr('VALIDATION_ERROR', 'detachInstance: instance has no parent');
   }
@@ -2013,13 +2087,18 @@ export function detachInstanceInEnvelope(working: FileEnvelope, instanceId: stri
   const idx = list.findIndex((c) => c.id === instanceId);
   if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${instanceId}`);
 
-  const masterRoot = resolveInstanceRootFrameInEnvelope(working, inst);
-  const childSource =
-    inst.children?.length ? inst.children : masterRoot.children;
+  const storedChildren = inst.children?.length ? inst.children : undefined;
+  const masterRoot = storedChildren ? null : resolveInstanceRootFrameOptional(working, inst);
+  if (!storedChildren && !masterRoot) {
+    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId missing');
+  }
+
+  const childSource = storedChildren ?? masterRoot!.children;
   const children = childSource.map((c) => cloneSceneSubtreeWithNewIds(working, c));
 
+  const shell = storedChildren ? inst : masterRoot!;
   const frame: FrameNode = {
-    ...masterRoot,
+    ...(shell as FrameNode),
     type: 'FRAME',
     id: inst.id,
     name: inst.name,
@@ -2027,25 +2106,25 @@ export function detachInstanceInEnvelope(working: FileEnvelope, instanceId: stri
     y: inst.y,
     width: inst.width,
     height: inst.height,
-    visible: inst.visible ?? true,
-    rotation: inst.rotation ?? masterRoot.rotation,
-    opacity: inst.opacity ?? masterRoot.opacity,
-    blendMode: inst.blendMode ?? masterRoot.blendMode,
-    layoutGrow: inst.layoutGrow ?? masterRoot.layoutGrow,
-    layoutAlign: inst.layoutAlign ?? masterRoot.layoutAlign,
-    layoutPositioning: inst.layoutPositioning ?? masterRoot.layoutPositioning,
-    layoutSizingHorizontal: inst.layoutSizingHorizontal ?? masterRoot.layoutSizingHorizontal,
-    layoutSizingVertical: inst.layoutSizingVertical ?? masterRoot.layoutSizingVertical,
-    layoutMode: inst.layoutMode ?? masterRoot.layoutMode,
-    paddingLeft: inst.paddingLeft ?? masterRoot.paddingLeft,
-    paddingRight: inst.paddingRight ?? masterRoot.paddingRight,
-    paddingTop: inst.paddingTop ?? masterRoot.paddingTop,
-    paddingBottom: inst.paddingBottom ?? masterRoot.paddingBottom,
-    itemSpacing: inst.itemSpacing ?? masterRoot.itemSpacing,
-    primaryAxisAlignItems: inst.primaryAxisAlignItems ?? masterRoot.primaryAxisAlignItems,
-    counterAxisAlignItems: inst.counterAxisAlignItems ?? masterRoot.counterAxisAlignItems,
-    primaryAxisSizingMode: inst.primaryAxisSizingMode ?? masterRoot.primaryAxisSizingMode,
-    counterAxisSizingMode: inst.counterAxisSizingMode ?? masterRoot.counterAxisSizingMode,
+    visible: inst.visible ?? shell.visible ?? true,
+    rotation: inst.rotation ?? shell.rotation,
+    opacity: inst.opacity ?? shell.opacity,
+    blendMode: inst.blendMode ?? shell.blendMode,
+    layoutGrow: inst.layoutGrow ?? shell.layoutGrow,
+    layoutAlign: inst.layoutAlign ?? shell.layoutAlign,
+    layoutPositioning: inst.layoutPositioning ?? shell.layoutPositioning,
+    layoutSizingHorizontal: inst.layoutSizingHorizontal ?? shell.layoutSizingHorizontal,
+    layoutSizingVertical: inst.layoutSizingVertical ?? shell.layoutSizingVertical,
+    layoutMode: inst.layoutMode ?? (shell as FrameNode).layoutMode,
+    paddingLeft: inst.paddingLeft ?? (shell as FrameNode).paddingLeft,
+    paddingRight: inst.paddingRight ?? (shell as FrameNode).paddingRight,
+    paddingTop: inst.paddingTop ?? (shell as FrameNode).paddingTop,
+    paddingBottom: inst.paddingBottom ?? (shell as FrameNode).paddingBottom,
+    itemSpacing: inst.itemSpacing ?? (shell as FrameNode).itemSpacing,
+    primaryAxisAlignItems: inst.primaryAxisAlignItems ?? (shell as FrameNode).primaryAxisAlignItems,
+    counterAxisAlignItems: inst.counterAxisAlignItems ?? (shell as FrameNode).counterAxisAlignItems,
+    primaryAxisSizingMode: inst.primaryAxisSizingMode ?? (shell as FrameNode).primaryAxisSizingMode,
+    counterAxisSizingMode: inst.counterAxisSizingMode ?? (shell as FrameNode).counterAxisSizingMode,
     children,
   };
 
@@ -2076,14 +2155,15 @@ export function reattachSceneNode(
   working: FileEnvelope,
   parentId: string,
   index: number | undefined,
-  subtree: SceneNode
+  subtree: SceneNode,
+  ctx?: EngineOpContext
 ): void {
-  const newParent = findNode(working.document, parentId);
+  const newParent = lookupNodeForOp(working, parentId, ctx);
   if (!newParent) throw new ValidationErr('UNKNOWN_NODE', `Unknown new parent ${parentId}`);
   if (!parentAllowsChild(newParent.type, subtree.type)) {
     throw new ValidationErr('VALIDATION_ERROR', `Cannot move ${subtree.type} under ${newParent.type}`);
   }
-  attachSceneNode(working.document, parentId, index, subtree);
+  attachSceneNode(working.document, parentId, index, subtree, ctx);
   if (newParent.type === 'FRAME') {
     applyAutoLayoutChildDefaults(newParent, subtree);
     if (newParent.layoutMode === 'GRID') {
@@ -2101,8 +2181,10 @@ export function reattachSceneNode(
   }
 }
 
-function detachSubtree(root: DocumentNode, nodeId: string): SceneNode {
-  const parent = findParent(root, nodeId);
+function detachSubtree(root: DocumentNode, nodeId: string, ctx?: EngineOpContext): SceneNode {
+  const parent = ctx?.indexes
+    ? (resolveParentNode(ctx.indexes, nodeId) as ReturnType<typeof findParentNode>)
+    : findParent(root, nodeId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
   if (parent.type === 'DOCUMENT') {
     throw new ValidationErr('VALIDATION_ERROR', 'Cannot move PAGE via moveNode');
@@ -2114,8 +2196,16 @@ function detachSubtree(root: DocumentNode, nodeId: string): SceneNode {
   return node;
 }
 
-function attachSceneNode(root: DocumentNode, parentId: string, index: number | undefined, node: PageNode | SceneNode): void {
-  const parent = findNode(root, parentId);
+function attachSceneNode(
+  root: DocumentNode,
+  parentId: string,
+  index: number | undefined,
+  node: PageNode | SceneNode,
+  ctx?: EngineOpContext
+): void {
+  const parent = ctx?.indexes
+    ? ctx.indexes.nodes.get(parentId) ?? findNode(root, parentId)
+    : findNode(root, parentId);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown parent ${parentId}`);
   if (parent.type === 'DOCUMENT') {
     if (node.type !== 'PAGE') {
@@ -2143,8 +2233,12 @@ function attachSceneNode(root: DocumentNode, parentId: string, index: number | u
 }
 
 /** Applies a single createNode on a working envelope (mutates). Returns the new node id. */
-export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphOperation, { op: 'createNode' }>): string {
-  const parent = findNode(working.document, op.parentId);
+export function applyCreateNodeOp(
+  working: FileEnvelope,
+  op: Extract<SceneGraphOperation, { op: 'createNode' }>,
+  ctx?: EngineOpContext
+): string {
+  const parent = lookupNodeForOp(working, op.parentId, ctx);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown parent ${op.parentId}`);
   if (!parentAllowsChild(parent.type, op.node.type)) {
     throw new ValidationErr('VALIDATION_ERROR', `Cannot create ${op.node.type} under ${parent.type}`);
@@ -2152,7 +2246,7 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphO
   let id: string;
   if (op.nodeId !== undefined) {
     id = op.nodeId;
-    const existing = findNode(working.document, id);
+    const existing = lookupNodeForOp(working, id, ctx);
     if (existing) {
       if (existing.type !== op.node.type) {
         throw new ValidationErr(
@@ -2216,7 +2310,7 @@ export function applyCreateNodeOp(working: FileEnvelope, op: Extract<SceneGraphO
       op.node as Record<string, unknown>
     );
   }
-  attachSceneNode(working.document, op.parentId, op.index, node);
+  attachSceneNode(working.document, op.parentId, op.index, node, ctx);
   if (parent.type === 'FRAME' && node.type !== 'PAGE') {
     applyAutoLayoutChildDefaults(parent, node);
     if (parent.layoutMode === 'GRID') {
@@ -2242,9 +2336,13 @@ export function findEnvelopeNode(
   index?: import('./nodeIndex.js').NodeIndex
 ): AnyTreeNode | null {
   if (index) {
-    return index.get(nodeId) ?? null;
+    const hit = index.get(nodeId);
+    if (hit) return hit;
+  } else {
+    const hit = findNode(working.document, nodeId);
+    if (hit) return hit;
   }
-  return findNode(working.document, nodeId);
+  return resolveNodeInEnvelope(working, nodeId) as AnyTreeNode | null;
 }
 
 /**
@@ -2261,17 +2359,17 @@ function engineThrowIfAborted(signal?: AbortSignal): void {
 export function applyEngineOp(
   working: FileEnvelope,
   op: EngineOperation,
-  signal?: AbortSignal
+  ctx?: EngineOpContext
 ): string | undefined {
   if (isEnvelopeOperation(op)) {
     applyEnvelopeOperation(working, op);
     return undefined;
   }
   if (op.op === 'createNode') {
-    return applyCreateNodeOp(working, op);
+    return applyCreateNodeOp(working, op, ctx);
   }
   if (op.op === 'updateNode') {
-    const node = findNode(working.document, op.nodeId);
+    const node = lookupNodeForOp(working, op.nodeId, ctx);
     if (!node) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${op.nodeId}`);
     const matrix = ENGINE_MATRIX.patchKeysByType as Record<string, Set<string> | undefined>;
     const allowed = matrix[node.type];
@@ -2303,7 +2401,7 @@ export function applyEngineOp(
         validateLayoutSizingNodeContextForParent(
           working.document,
           node as SceneNode,
-          findParent(working.document, node.id),
+          lookupParentForOp(working, node.id, ctx),
           hint
         );
       }
@@ -2339,7 +2437,7 @@ export function applyEngineOp(
     return undefined;
   }
   if (op.op === 'deleteNode') {
-    const target = findNode(working.document, op.nodeId);
+    const target = lookupNodeForOp(working, op.nodeId, ctx);
     if (!target) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${op.nodeId}`);
     const targetNode = target;
 
@@ -2398,14 +2496,14 @@ export function applyEngineOp(
     return undefined;
   }
   if (op.op === 'detachInstance') {
-    return detachInstanceInEnvelope(working, op.nodeId);
+    return detachInstanceInEnvelope(working, op.nodeId, ctx);
   }
   if (op.op === 'duplicateNode') {
-    return duplicateNodeInEnvelope(working, op.nodeId, signal);
+    return duplicateNodeInEnvelope(working, op.nodeId, ctx);
   }
   if (op.op === 'moveNode') {
-    const subtree = detachSubtree(working.document, op.nodeId);
-    reattachSceneNode(working, op.newParentId, op.index, subtree);
+    const subtree = detachSubtree(working.document, op.nodeId, ctx);
+    reattachSceneNode(working, op.newParentId, op.index, subtree, ctx);
     return undefined;
   }
   return undefined;
@@ -2538,6 +2636,8 @@ export async function applyOpsToEnvelope(
   const touched = new Set<string>();
   const warnings: string[] = [];
   let opSteps = 0;
+  const graphIndexes = buildGraphIndexes(working);
+  const engineCtx: EngineOpContext = { signal, indexes: graphIndexes };
 
   for (const op of ops) {
     opSteps += 1;
@@ -2565,14 +2665,22 @@ export async function applyOpsToEnvelope(
       continue;
     }
     if (isSceneGraphOperation(op)) {
-      const id = applyEngineOp(working, op, signal);
+      if (op.op === 'deleteNode') {
+        const deleteIds = collectDeleteUnindexIdsForOp(working, op);
+        applyEngineOp(working, op, engineCtx);
+        applyIndexAfterDeleteOp(graphIndexes, deleteIds);
+        touched.add(op.nodeId);
+        continue;
+      }
+      const id = applyEngineOp(working, op, engineCtx);
+      applyIndexForEngineOp(graphIndexes, working, op, id);
       if (op.op === 'createNode' && id) touched.add(id);
       else if (op.op === 'duplicateNode' && id) touched.add(id);
       else if (op.op === 'detachInstance' && id) touched.add(id);
       else if (op.op === 'moveNode') {
         touched.add(op.nodeId);
         touched.add(op.newParentId);
-      } else if (op.op === 'updateNode' || op.op === 'deleteNode') {
+      } else if (op.op === 'updateNode') {
         touched.add(op.nodeId);
       }
     }
@@ -2586,6 +2694,10 @@ export class DocumentEngine {
   private activeFilePath: string | null = null;
   private currentPageId: string | null = null;
   private previewListener: ((envelope: FileEnvelope) => void) | null = null;
+  private cachedGraphIndexes: GraphIndexes | null = null;
+  private cachedGraphIndexesFor: FileEnvelope | null = null;
+  private cachedNodeRefIndex: Map<string, string> | null = null;
+  private cachedNodeRefIndexFor: FileEnvelope | null = null;
 
   constructor(
     private readonly deps: {
@@ -2605,13 +2717,74 @@ export class DocumentEngine {
     }
   }
 
+  private invalidateIndexCache(): void {
+    this.cachedGraphIndexes = null;
+    this.cachedGraphIndexesFor = null;
+    this.cachedNodeRefIndex = null;
+    this.cachedNodeRefIndexFor = null;
+  }
+
+  private replaceActiveEnvelope(envelope: FileEnvelope): void {
+    if (this.activeFile !== envelope) {
+      this.invalidateIndexCache();
+    }
+    this.activeFile = envelope;
+    this.syncCurrentPageToDocument(envelope.document);
+  }
+
+  /** Cached O(n) graph indexes for the active envelope; rebuilt when the envelope reference changes. */
+  getGraphIndexes(): GraphIndexes {
+    if (!this.activeFile) {
+      throw new ValidationErr('NO_ACTIVE_FILE', 'No active file');
+    }
+    if (this.cachedGraphIndexes && this.cachedGraphIndexesFor === this.activeFile) {
+      return this.cachedGraphIndexes;
+    }
+    this.cachedGraphIndexes = buildGraphIndexes(this.activeFile);
+    this.cachedGraphIndexesFor = this.activeFile;
+    return this.cachedGraphIndexes;
+  }
+
+  /** Cached sourceFigmaId / HFC id → HFC id map for the active envelope. */
+  getNodeRefIndex(): ReadonlyMap<string, string> {
+    if (!this.activeFile) {
+      throw new ValidationErr('NO_ACTIVE_FILE', 'No active file');
+    }
+    if (this.cachedNodeRefIndex && this.cachedNodeRefIndexFor === this.activeFile) {
+      return this.cachedNodeRefIndex;
+    }
+    this.cachedNodeRefIndex = buildNodeRefIndex(this.activeFile);
+    this.cachedNodeRefIndexFor = this.activeFile;
+    return this.cachedNodeRefIndex;
+  }
+
+  /** Resolve a Figma node id (`sourceFigmaId`) to the active envelope's HFC `id`. */
+  resolveSourceFigmaId(sourceFigmaId: string): string | null {
+    if (!this.activeFile || !sourceFigmaId) return null;
+    const hfcId = this.getNodeRefIndex().get(sourceFigmaId);
+    if (!hfcId) return null;
+    return this.getGraphIndexes().nodes.has(hfcId) ? hfcId : null;
+  }
+
   /**
    * Replace activeFile with the use_figma sandbox copy so the pre-mutation envelope can be GC'd
    * before commitEnvelope save (avoids holding two full copies at commit time).
    */
   adoptSandboxEnvelope(envelope: FileEnvelope): void {
-    this.activeFile = envelope;
-    this.syncCurrentPageToDocument(envelope.document);
+    this.replaceActiveEnvelope(envelope);
+  }
+
+  /** Restore the active envelope from the last saved file on disk (use_figma rollback). */
+  async reloadActiveFileFromDisk(): Promise<void> {
+    if (!this.activeFilePath) {
+      throw new ValidationErr('NO_ACTIVE_FILE', 'No active file');
+    }
+    await this.loadFromDisk({ absolutePath: this.activeFilePath, save: false });
+  }
+
+  /** Restore active envelope from an in-memory snapshot when no disk path exists. */
+  restoreActiveFile(envelope: FileEnvelope): void {
+    this.replaceActiveEnvelope(envelope);
   }
 
   getActiveFile(): FileEnvelope | null {
@@ -2648,9 +2821,8 @@ export class DocumentEngine {
 
   async loadFromDisk(params: { absolutePath: string; save?: boolean }): Promise<void> {
     const env = await this.deps.persistence.load({ path: params.absolutePath });
-    this.activeFile = env;
+    this.replaceActiveEnvelope(env);
     this.activeFilePath = params.absolutePath;
-    this.syncCurrentPageToDocument(env.document);
     this.deps.logger.info('loaded file', { path: params.absolutePath, fileKey: env.fileKey });
     if (params.save) {
       await this.deps.persistence.save({ path: params.absolutePath, envelope: env });
@@ -2738,9 +2910,8 @@ export class DocumentEngine {
       },
     };
 
-    this.activeFile = envelope;
+    this.replaceActiveEnvelope(envelope);
     this.activeFilePath = filePath;
-    this.syncCurrentPageToDocument(envelope.document);
     await this.deps.persistence.save({ path: filePath, envelope });
     this.deps.logger.info('created new file', { filePath, fileKey });
     this.emitPreview();
@@ -2903,8 +3074,7 @@ export class DocumentEngine {
         this.activeFilePath,
         signal
       );
-      this.activeFile = working;
-      this.syncCurrentPageToDocument(working.document);
+      this.replaceActiveEnvelope(working);
       await this.deps.persistence.save({ path: this.activeFilePath, envelope: working });
       this.emitPreview();
       return { success: true, touchedNodeIds, warnings };
@@ -2942,11 +3112,7 @@ export class DocumentEngine {
     const signal = options?.signal;
     try {
       engineThrowIfAborted(signal);
-      if (this.activeFile !== envelope) {
-        this.activeFile = null;
-      }
-      this.activeFile = envelope;
-      this.syncCurrentPageToDocument(envelope.document);
+      this.replaceActiveEnvelope(envelope);
       await this.deps.persistence.save({ path: this.activeFilePath, envelope });
       this.emitPreview();
       return {
@@ -3088,6 +3254,22 @@ function applyStrokeFieldsFromPatch(
   if ('dashPattern' in patch) target.dashPattern = patch.dashPattern;
 }
 
+function scaleClippedFrameChildren(frame: FrameNode, nextWidth: number, nextHeight: number): void {
+  if (frame.clipsContent !== true) return;
+  const oldW = frame.width;
+  const oldH = frame.height;
+  if (oldW === nextWidth && oldH === nextHeight) return;
+  if (oldW <= 0 || oldH <= 0) return;
+  const sx = nextWidth / oldW;
+  const sy = nextHeight / oldH;
+  for (const child of frame.children) {
+    if ('x' in child && typeof child.x === 'number') child.x = child.x * sx;
+    if ('y' in child && typeof child.y === 'number') child.y = child.y * sy;
+    if ('width' in child && typeof child.width === 'number') child.width = child.width * sx;
+    if ('height' in child && typeof child.height === 'number') child.height = child.height * sy;
+  }
+}
+
 function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, unknown>): void {
   if (node.type === 'FRAME') {
     const f = node;
@@ -3095,6 +3277,11 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     if ('name' in patch) {
       if (typeof patch.name !== 'string') throw new ValidationErr('VALIDATION_ERROR', 'name must be string');
       f.name = patch.name;
+    }
+    const nextWidth = 'width' in patch && typeof patch.width === 'number' ? patch.width : f.width;
+    const nextHeight = 'height' in patch && typeof patch.height === 'number' ? patch.height : f.height;
+    if (('width' in patch || 'height' in patch) && f.clipsContent === true) {
+      scaleClippedFrameChildren(f, nextWidth, nextHeight);
     }
     for (const g of ['x', 'y', 'width', 'height', 'strokeWeight'] as const) {
       if (g in patch) {

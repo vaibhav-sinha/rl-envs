@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import {
-  allocNodeId,
   applyCreateNodeOp,
   applyEngineOp,
   detachSceneNodeById,
@@ -12,8 +11,21 @@ import {
   validateTransformModifiers,
   isSceneGraphOperation,
   type EngineOperation,
+  type EngineOpContext,
   type NewNodeSpec,
 } from '../engine/DocumentEngine.js';
+import {
+  applyIndexAfterDeleteOp,
+  applyIndexForEngineOp,
+  collectDeleteUnindexIdsForOp,
+  indexSceneNode,
+  unindexNodeById,
+} from '../engine/nodeIndexMutations.js';
+import {
+  resolveComponentOrSetInEnvelope,
+  resolveNodeInEnvelope,
+} from '../engine/componentResolve.js';
+import { cloneTimingEnabled, elapsedMs, logCloneTiming } from '../engine/cloneTiming.js';
 import { applyEnvelopeOperation, isEnvelopeOperation } from '../engine/envelopeOps.js';
 import { boundsOfNodes, queueFlattenNodes, queueGroupNodes, queueUngroup } from '../engine/graphOps.js';
 import { computeFillGeometry, computeStrokeGeometry, outlineStrokeToVector } from '../render/geometry.js';
@@ -106,7 +118,6 @@ import { assertGridChildLayoutField, GRID_CHILD_LAYOUT_FIELDS } from '../engine/
 import { assertFigmaObjectAssignable } from '../engine/pluginObjectAssign.js';
 import { writeSideStrokeWeight, type SideStrokeWeightTarget } from '../engine/sideStrokeWeights.js';
 import {
-  buildGraphIndexes,
   findComponentSetForComponent,
   resolveParentNode,
   type GraphIndexes,
@@ -125,11 +136,15 @@ function isPatchKeyForType(nodeType: string, key: string): boolean {
 }
 
 interface ScriptContext {
+  engine: DocumentEngine;
   working: FileEnvelope;
-  /** False until first mutating op — read-only scripts share `engine.getActiveFile()` without cloning. */
+  /** True once the script mutates the active envelope in place. */
   ownsWorking: boolean;
+  /** Snapshot used for rollback when no activeFilePath is available. */
+  rollbackSnapshot?: FileEnvelope;
+  /** Reserved detached node ids before syncing to envelope.nextInternalId. */
+  localNextInternalId: number;
   graphIndexes: GraphIndexes;
-  indexStale: boolean;
   ops: EngineOperation[];
   /** Node ids touched during sandbox apply (for commitEnvelope without replay). */
   touchedIds: Set<string>;
@@ -228,15 +243,48 @@ function isRuntimeSceneNode(v: unknown): v is RuntimeSceneNode {
   );
 }
 
-function rebuildGraphIndexes(ctx: ScriptContext): GraphIndexes {
-  ctx.graphIndexes = buildGraphIndexes(ctx.working);
-  ctx.indexStale = false;
+function getGraphIndexes(ctx: ScriptContext): GraphIndexes {
   return ctx.graphIndexes;
 }
 
-function getGraphIndexes(ctx: ScriptContext): GraphIndexes {
-  if (ctx.indexStale) rebuildGraphIndexes(ctx);
-  return ctx.graphIndexes;
+function syncLocalIdCounterToEnvelope(ctx: ScriptContext): void {
+  if (ctx.localNextInternalId > ctx.working.nextInternalId) {
+    ctx.working.nextInternalId = ctx.localNextInternalId;
+  }
+}
+
+function syncLocalIdCounterFromEnvelope(ctx: ScriptContext): void {
+  if (ctx.working.nextInternalId > ctx.localNextInternalId) {
+    ctx.localNextInternalId = ctx.working.nextInternalId;
+  }
+}
+
+function beginInPlaceMutation(ctx: ScriptContext): void {
+  if (ctx.ownsWorking) return;
+  throwIfAborted(ctx.signal);
+  const file = ctx.engine.getActiveFile();
+  if (!file) {
+    throw new ValidationErr('NO_ACTIVE_FILE', 'No active file');
+  }
+  if (!ctx.activeFilePath) {
+    ctx.rollbackSnapshot = structuredClone(file);
+  }
+  ctx.working = file;
+  syncLocalIdCounterToEnvelope(ctx);
+  ctx.ownsWorking = true;
+}
+
+async function rollbackScriptMutation(ctx: ScriptContext): Promise<void> {
+  if (!ctx.ownsWorking) return;
+  if (ctx.activeFilePath) {
+    await ctx.engine.reloadActiveFileFromDisk();
+    const reloaded = ctx.engine.getActiveFile();
+    if (reloaded) ctx.working = reloaded;
+  } else if (ctx.rollbackSnapshot) {
+    ctx.engine.restoreActiveFile(structuredClone(ctx.rollbackSnapshot));
+    ctx.working = ctx.engine.getActiveFile()!;
+  }
+  ctx.ownsWorking = false;
 }
 
 function getNodeIndex(ctx: ScriptContext): NodeIndex {
@@ -272,14 +320,6 @@ function scriptParentHandle(ctx: ScriptContext, nodeId: string): unknown | null 
   return createHandleProxy(ctx, par.id);
 }
 
-function ensureWorkingCopy(ctx: ScriptContext): void {
-  if (ctx.ownsWorking) return;
-  throwIfAborted(ctx.signal);
-  ctx.working = deepClone(ctx.working);
-  ctx.ownsWorking = true;
-  rebuildGraphIndexes(ctx);
-}
-
 function recordTouchedFromOp(ctx: ScriptContext, op: EngineOperation, resultId?: string): void {
   if (isEnvelopeOperation(op)) {
     if (op.op === 'createVariable') ctx.touchedIds.add(op.variableId);
@@ -307,10 +347,33 @@ function recordTouchedFromOp(ctx: ScriptContext, op: EngineOperation, resultId?:
 }
 
 function applyScriptEngineOp(ctx: ScriptContext, op: EngineOperation): string | undefined {
-  ensureWorkingCopy(ctx);
-  const result = applyEngineOp(ctx.working, op, ctx.signal);
+  const timing = cloneTimingEnabled();
+  const t0 = timing ? performance.now() : 0;
+  beginInPlaceMutation(ctx);
+  const ensureMs = timing ? elapsedMs(t0) : 0;
+  const t1 = timing ? performance.now() : 0;
+  const engineCtx: EngineOpContext = { signal: ctx.signal, indexes: getGraphIndexes(ctx) };
+  let result: string | undefined;
+  if (isSceneGraphOperation(op) && op.op === 'deleteNode') {
+    const deleteIds = collectDeleteUnindexIdsForOp(ctx.working, op);
+    result = applyEngineOp(ctx.working, op, engineCtx);
+    applyIndexAfterDeleteOp(ctx.graphIndexes, deleteIds);
+  } else {
+    result = applyEngineOp(ctx.working, op, engineCtx);
+    applyIndexForEngineOp(ctx.graphIndexes, ctx.working, op, result);
+  }
+  const engineMs = timing ? elapsedMs(t1) : 0;
   recordTouchedFromOp(ctx, op, result);
-  ctx.indexStale = true;
+  syncLocalIdCounterFromEnvelope(ctx);
+  if (timing && (op.op === 'duplicateNode' || op.op === 'moveNode')) {
+    logCloneTiming('scriptEngineOp', {
+      op: op.op,
+      nodeId: 'nodeId' in op ? op.nodeId : undefined,
+      ensureMs,
+      engineMs,
+      totalMs: elapsedMs(t0),
+    });
+  }
   return result;
 }
 
@@ -318,10 +381,12 @@ function applyScriptCreateNodeOp(
   ctx: ScriptContext,
   op: Parameters<typeof applyCreateNodeOp>[1]
 ): string {
-  ensureWorkingCopy(ctx);
-  const result = applyCreateNodeOp(ctx.working, op);
+  beginInPlaceMutation(ctx);
+  const engineCtx: EngineOpContext = { signal: ctx.signal, indexes: getGraphIndexes(ctx) };
+  const result = applyCreateNodeOp(ctx.working, op, engineCtx);
+  applyIndexForEngineOp(ctx.graphIndexes, ctx.working, op, result);
   ctx.touchedIds.add(result);
-  ctx.indexStale = true;
+  syncLocalIdCounterFromEnvelope(ctx);
   return result;
 }
 
@@ -517,12 +582,12 @@ function scriptRemoveNode(ctx: ScriptContext, id: string): void {
   }
   const live = scriptLookup(ctx, id);
   if (!live) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
-  ensureWorkingCopy(ctx);
+  beginInPlaceMutation(ctx);
   const detached = detachSceneNodeById(ctx.working.document, id);
+  unindexNodeById(ctx.graphIndexes, id);
   ctx.detachedById.set(id, detached);
   ctx.deletedIds.add(id);
   ctx.touchedIds.add(id);
-  ctx.indexStale = true;
 }
 
 function appendChildToScriptParent(
@@ -539,13 +604,14 @@ function appendChildToScriptParent(
   if (ctx.deletedIds.has(nodeId)) {
     const detached = ctx.detachedById.get(nodeId);
     if (detached) {
-      ensureWorkingCopy(ctx);
-      reattachSceneNode(ctx.working, parentId, index, detached);
+      beginInPlaceMutation(ctx);
+      const engineCtx: EngineOpContext = { signal: ctx.signal, indexes: getGraphIndexes(ctx) };
+      reattachSceneNode(ctx.working, parentId, index, detached, engineCtx);
+      indexSceneNode(ctx.graphIndexes, detached, parentId, ctx.working);
       ctx.detachedById.delete(nodeId);
       ctx.deletedIds.delete(nodeId);
       ctx.touchedIds.add(nodeId);
       ctx.touchedIds.add(parentId);
-      ctx.indexStale = true;
       return;
     }
     throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
@@ -646,7 +712,9 @@ function resolveMainComponentHandle(
   ctx: ScriptContext,
   inst: InstanceNode | import('../model/types.js').ComponentInstanceNode
 ): unknown {
-  const main = scriptLookup(ctx, inst.mainComponentId);
+  const main =
+    resolveComponentOrSetInEnvelope(ctx.working, inst.mainComponentId) ??
+    resolveNodeInEnvelope(ctx.working, inst.mainComponentId);
   if (!main) return null;
   if (main.type === 'COMPONENT') return createHandleProxy(ctx, main.id);
   if (main.type === 'COMPONENT_SET') {
@@ -894,6 +962,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
             modeId,
           };
           ctx.ops.push(op);
+          beginInPlaceMutation(ctx);
           applyEnvelopeOperation(ctx.working, op);
         };
       }
@@ -1406,8 +1475,8 @@ abstract class RuntimeSceneNode {
   /** Reserve an HFC id for a detached runtime node (Figma: `node.id` exists before appendChild). */
   reserveScriptNodeId(ctx: ScriptContext): void {
     if (this._id !== null) return;
-    ensureWorkingCopy(ctx);
-    this._id = allocNodeId(ctx.working);
+    syncLocalIdCounterFromEnvelope(ctx);
+    this._id = `I${String(ctx.localNextInternalId++)}`;
   }
 
   get id(): string {
@@ -1547,6 +1616,7 @@ abstract class RuntimeSceneNode {
       modeId,
     };
     this.ctx.ops.push(op);
+    beginInPlaceMutation(this.ctx);
     applyEnvelopeOperation(this.ctx.working, op);
   }
 
@@ -2840,7 +2910,7 @@ function definitionKeysForInstance(
   ctx: ScriptContext,
   inst: import('../model/types.js').InstanceNode
 ): string[] {
-  const main = scriptLookup(ctx, inst.mainComponentId);
+  const main = resolveComponentOrSetInEnvelope(ctx.working, inst.mainComponentId);
   if (!main || (main.type !== 'COMPONENT' && main.type !== 'COMPONENT_SET')) return [];
   return componentPropertyDefinitionKeys(main.componentPropertyDefinitions);
 }
@@ -2849,7 +2919,9 @@ function createComponentInstanceFromMainId(
   ctx: ScriptContext,
   mainComponentId: string
 ): RuntimeComponentInstance {
-  const main = scriptLookup(ctx, mainComponentId);
+  const main =
+    resolveComponentOrSetInEnvelope(ctx.working, mainComponentId) ??
+    resolveNodeInEnvelope(ctx.working, mainComponentId);
   if (
     !main ||
     (main.type !== 'COMPONENT' && main.type !== 'COMPONENT_SET' && main.type !== 'COMPONENT_INSTANCE')
@@ -2890,10 +2962,11 @@ export async function runUseFigmaScript(
   }
 
   const ctx: ScriptContext = {
+    engine,
     working: file,
     ownsWorking: false,
-    graphIndexes: buildGraphIndexes(file),
-    indexStale: false,
+    localNextInternalId: file.nextInternalId,
+    graphIndexes: engine.getGraphIndexes(),
     ops: [],
     touchedIds: new Set(),
     deletedIds: new Set(),
@@ -2918,7 +2991,7 @@ export async function runUseFigmaScript(
   }
   ctx.selectionByPageId.set(currentPageId, []);
   const networkPolicy = loadNetworkPolicyFromEnv();
-  ctx.onMutate = (): void => ensureWorkingCopy(ctx);
+  ctx.onMutate = (): void => beginInPlaceMutation(ctx);
   const variablesApi = createVariablesApi(ctx);
   const stylesApi = createStylesApi(ctx);
 
@@ -3450,6 +3523,7 @@ export async function runUseFigmaScript(
       return fn(figma, sandboxFetch);
     });
   } catch (e) {
+    await rollbackScriptMutation(ctx);
     if (signal?.aborted) {
       return { kind: 'error', errorCode: 'VALIDATION_ERROR', message: 'Tool run aborted' };
     }

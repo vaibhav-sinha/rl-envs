@@ -130,15 +130,13 @@ export function resolveSelectedComponentIdInEnvelope(
   return set.componentIds[idx] ?? set.componentIds[0]!;
 }
 
-/** Resolved variant root frame for an INSTANCE (for detach / refresh). */
-export function resolveInstanceRootFrameInEnvelope(
+/** Resolved variant root frame for an INSTANCE; returns null when master is missing. */
+export function resolveInstanceRootFrameOptional(
   working: FileEnvelope,
   inst: InstanceNode
-): FrameNode {
+): FrameNode | null {
   const target = resolveComponentOrSetInEnvelope(working, inst.mainComponentId);
-  if (!target) {
-    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId missing');
-  }
+  if (!target) return null;
   let componentId = inst.mainComponentId;
   if (target.type === 'COMPONENT_SET') {
     const set = target;
@@ -148,7 +146,23 @@ export function resolveInstanceRootFrameInEnvelope(
     const idx = options.indexOf(String(raw));
     componentId = set.componentIds[idx] ?? set.componentIds[0]!;
   }
-  return resolveComponentRootFrameInEnvelope(working, componentId);
+  try {
+    return resolveComponentRootFrameInEnvelope(working, componentId);
+  } catch {
+    return null;
+  }
+}
+
+/** Resolved variant root frame for an INSTANCE (for detach / refresh). */
+export function resolveInstanceRootFrameInEnvelope(
+  working: FileEnvelope,
+  inst: InstanceNode
+): FrameNode {
+  const root = resolveInstanceRootFrameOptional(working, inst);
+  if (!root) {
+    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId missing');
+  }
+  return root;
 }
 
 /** @deprecated Use {@link resolveNodeInEnvelope} — kept for DesignCompiler import migration. */
