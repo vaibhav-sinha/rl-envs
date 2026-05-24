@@ -34,9 +34,22 @@ export interface DetachedTraversalContext {
   working: FileEnvelope;
   deletedIds: Set<string>;
   createHandle: (nodeId: string) => unknown;
+  /** When traversing a detached INSTANCE with no pending children, route master hits to instance overrides. */
+  createInstanceMasterHandle?: (owner: DetachedTraversalContainer, masterNodeId: string) => unknown;
   wrapRuntime: (node: DetachedTraversalContainer) => unknown;
   signal?: AbortSignal;
   nodeIndex?: NodeIndex;
+}
+
+function createSubtreeHandle(
+  ctx: DetachedTraversalContext,
+  instanceOwner: DetachedTraversalContainer | undefined,
+  nodeId: string
+): unknown {
+  if (instanceOwner?.type === 'INSTANCE' && ctx.createInstanceMasterHandle) {
+    return ctx.createInstanceMasterHandle(instanceOwner, nodeId);
+  }
+  return ctx.createHandle(nodeId);
 }
 
 function isRuntimeSceneNode(v: unknown): v is DetachedTraversalContainer {
@@ -90,7 +103,7 @@ function walkDetachedInstanceMainComponentRoots(
   const mid = container.mainComponentId;
   if (!mid) return;
   for (const rootId of resolveMainComponentRootChildIds(ctx.working, mid, ctx.nodeIndex)) {
-    walkDocumentPendingSubtree(rootId, ctx, parsed, out);
+    walkDocumentPendingSubtree(rootId, ctx, parsed, out, container);
   }
 }
 
@@ -179,7 +192,8 @@ function walkDocumentPendingSubtree(
   nodeId: string,
   ctx: DetachedTraversalContext,
   parsed: ReturnType<typeof parseCallbackOrCriteria>,
-  out: unknown[]
+  out: unknown[],
+  instanceOwner?: DetachedTraversalContainer
 ): void {
   throwIfAborted(ctx.signal);
   if (ctx.deletedIds.has(nodeId)) return;
@@ -188,14 +202,14 @@ function walkDocumentPendingSubtree(
 
   const docPred =
     parsed.mode === 'predicate'
-      ? (n: AnyTreeNode) => parsed.fn(ctx.createHandle(n.id))
+      ? (n: AnyTreeNode) => parsed.fn(createSubtreeHandle(ctx, instanceOwner, n.id))
       : undefined;
   const hits = findSubtreeNodes(live, ctx.working, parsed.mode === 'criteria' ? parsed.criteria : {}, docPred, {
     signal: ctx.signal,
     nodeIndex: ctx.nodeIndex,
   });
   for (const n of hits) {
-    if (!ctx.deletedIds.has(n.id)) out.push(ctx.createHandle(n.id));
+    if (!ctx.deletedIds.has(n.id)) out.push(createSubtreeHandle(ctx, instanceOwner, n.id));
   }
 }
 
@@ -236,7 +250,9 @@ function filterDetachedImmediateChildren(
       if (ctx.deletedIds.has(rootId)) continue;
       const live = findEnvelopeNode(ctx.working, rootId, ctx.nodeIndex);
       if (!live) continue;
-      if (matchesDocumentNode(live, ctx, parsed)) out.push(ctx.createHandle(live.id));
+      if (matchesDocumentNode(live, ctx, parsed)) {
+        out.push(createSubtreeHandle(ctx, container, live.id));
+      }
     }
     return out;
   }
@@ -356,7 +372,7 @@ export function getDetachedImmediateChildren(
     if (!mid) return [];
     return resolveMainComponentRootChildIds(ctx.working, mid, ctx.nodeIndex)
       .filter((id) => !ctx.deletedIds.has(id))
-      .map((id) => ctx.createHandle(id));
+      .map((id) => createSubtreeHandle(ctx, container, id));
   }
   return pending
     .map((entry) => resolvePendingChildHandle(ctx, entry))

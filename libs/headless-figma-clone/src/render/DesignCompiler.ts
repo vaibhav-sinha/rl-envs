@@ -751,7 +751,6 @@ function sceneNodeBounds(n: SceneNode, originX: number, originY: number): Bounds
 
 function measureScene(n: SceneNode, originX: number, originY: number): Bounds {
   let b = sceneNodeBounds(n, originX, originY);
-  if (n.type === 'SECTION') return b;
   const childOriginX = originX + n.x;
   const childOriginY = originY + n.y;
   const ch = sceneChildList(n);
@@ -1708,8 +1707,6 @@ function emitScene(
   coordGroupParent?: GroupNode,
   inheritedAutoLayoutRotationDeg = 0
 ): void {
-  if (n.type === 'SECTION') return;
-
   if (n.type === 'GROUP') {
     emitGroup(
       n,
@@ -1809,6 +1806,41 @@ function emitScene(
     );
     cssParts.push(`${hfcNodeCssSel(t.id)} .hfc-text-inner{${innerRule}}`);
     htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings, singleLine)}</div></div>`);
+    return;
+  }
+
+  if (n.type === 'SECTION') {
+    const s = n;
+    const fill = s.fills?.[0];
+    const fillCss = fillBackgroundStyles(fill, imgMap, patternTiles, warnings, `section_fill:${s.id}`, env);
+    const sectionOuterCss = insideFlex
+      ? sceneChildPos(s as unknown as FrameNode, insideFlex, absX, absY, parentFrame)
+      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(s.width)}px;height:${String(s.height)}px;`;
+    const sectionAbsX = pageX;
+    const sectionAbsY = pageY;
+    htmlParts.push(`<div class="hfc-node-${s.id}" data-hfc-id="${s.id}" style="z-index:${String(zIndex)}">`);
+    cssParts.push(
+      `${hfcNodeCssSel(s.id)}{${sectionOuterCss}box-sizing:border-box;${fillCss}${opRot}}`
+    );
+    emitFrameChildren(
+      s as unknown as FrameNode,
+      sectionAbsX,
+      sectionAbsY,
+      originX,
+      originY,
+      shiftX,
+      shiftY,
+      htmlParts,
+      cssParts,
+      z,
+      imgMap,
+      patternTiles,
+      warnings,
+      false,
+      env,
+      inheritedAutoLayoutRotationDeg
+    );
+    htmlParts.push('</div>');
     return;
   }
 

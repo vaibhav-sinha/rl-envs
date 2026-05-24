@@ -100,6 +100,52 @@ function assertGradient(p: Record<string, unknown>, label: string): GradientPain
   };
 }
 
+function imageHashValidationMessage(p: Record<string, unknown>, label: string): string {
+  const got = p.imageHash;
+  const wrongKey =
+    got === undefined && typeof p.imageRef === 'string'
+      ? 'imageRef'
+      : got === undefined && typeof p.imageUrl === 'string'
+        ? 'imageUrl'
+        : got === undefined && typeof p.hash === 'string'
+          ? 'hash'
+          : null;
+
+  if (wrongKey) {
+    return (
+      `${label}: IMAGE fills require "imageHash", not "${wrongKey}". ` +
+      `Use the hash string returned by upload_assets or figma.createImageAsync, e.g. ` +
+      `{ type: "IMAGE", imageHash: "<64-char sha256>", scaleMode: "FILL" }.`
+    );
+  }
+
+  if (got === undefined || got === null) {
+    return (
+      `${label}: IMAGE fill is missing "imageHash". ` +
+      `Upload the image first (upload_assets), then set imageHash to the returned hash string.`
+    );
+  }
+
+  if (typeof got !== 'string') {
+    return (
+      `${label}: "imageHash" must be a string (got ${typeof got}). ` +
+      `Use the hash from upload_assets, not a URL, buffer, or node id.`
+    );
+  }
+
+  if (got.length < 8) {
+    return (
+      `${label}: "imageHash" is too short (${String(got.length)} chars). ` +
+      `Use the full asset hash from upload_assets (typically a 64-character sha256 hex string).`
+    );
+  }
+
+  return (
+    `${label}: invalid "imageHash". ` +
+    `Use the hash string returned by upload_assets or figma.createImageAsync.`
+  );
+}
+
 function assertImage(
   p: Record<string, unknown>,
   label: string,
@@ -107,7 +153,7 @@ function assertImage(
 ): import('../model/types.js').ImagePaint {
   const imageHash = p.imageHash;
   if (typeof imageHash !== 'string' || imageHash.length < 8) {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: imageHash must be a non-trivial string`);
+    throw new ValidationErr('VALIDATION_ERROR', imageHashValidationMessage(p, label));
   }
   const reg = assets?.byId ?? {};
   const hit =

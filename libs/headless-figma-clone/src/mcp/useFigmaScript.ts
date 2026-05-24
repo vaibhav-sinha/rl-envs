@@ -67,6 +67,10 @@ import {
   type DetachedTraversalContext,
 } from './scriptDetachedTraversal.js';
 import {
+  createInstanceOverrideHandle,
+  type InstanceOverrideOwner,
+} from './scriptInstanceOverrideHandle.js';
+import {
   createTextHandleMethodTable,
   TEXT_HANDLE_METHOD_KEYS,
 } from './scriptTextMethods.js';
@@ -382,6 +386,7 @@ function applyScriptCreateNodeOp(
   op: Parameters<typeof applyCreateNodeOp>[1]
 ): string {
   beginInPlaceMutation(ctx);
+  syncLocalIdCounterToEnvelope(ctx);
   const engineCtx: EngineOpContext = { signal: ctx.signal, indexes: getGraphIndexes(ctx) };
   const result = applyCreateNodeOp(ctx.working, op, engineCtx);
   applyIndexForEngineOp(ctx.graphIndexes, ctx.working, op, result);
@@ -491,6 +496,36 @@ function detachedTraversalContext(ctx: ScriptContext): DetachedTraversalContext 
     working: ctx.working,
     deletedIds: ctx.deletedIds,
     createHandle: (nid) => createHandleProxy(ctx, nid),
+    createInstanceMasterHandle: (owner, masterNodeId) => {
+      if (owner.type !== 'INSTANCE' || !(owner instanceof RuntimeComponentInstance)) {
+        return createHandleProxy(ctx, masterNodeId);
+      }
+      const inst = owner;
+      const overrideOwner: InstanceOverrideOwner = {
+        type: 'INSTANCE',
+        get overrides() {
+          return inst.overrides;
+        },
+        set overrides(v) {
+          inst.overrides = v;
+        },
+        getInstanceReservedId: () => inst.getAttachedIdOrNull(),
+      };
+      return createInstanceOverrideHandle(
+        {
+          signal: ctx.signal,
+          lookupMasterNode: (id) => {
+            const live = scriptLookup(ctx, id);
+            return live ? ({ ...live, type: live.type, name: live.name } as { type: string; name?: string; [key: string]: unknown }) : null;
+          },
+          touchInstance: (instanceId) => {
+            ctx.touchedIds.add(instanceId);
+          },
+        },
+        overrideOwner,
+        masterNodeId
+      );
+    },
     wrapRuntime: (node) => wrapRuntimeNode(node as RuntimeSceneNode, ctx),
     signal: ctx.signal,
     nodeIndex: getNodeIndex(ctx),
@@ -1477,6 +1512,7 @@ abstract class RuntimeSceneNode {
     if (this._id !== null) return;
     syncLocalIdCounterFromEnvelope(ctx);
     this._id = `I${String(ctx.localNextInternalId++)}`;
+    syncLocalIdCounterToEnvelope(ctx);
   }
 
   get id(): string {

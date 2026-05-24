@@ -243,7 +243,7 @@ return { sizing: box.layoutSizingHorizontal };
     }
   });
 
-  it('skips SECTION raster output (scenario 30), including nested frame children', async () => {
+  it('renders SECTION children when compiling a frame root (scenario 30)', async () => {
     const base = mkdtempSync(join(tmpdir(), 'hfc-s30-'));
     const prev = process.env.HFC_WORKSPACE_DIR;
     process.env.HFC_WORKSPACE_DIR = join(base, 'ws');
@@ -282,9 +282,8 @@ return { sizing: box.layoutSizingHorizontal };
       });
       const bundle = out.html + out.css;
       expect(bundle).toContain(`hfc-node-${rootId}`);
-      expect(bundle).not.toContain(`hfc-node-${section!.id}`);
-      expect(bundle).not.toContain('hfc-section');
-      expect(bundle).not.toContain(`hfc-node-${inner!.id}`);
+      expect(bundle).toContain(`hfc-node-${section!.id}`);
+      expect(bundle).toContain(`hfc-node-${inner!.id}`);
     } finally {
       if (prev === undefined) delete process.env.HFC_WORKSPACE_DIR;
       else process.env.HFC_WORKSPACE_DIR = prev;

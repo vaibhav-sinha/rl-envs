@@ -71,6 +71,32 @@ describe('validatePaints', () => {
     ).toThrow(/unknown imageHash/);
   });
 
+  it('rejects IMAGE paint with imageRef instead of imageHash', () => {
+    expect(() =>
+      assertPaint(
+        {
+          type: 'IMAGE',
+          imageRef: '0f2972a11be0970d5b7691b25c5a4ff0ce3cf3d43a79a846a31caada93c670aa',
+          scaleMode: 'FILL',
+        },
+        'fills[0]',
+        env
+      )
+    ).toThrow(/require "imageHash", not "imageRef"/);
+  });
+
+  it('rejects IMAGE paint with missing imageHash', () => {
+    expect(() => assertPaint({ type: 'IMAGE', scaleMode: 'FILL' }, 'fills[0]', env)).toThrow(
+      /missing "imageHash"/
+    );
+  });
+
+  it('rejects IMAGE paint with too-short imageHash', () => {
+    expect(() =>
+      assertPaint({ type: 'IMAGE', imageHash: 'abc', scaleMode: 'FILL' }, 'fills[0]', env)
+    ).toThrow(/too short/);
+  });
+
   it('accepts IMAGE paint when asset is registered', () => {
     const hash = 'a'.repeat(64);
     env.assets = {
