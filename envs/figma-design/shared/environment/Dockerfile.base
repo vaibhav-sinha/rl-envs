@@ -62,6 +62,8 @@ COPY envs/figma-design/designs/ /opt/figma-design/designs/
 COPY envs/figma-design/scripts/prepare-task-design.mjs /opt/figma-design/scripts/prepare-task-design.mjs
 COPY envs/figma-design/scripts/prune-hfc.mjs /opt/figma-design/scripts/prune-hfc.mjs
 
+WORKDIR /app
+
 EXPOSE 3847
 ENTRYPOINT ["/usr/local/bin/figma-entrypoint.sh"]
 CMD ["/bin/bash"]

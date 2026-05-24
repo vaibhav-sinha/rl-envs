@@ -121,6 +121,7 @@ memory_mb = 4096
 storage_mb = 10240
 allow_internet = true
 skills_dir = "/skills"
+workdir = "/app"
 
 [[environment.mcp_servers]]
 name = "Figma"
