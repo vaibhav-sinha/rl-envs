@@ -2,7 +2,11 @@
  * Shared instance root preparation (merge detached subtrees, overrides, appearance).
  * Used by DesignCompiler emit paths.
  */
-import { applyComponentProperties } from '../instances/componentProperties.js';
+import { applyComponentProperties, resolveVariantPropertyValue } from '../instances/componentProperties.js';
+import {
+  resolveComponentOrSetInEnvelope,
+  resolveNodeInEnvelope,
+} from '../engine/componentResolve.js';
 import {
   applyAutoLayoutIntrinsicSizingDeep,
   syncHugTextLayoutMetricsDeep,
@@ -22,7 +26,9 @@ import {
 } from './instanceMerge.js';
 import type {
   ComponentInstanceNode,
+  ComponentNode,
   ComponentOverrideFields,
+  ComponentSetNode,
   FileEnvelope,
   FrameNode,
   InstanceNode,
@@ -134,4 +140,85 @@ export function prepareInstanceComponentRoot(
 export function prepareClonedComponentSubtreeForEmit(root: SceneNode, env: FileEnvelope): void {
   applyAutoLayoutIntrinsicSizingDeep(root, env);
   syncHugTextLayoutMetricsDeep(root, env);
+}
+
+function remapOverridesForVariant(
+  overrides: InstanceNode['overrides'],
+  nodeIdMap?: Record<string, string>
+): InstanceNode['overrides'] {
+  if (!overrides) return overrides;
+  if (!nodeIdMap) return overrides;
+  const variantToBase: Record<string, string> = {};
+  for (const [baseId, variantId] of Object.entries(nodeIdMap)) {
+    variantToBase[variantId] = baseId;
+  }
+  const out: NonNullable<InstanceNode['overrides']> = {};
+  for (const [key, ov] of Object.entries(overrides)) {
+    const variantId = nodeIdMap[key];
+    if (variantId) {
+      out[variantId] = ov;
+    } else if (variantToBase[key]) {
+      out[key] = ov;
+    } else {
+      out[key] = ov;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Clone + merge an INSTANCE master the same way {@link DesignCompiler} does before emit.
+ * Returns null when the master cannot be resolved.
+ */
+export function buildPreparedInstanceRoot(
+  env: FileEnvelope,
+  inst: InstanceNode,
+  mergeCtx: InstanceMergeContext
+): FrameNode | null {
+  const target = resolveComponentOrSetInEnvelope(env, inst.mainComponentId);
+
+  if (!target && env.components) {
+    const main = env.components.find((c) => c.id === inst.mainComponentId);
+    if (main) {
+      const root = cloneComponentRootForInstance(main.root);
+      prepareInstanceComponentRoot(root, inst, env, inst.overrides, mergeCtx);
+      return root;
+    }
+  }
+
+  if (!target || (target.type !== 'COMPONENT' && target.type !== 'COMPONENT_SET')) {
+    return null;
+  }
+
+  let root: FrameNode;
+  let appliedOverrides: InstanceNode['overrides'] = inst.overrides;
+
+  if (target.type === 'COMPONENT') {
+    const component = target as ComponentNode;
+    const rootNode = resolveNodeInEnvelope(env, component.rootFrameId);
+    if (!rootNode || rootNode.type !== 'FRAME') return null;
+    alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
+    root = cloneComponentRootForInstance(rootNode as FrameNode);
+  } else {
+    const set = target as ComponentSetNode;
+    const selectedValue = resolveVariantPropertyValue(inst.componentProperties, set);
+    const options = set.variantOptions ?? set.componentIds;
+    const idx = options.indexOf(String(selectedValue));
+    const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];
+    if (!selectedComponentId) return null;
+
+    const selectedComponent = resolveNodeInEnvelope(env, selectedComponentId);
+    if (!selectedComponent || selectedComponent.type !== 'COMPONENT') return null;
+    const comp = selectedComponent as ComponentNode;
+    const rootNode = resolveNodeInEnvelope(env, comp.rootFrameId);
+    if (!rootNode || rootNode.type !== 'FRAME') return null;
+    alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
+    root = cloneComponentRootForInstance(rootNode as FrameNode);
+
+    const nodeIdMap = set.nodeIdMapByComponentId?.[selectedComponentId];
+    appliedOverrides = remapOverridesForVariant(inst.overrides, nodeIdMap);
+  }
+
+  prepareInstanceComponentRoot(root, inst, env, appliedOverrides as ComponentInstanceNode['overrides'], mergeCtx);
+  return root;
 }

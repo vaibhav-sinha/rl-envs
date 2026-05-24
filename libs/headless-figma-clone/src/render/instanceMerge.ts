@@ -81,7 +81,7 @@ function mergeKey(node: SceneNode): string | undefined {
   return normalizeSourceFigmaId(node.sourceFigmaId);
 }
 
-function fallbackKey(node: SceneNode): string {
+export function fallbackKey(node: SceneNode): string {
   return `${node.name}:${node.type}`;
 }
 

@@ -104,6 +104,7 @@ import {
   applyIndexForEngineOp,
   collectDeleteUnindexIdsForOp,
 } from './nodeIndexMutations.js';
+import { maybeMaterializeDuplicatedCloneAppearance } from './instanceMaterialize.js';
 
 export interface EngineOpContext {
   signal?: AbortSignal;
@@ -1890,6 +1891,10 @@ export function duplicateNodeInEnvelope(
   const tBeforeSubtree = timing ? performance.now() : 0;
   const cloned = cloneSceneSubtreeWithNewIds(working, node as SceneNode, signal);
   const tAfterSubtree = timing ? performance.now() : 0;
+
+  if (ctx?.indexes) {
+    maybeMaterializeDuplicatedCloneAppearance(working, node as SceneNode, cloned, ctx.indexes);
+  }
 
   let instanceHydrateMs = 0;
   if (cloned.type === 'INSTANCE' && !cloned.children?.length) {
