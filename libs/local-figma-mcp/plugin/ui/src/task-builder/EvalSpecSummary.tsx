@@ -279,6 +279,30 @@ export function EvalSpecSummary({
             </section>
           ) : null}
 
+          {spec.screenshot ? (
+            <section>
+              <p className="text-[10px] font-semibold text-foreground m-0 mb-1">
+                {catalog?.screenshot?.title ?? 'Screenshot'}
+              </p>
+              <DetailRow
+                label="Strategy"
+                value={humanEnumValue('strategy', spec.screenshot.strategy ?? 'auto')}
+              />
+              {spec.screenshot.under ? (
+                <DetailRow label="Under" value={truncateId(spec.screenshot.under, 24)} />
+              ) : null}
+              {spec.screenshot.composite ? (
+                <DetailRow label="Composite" value="Enabled for auto step 5" />
+              ) : null}
+              {spec.screenshot.node_ids?.length ? (
+                <DetailRow
+                  label="Nodes"
+                  value={spec.screenshot.node_ids.map((id) => truncateId(id)).join(', ')}
+                />
+              ) : null}
+            </section>
+          ) : null}
+
           {Object.keys(importance).length > 0 ? (
             <section>
               <p className="text-[10px] font-semibold text-foreground m-0 mb-1">Category importance</p>

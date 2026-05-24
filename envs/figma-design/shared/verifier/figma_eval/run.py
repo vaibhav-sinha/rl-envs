@@ -119,6 +119,7 @@ def run_eval(
         work_dir=work,
         task_instruction=task_instruction,
         gates=spec.get("gates"),
+        screenshot_config=spec.get("screenshot"),
         assets_dir=assets_dir,
         skip_llm=skip_llm,
         model=model,

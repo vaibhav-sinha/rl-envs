@@ -232,3 +232,46 @@ def test_legacy_visual_spec_rejected():
             load_and_validate_eval_spec(path)
     finally:
         Path(path).unlink(missing_ok=True)
+
+
+def test_screenshot_auto_validates():
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(
+            {
+                "schema_version": 1,
+                "screenshot": {"strategy": "auto"},
+            },
+            f,
+        )
+        path = f.name
+    try:
+        spec = load_and_validate_eval_spec(path)
+        assert spec["screenshot"]["strategy"] == "auto"
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+def test_screenshot_explicit_requires_node_ids():
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(
+            {
+                "schema_version": 1,
+                "screenshot": {"strategy": "explicit"},
+            },
+            f,
+        )
+        path = f.name
+    try:
+        with pytest.raises(Exception):
+            load_and_validate_eval_spec(path)
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+def test_task_eval_specs_validate():
+    repo = Path(__file__).resolve().parents[5]
+    task_specs = list((repo / "envs/figma-design/tasks").glob("*/tests/eval-spec.json"))
+    assert len(task_specs) >= 5
+    for spec_path in task_specs:
+        spec = load_and_validate_eval_spec(spec_path)
+        assert spec.get("screenshot", {}).get("strategy") == "auto"

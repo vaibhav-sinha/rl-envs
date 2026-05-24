@@ -54,7 +54,21 @@ def _numbered_criteria_lines(criteria: list[str]) -> str:
     return "\n".join(lines)
 
 
-def build_good_design_prompt(*, task_instruction: str) -> str:
+def composite_screenshot_note(*, composite: bool, frame_count: int) -> str:
+    if not composite or frame_count < 2:
+        return ""
+    return (
+        f"\nThe screenshot is a grid of {frame_count} frames ({frame_count} agent deliverables), "
+        "arranged left-to-right, top-to-bottom, 3 frames per row.\n"
+    )
+
+
+def build_good_design_prompt(
+    *,
+    task_instruction: str,
+    composite: bool = False,
+    frame_count: int = 1,
+) -> str:
     defect_score_lines = ",\n".join(
         f'    "{key}": 1-5' for key in GOOD_DESIGN_DEFECT_CRITERIA
     )
@@ -72,7 +86,8 @@ def build_good_design_prompt(*, task_instruction: str) -> str:
         "## Screenshot\n"
         "You are given one screenshot of the region that contains the agent's largest design "
         "changes. There is no reference image — judge only whether the result follows sound "
-        "design practice.\n\n"
+        "design practice."
+        f"{composite_screenshot_note(composite=composite, frame_count=frame_count)}\n\n"
         "## Evaluation order\n"
         "Evaluate **defect dimensions first**. Be strict: obvious visual defects should receive "
         "low scores even if the layout is partially usable. Do not treat "
@@ -138,6 +153,8 @@ def build_design_consistency_prompt(
     *,
     task_instruction: str,
     criteria: list[str],
+    composite: bool = False,
+    frame_count: int = 1,
 ) -> str:
     ids = criterion_ids(len(criteria))
     score_lines = ",\n".join(f'    "{cid}": 1-5' for cid in ids)
@@ -149,7 +166,8 @@ def build_design_consistency_prompt(
         f"{task_instruction}\n\n"
         "## Images\n"
         "- REFERENCE: the target design provided by the subject-matter expert\n"
-        "- AGENT: screenshot of the agent's largest design change region\n\n"
+        "- AGENT: screenshot of the agent's largest design change region"
+        f"{composite_screenshot_note(composite=composite, frame_count=frame_count)}\n\n"
         "## Criteria to score (1=poor, 5=excellent)\n"
         "Score each criterion independently based on how well the AGENT image matches "
         "the REFERENCE with respect to that criterion only:\n"
@@ -194,6 +212,8 @@ def build_task_completeness_prompt(
     *,
     task_instruction: str,
     evaluation_instructions: str | None = None,
+    composite: bool = False,
+    frame_count: int = 1,
 ) -> str:
     extra = ""
     if evaluation_instructions and evaluation_instructions.strip():
@@ -209,7 +229,8 @@ def build_task_completeness_prompt(
         "## Visual quality gate (always apply)\n"
         f"{DEFAULT_TASK_COMPLETENESS_QUALITY_INSTRUCTIONS}\n"
         f"{extra}\n"
-        "Review the screenshot of the design region that contains all changes.\n"
+        "Review the screenshot of the design region that contains all changes."
+        f"{composite_screenshot_note(composite=composite, frame_count=frame_count)}\n"
         "1. List each concrete requirement implied by the task.\n"
         "2. For each requirement, judge present and quality_acceptable separately.\n"
         "3. Set structurally_complete to true only if every requirement is present.\n"
@@ -236,14 +257,20 @@ def build_task_completeness_prompt(
     )
 
 
-def build_design_preference_prompt(*, task_instruction: str) -> str:
+def build_design_preference_prompt(
+    *,
+    task_instruction: str,
+    composite: bool = False,
+    frame_count: int = 1,
+) -> str:
     return (
         "You are comparing an agent-produced Figma design to a reference design.\n\n"
         "## Agent task\n"
         f"{task_instruction}\n\n"
         "You are given two images:\n"
         "- REFERENCE: the completed target design provided by the SME\n"
-        "- AGENT: screenshot of the agent's largest design change region\n\n"
+        "- AGENT: screenshot of the agent's largest design change region"
+        f"{composite_screenshot_note(composite=composite, frame_count=frame_count)}\n\n"
         "Score your preference on a scale of 0-10:\n"
         "- 0 = reference design is strongly preferred\n"
         "- 5 = both designs are equally preferred\n"

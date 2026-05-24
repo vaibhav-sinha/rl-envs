@@ -398,6 +398,165 @@ def resolve_minimal_enclosing_frame(envelope: Envelope, node_ids: set[str]) -> s
     return containing_frames[0][0]
 
 
+FRAME_SCOPE_TYPES = frozenset({"FRAME", "SECTION"})
+
+
+def _is_added_frame(envelope: Envelope, node_id: str) -> bool:
+    node = find_node(envelope, node_id)
+    return node is not None and node.get("type") in FRAME_SCOPE_TYPES
+
+
+def added_top_level_frame_ids(envelope: Envelope, graph: EditGraph) -> list[str]:
+    return [nid for nid in graph.added_ids if is_top_level_frame(envelope, nid)]
+
+
+def modified_top_level_frame_ids(envelope: Envelope, graph: EditGraph) -> list[str]:
+    result: list[str] = []
+    for nid in graph.modified_ids:
+        node = find_node(envelope, nid)
+        if not node or node.get("type") not in ENCLOSING_FRAME_TYPES:
+            continue
+        if is_top_level_frame(envelope, nid):
+            result.append(nid)
+    return result
+
+
+def _filter_under_roots(
+    envelope: Envelope,
+    node_ids: list[str],
+    under_roots: list[str] | None,
+) -> list[str]:
+    if not under_roots:
+        return node_ids
+    return [nid for nid in node_ids if is_node_under_roots(envelope, nid, under_roots)]
+
+
+def largest_added_frame_id(
+    envelope: Envelope,
+    graph: EditGraph,
+    *,
+    under_roots: list[str] | None = None,
+    top_level_only: bool = False,
+) -> str | None:
+    candidates: list[str] = []
+    for nid in graph.added_ids:
+        if not _is_added_frame(envelope, nid):
+            continue
+        if top_level_only and not is_top_level_frame(envelope, nid):
+            continue
+        candidates.append(nid)
+    candidates = _filter_under_roots(envelope, candidates, under_roots)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda nid: _node_frame_area(envelope, nid))
+
+
+def largest_changed_frame_id(
+    envelope: Envelope,
+    graph: EditGraph,
+    *,
+    under_roots: list[str] | None = None,
+) -> str | None:
+    candidates: list[str] = []
+    for nid in graph.modified_ids:
+        node = find_node(envelope, nid)
+        if not node or node.get("type") not in ENCLOSING_FRAME_TYPES:
+            continue
+        candidates.append(nid)
+    candidates = _filter_under_roots(envelope, candidates, under_roots)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda nid: _node_frame_area(envelope, nid))
+
+
+def largest_frame_among_changes(
+    envelope: Envelope,
+    before: Envelope,
+    graph: EditGraph,
+    *,
+    allowed_root_ids: list[str] | None = None,
+) -> str | None:
+    return resolve_task_completeness_screenshot_node(
+        envelope,
+        before,
+        graph,
+        allowed_root_ids=allowed_root_ids,
+    )
+
+
+def _node_canvas_position(envelope: Envelope, node_id: str) -> tuple[float, float]:
+    node = find_node(envelope, node_id)
+    if not node:
+        return (0.0, 0.0)
+    x = node.get("x") or 0
+    y = node.get("y") or 0
+    return (float(y), float(x))
+
+
+def sort_frames_by_canvas(envelope: Envelope, node_ids: list[str]) -> list[str]:
+    return sorted(node_ids, key=lambda nid: _node_canvas_position(envelope, nid))
+
+
+def topmost_added_frame_ids(
+    envelope: Envelope,
+    graph: EditGraph,
+    *,
+    under_roots: list[str] | None = None,
+) -> list[str]:
+    added_frames = [
+        nid for nid in graph.added_ids if _is_added_frame(envelope, nid)
+    ]
+    added_frames = _filter_under_roots(envelope, added_frames, under_roots)
+    added_set = set(added_frames)
+    parents = parent_id_map(envelope)
+    topmost: list[str] = []
+    for nid in added_frames:
+        cur: str | None = parents.get(nid)
+        has_added_ancestor = False
+        while cur:
+            if cur in added_set:
+                has_added_ancestor = True
+                break
+            cur = parents.get(cur)
+        if not has_added_ancestor:
+            topmost.append(nid)
+    return sort_frames_by_canvas(envelope, topmost)
+
+
+def added_frames_under_same_parent(
+    envelope: Envelope,
+    graph: EditGraph,
+) -> tuple[str, list[str]] | None:
+    """Return (parent_id, sibling_added_frames) when 2+ added frames share a parent."""
+    parents = parent_id_map(envelope)
+    by_parent: dict[str, list[str]] = {}
+    for nid in graph.added_ids:
+        if not _is_added_frame(envelope, nid):
+            continue
+        parent_id = parents.get(nid)
+        if not parent_id:
+            continue
+        by_parent.setdefault(parent_id, []).append(nid)
+    for parent_id, siblings in by_parent.items():
+        if len(siblings) >= 2:
+            return parent_id, sort_frames_by_canvas(envelope, siblings)
+    return None
+
+
+def minimal_enclosing_for_changes(
+    envelope: Envelope,
+    graph: EditGraph,
+    *,
+    under_roots: list[str] | None = None,
+) -> str | None:
+    changed = graph.added_ids | graph.deleted_ids | graph.modified_ids
+    if under_roots:
+        changed = {nid for nid in changed if is_node_under_roots(envelope, nid, under_roots)}
+    if not changed:
+        return None
+    return resolve_minimal_enclosing_frame(envelope, changed)
+
+
 def get_node_property(node: TreeNode, property_path: str) -> Any:
     parts = property_path.split(".")
     cur: Any = node

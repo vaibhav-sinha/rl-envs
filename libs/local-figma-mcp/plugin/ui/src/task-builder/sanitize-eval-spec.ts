@@ -23,6 +23,23 @@ function sanitizeEntries(entries: Record<string, unknown>[]): Record<string, unk
 
 export function sanitizeEvalSpecForSave<T extends Record<string, unknown>>(spec: T): T {
   let next = stripLegacyWeights(spec);
+  const screenshot = spec.screenshot as Record<string, unknown> | undefined;
+  if (screenshot && typeof screenshot === 'object') {
+    const strategy = screenshot.strategy ?? 'auto';
+    const cleaned: Record<string, unknown> = { strategy };
+    if (strategy === 'explicit') {
+      if (screenshot.node_id) cleaned.node_id = screenshot.node_id;
+      const ids = (screenshot.node_ids as string[] | undefined)?.filter(Boolean);
+      if (ids?.length) cleaned.node_ids = ids;
+    }
+    if (strategy === 'largest_added_under' && screenshot.under) {
+      cleaned.under = screenshot.under;
+    }
+    if (strategy === 'auto' && screenshot.composite) {
+      cleaned.composite = true;
+    }
+    next = { ...next, screenshot: cleaned };
+  }
   if (Array.isArray(spec.visual)) {
     next = { ...next, visual: sanitizeEntries(spec.visual as Record<string, unknown>[]) };
   }

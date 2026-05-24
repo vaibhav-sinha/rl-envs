@@ -1,5 +1,8 @@
 {
   "schema_version": 1,
+  "screenshot": {
+    "strategy": "auto"
+  },
   "gates": {
     "require_change": true,
     "no_detached_nodes": true,

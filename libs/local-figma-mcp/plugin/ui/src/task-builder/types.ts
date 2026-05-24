@@ -44,4 +44,10 @@ export interface CheckCatalog {
     title: string;
     description: string;
   };
+  screenshot: {
+    title: string;
+    description: string;
+    fields: Record<string, CatalogFieldMeta & { label: string }>;
+    strategies: Record<string, string>;
+  };
 }

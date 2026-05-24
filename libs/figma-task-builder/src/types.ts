@@ -59,6 +59,20 @@ export interface EvalSpec {
   /** @deprecated Legacy field; normalized to category_importance on read/write. */
   weights?: Record<string, number>;
   category_importance?: Record<string, number>;
+  screenshot?: {
+    strategy:
+      | 'auto'
+      | 'explicit'
+      | 'largest_added_frame'
+      | 'largest_added_under'
+      | 'largest_changed_frame'
+      | 'minimal_enclosing'
+      | 'all_added_frames';
+    node_id?: string;
+    node_ids?: string[];
+    under?: string;
+    composite?: boolean;
+  };
 }
 
 export interface DesignSpec {

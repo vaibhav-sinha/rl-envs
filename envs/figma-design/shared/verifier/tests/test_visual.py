@@ -134,8 +134,9 @@ def test_good_design_uses_task_completeness_screenshot_with_allowed_root(
         model="test",
     )
     assert result.score == 0.9
-    assert rendered["node_id"] == "I78386"
-    assert result.details["screenshot_node_id"] == "I78386"
+    assert rendered["node_id"] == "I27"
+    assert result.details["screenshot_node_id"] == "I27"
+    assert result.details.get("screenshot_auto_step") == 4
 
 
 def test_design_fit_missing_node_scores_zero(load_fixture, tmp_path):
@@ -210,8 +211,9 @@ def test_design_consistency_uses_task_completeness_screenshot_with_allowed_root(
         model="test",
     )
     assert result.score == 0.5
-    assert rendered["node_id"] == "I78386"
-    assert result.details["screenshot_node_id"] == "I78386"
+    assert rendered["node_id"] == "I27"
+    assert result.details["screenshot_node_id"] == "I27"
+    assert result.details.get("screenshot_auto_step") == 4
 
 
 @patch("figma_eval.visual.run_visual.render_node_or_error")

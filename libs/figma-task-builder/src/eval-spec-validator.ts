@@ -40,6 +40,7 @@ export function validateEvalSpec(schemaPath: string, spec: unknown): void {
 export function defaultEvalSpec(): EvalSpec {
   return {
     schema_version: 1,
+    screenshot: { strategy: 'auto' },
     gates: { require_change: true, no_detached_nodes: true },
     checks: [],
     visual: [

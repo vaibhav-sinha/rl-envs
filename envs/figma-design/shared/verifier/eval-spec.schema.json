@@ -45,9 +45,52 @@
         "heuristics": { "type": "number", "exclusiveMinimum": 0 },
         "metadata": { "type": "number", "exclusiveMinimum": 0 }
       }
-    }
+    },
+    "screenshot": { "$ref": "#/$defs/screenshot" }
   },
   "$defs": {
+    "screenshot": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "explicit",
+            "largest_added_frame",
+            "largest_added_under",
+            "largest_changed_frame",
+            "minimal_enclosing",
+            "all_added_frames"
+          ],
+          "default": "auto"
+        },
+        "node_id": { "type": "string" },
+        "node_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "under": { "type": "string" },
+        "composite": { "type": "boolean", "default": false }
+      },
+      "required": ["strategy"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "strategy": { "const": "explicit" } },
+            "required": ["strategy"]
+          },
+          "then": {
+            "anyOf": [
+              { "required": ["node_id"] },
+              { "required": ["node_ids"] }
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
     "subcheck_weight": {
       "type": "number",
       "exclusiveMinimum": 0,

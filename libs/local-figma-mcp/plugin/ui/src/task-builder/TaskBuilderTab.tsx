@@ -17,7 +17,7 @@ import {
   pickExcludeNodeIds,
   pickNodeId,
 } from '../lib/plugin-bridge';
-import { WIZARD_STEPS, stepMeta } from './catalog-helpers';
+import { WIZARD_STEPS, stepMeta, humanEnumValue, humanFieldDescription, humanFieldLabel } from './catalog-helpers';
 import { DEFAULT_CATEGORY_IMPORTANCE, normalizeEvalSpec } from './category-importance';
 import { sanitizeEvalSpecForSave } from './sanitize-eval-spec';
 import { CheckCard } from './components/CheckCard';
@@ -34,7 +34,23 @@ import { VisualCard } from './components/VisualCard';
 import { EvalSpecSummary } from './EvalSpecSummary';
 import { isCheckCatalog, useCheckCatalog } from './useCheckCatalog';
 
+const SCREENSHOT_STRATEGIES = [
+  'auto',
+  'explicit',
+  'largest_added_frame',
+  'largest_added_under',
+  'largest_changed_frame',
+  'minimal_enclosing',
+  'all_added_frames',
+] as const;
+
+type ScreenshotStrategy = (typeof SCREENSHOT_STRATEGIES)[number];
+
 const STEPS = WIZARD_STEPS.map((s) => s.id);
+
+function defaultScreenshotConfig(): NonNullable<EvalSpec['screenshot']> {
+  return { strategy: 'auto' };
+}
 
 const DIFFICULTY_LEVELS = ['easy', 'medium', 'hard'] as const;
 
@@ -70,6 +86,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
   });
   const [evalSpec, setEvalSpec] = useState<EvalSpec>({
     schema_version: 1,
+    screenshot: defaultScreenshotConfig(),
     gates: { require_change: true, no_detached_nodes: true },
     checks: [],
     visual: [
@@ -353,6 +370,25 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     const current = ((evalSpec.gates?.[field] as string[]) ?? []).slice();
     if (!current.includes(id)) current.push(id);
     setEvalSpec({ ...evalSpec, gates: { ...evalSpec.gates, [field]: current } });
+  };
+
+  const screenshotConfig = evalSpec.screenshot ?? defaultScreenshotConfig();
+
+  const setScreenshot = (patch: Partial<NonNullable<EvalSpec['screenshot']>>) => {
+    setEvalSpec({
+      ...evalSpec,
+      screenshot: { ...screenshotConfig, ...patch },
+    });
+  };
+
+  const appendScreenshotNodeId = (id: string) => {
+    const current = (screenshotConfig.node_ids ?? []).slice();
+    if (!current.includes(id)) current.push(id);
+    setScreenshot({ node_ids: current, strategy: 'explicit' });
+  };
+
+  const removeScreenshotNodeId = (id: string) => {
+    setScreenshot({ node_ids: (screenshotConfig.node_ids ?? []).filter((x) => x !== id) });
   };
 
   if (view === 'idle') {
@@ -795,6 +831,106 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
         {step === 'visual' && catalogReady && catalog ? (
           <>
             <SectionIntro title={catalog.visual.title} description={catalog.visual.description} />
+            {catalog.screenshot ? (
+              <div className="rounded-md border border-[#3a3a3a] bg-[#252525]/50 p-2.5 space-y-2">
+                <SectionIntro
+                  title={catalog.screenshot.title}
+                  description={catalog.screenshot.description}
+                />
+                <div className="space-y-1">
+                  <FieldHelp
+                    label={humanFieldLabel('strategy', catalog)}
+                    description={humanFieldDescription('strategy', catalog)}
+                  />
+                  <select
+                    className="w-full rounded border border-[#555] bg-[#1e1e1e] px-2 py-1 text-[11px] text-foreground"
+                    value={screenshotConfig.strategy}
+                    onChange={(e) =>
+                      setScreenshot({ strategy: e.target.value as ScreenshotStrategy })
+                    }
+                  >
+                    {SCREENSHOT_STRATEGIES.map((s) => (
+                      <option key={s} value={s}>
+                        {catalog.screenshot.strategies[s] ??
+                          humanEnumValue('strategy', s)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {screenshotConfig.strategy === 'auto' ? (
+                  <div className="flex items-start gap-2">
+                    <Switch
+                      checked={!!screenshotConfig.composite}
+                      onCheckedChange={(v) => setScreenshot({ composite: v })}
+                    />
+                    <FieldHelp
+                      label={humanFieldLabel('composite', catalog)}
+                      description={humanFieldDescription('composite', catalog)}
+                    />
+                  </div>
+                ) : null}
+                {screenshotConfig.strategy === 'largest_added_under' ? (
+                  <div className="space-y-1">
+                    <FieldHelp
+                      label={humanFieldLabel('under', catalog)}
+                      description={humanFieldDescription('under', catalog)}
+                    />
+                    <div className="flex gap-2">
+                      <Input
+                        className="text-[11px] h-7"
+                        value={screenshotConfig.under ?? ''}
+                        onChange={(e) => setScreenshot({ under: e.target.value || undefined })}
+                        placeholder="Optional — defaults to allowed-change-inside gate"
+                      />
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        type="button"
+                        onClick={() =>
+                          void pickNodeId()
+                            .then((id) => setScreenshot({ under: id }))
+                            .catch((err) => onLog(String(err), true))
+                        }
+                      >
+                        Pick
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+                {screenshotConfig.strategy === 'explicit' ? (
+                  <div className="space-y-1">
+                    <FieldHelp
+                      label={humanFieldLabel('node_ids', catalog)}
+                      description={humanFieldDescription('node_ids', catalog)}
+                    />
+                    <div className="flex flex-wrap gap-1">
+                      {(screenshotConfig.node_ids ?? []).map((id) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className="text-[10px] rounded bg-[#333] px-1.5 py-0.5 text-foreground"
+                          onClick={() => removeScreenshotNodeId(id)}
+                        >
+                          {id} ×
+                        </button>
+                      ))}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      type="button"
+                      onClick={() =>
+                        void pickNodeId()
+                          .then(appendScreenshotNodeId)
+                          .catch((err) => onLog(String(err), true))
+                      }
+                    >
+                      + Pick frame from Figma
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <p className="text-[10px] text-muted m-0">
               Good design and task completeness are included by default. Add optional checks for reference
               comparison, fit, or preference.

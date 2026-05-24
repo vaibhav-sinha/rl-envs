@@ -46,6 +46,10 @@ const FIELD_LABELS: Record<string, string> = {
   no_detached_nodes: 'No detached nodes',
   additions_only: 'Additions only',
   allow_novelty: 'Allow new tokens/styles',
+  strategy: 'Screenshot strategy',
+  under: 'Region root',
+  node_ids: 'Frame node IDs',
+  composite: 'Composite sibling frames',
 };
 
 const ENUM_LABELS: Record<string, Record<string, string>> = {
@@ -58,6 +62,15 @@ const ENUM_LABELS: Record<string, Record<string, string>> = {
     added: 'All added frames',
     all: 'All changes',
   },
+  strategy: {
+    auto: 'Automatic',
+    explicit: 'Explicit node(s)',
+    largest_added_frame: 'Largest added top-level frame',
+    largest_added_under: 'Largest added under region',
+    largest_changed_frame: 'Largest changed frame',
+    minimal_enclosing: 'Minimal enclosing frame',
+    all_added_frames: 'All added frames',
+  },
 };
 
 export function humanFieldLabel(key: string, catalog?: CheckCatalog, section?: 'checks' | 'visual', type?: string): string {
@@ -66,6 +79,8 @@ export function humanFieldLabel(key: string, catalog?: CheckCatalog, section?: '
   if (gate?.label) return gate.label;
   const ds = catalog?.design_system.fields[key];
   if (ds?.label) return ds.label;
+  const shot = catalog?.screenshot?.fields[key];
+  if (shot?.label) return shot.label;
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -82,6 +97,8 @@ export function humanFieldDescription(
   if (gate?.description) return gate.description;
   const ds = catalog?.design_system.fields[key];
   if (ds?.description) return ds.description;
+  const shot = catalog?.screenshot?.fields[key];
+  if (shot?.description) return shot.description;
   return undefined;
 }
 

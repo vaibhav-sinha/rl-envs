@@ -193,4 +193,43 @@ export const CHECK_CATALOG = {
     description:
       'Always-on checks: contrast, font count, readable font size. Not configurable in eval-spec.',
   },
+  screenshot: {
+    title: 'Screenshot targeting',
+    description:
+      'How the verifier chooses which frame(s) to render for LLM visual checks. Applies to all visual checks except design fit.',
+    fields: {
+      strategy: {
+        label: 'Strategy',
+        description:
+          'auto uses a decision tree; named strategies pick frames directly; all_added_frames grid-composites when 2+ frames.',
+      },
+      node_id: {
+        label: 'Node ID',
+        description: 'Single explicit frame to capture (required for explicit strategy).',
+      },
+      node_ids: {
+        label: 'Node IDs',
+        description: 'Multiple explicit frames; composited when 2+.',
+      },
+      under: {
+        label: 'Under region',
+        description:
+          'Scope for largest_added_under and auto step 4. Defaults to allowed-change-inside gate when unset.',
+      },
+      composite: {
+        label: 'Composite siblings (auto)',
+        description:
+          'When auto finds multiple added frames under the same parent, grid-composite instead of minimal enclosing.',
+      },
+    },
+    strategies: {
+      auto: 'Automatic decision tree (default)',
+      explicit: 'Explicit node_id or node_ids',
+      largest_added_frame: 'Largest new top-level frame',
+      largest_added_under: 'Largest new frame inside region',
+      largest_changed_frame: 'Largest modified frame in region',
+      minimal_enclosing: 'Tightest wrapper around changes',
+      all_added_frames: 'All new top-level frames (grid when 2+)',
+    },
+  },
 } as const;
