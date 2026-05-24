@@ -68,15 +68,20 @@ export const playwrightScreenshotService: PlaywrightScreenshotService = {
     try {
       tempHtmlPath = await loadCompiledHtml(page, params.compiled.html, params.timeoutMs);
       const fontsReady = page.evaluate('document.fonts.ready');
-      await Promise.race([
-        fontsReady,
-        new Promise<never>((_, reject) => {
-          setTimeout(
-            () => reject(new Error(`document.fonts.ready timed out after ${params.timeoutMs}ms`)),
-            params.timeoutMs,
-          );
-        }),
-      ]);
+      let fontsTimeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          fontsReady,
+          new Promise<never>((_, reject) => {
+            fontsTimeout = setTimeout(
+              () => reject(new Error(`document.fonts.ready timed out after ${params.timeoutMs}ms`)),
+              params.timeoutMs,
+            );
+          }),
+        ]);
+      } finally {
+        if (fontsTimeout !== undefined) clearTimeout(fontsTimeout);
+      }
       if (params.background === 'white') {
         await page.addStyleTag({ content: 'body { background: #fff !important; }' });
       }
