@@ -14,8 +14,10 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /opt/hfc
 
+ARG HFC_PREBUILT=false
+
 COPY libs/headless-figma-clone/package.json libs/headless-figma-clone/package-lock.json ./
-RUN npm ci
+RUN if [ "$HFC_PREBUILT" = "true" ]; then npm ci --omit=dev; else npm ci; fi
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN npx playwright install chromium
@@ -29,7 +31,7 @@ RUN if [ "$INSTALL_CURSOR_CLI" = "true" ]; then \
 ENV PATH="/usr/local/bin:${PATH}"
 
 COPY libs/headless-figma-clone/ ./
-RUN npm run build
+RUN if [ "$HFC_PREBUILT" != "true" ]; then npm run build; fi
 
 ENV HFC_CLI=/opt/hfc/dist/cli.js \
   HFC_HTTP_HOST=127.0.0.1 \
