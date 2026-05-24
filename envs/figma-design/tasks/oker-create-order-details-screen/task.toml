@@ -1,0 +1,51 @@
+schema_version = "1.2"
+
+[task]
+name = "metaphi/figma-design-oker-create-order-details-screen"
+description = "Figma design task: oker-create-order-details-screen"
+keywords = ["figma", "mcp", "rewardkit", "design", "headless-figma-clone"]
+
+[metadata]
+difficulty = "hard"
+category = "design"
+
+[verifier]
+timeout_sec = 300.0
+
+[verifier.env]
+EVAL_JUDGE_MODEL = "${EVAL_JUDGE_MODEL:-gemini/gemini-3-flash-preview}"
+ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY:-}"
+OPENAI_API_KEY = "${OPENAI_API_KEY:-}"
+GEMINI_API_KEY = "${GEMINI_API_KEY:-}"
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 120.0
+os = "linux"
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
+allow_internet = true
+skills_dir = "/skills"
+
+[[environment.mcp_servers]]
+name = "Figma"
+transport = "streamable-http"
+url = "http://127.0.0.1:3847/mcp"
+
+[environment.healthcheck]
+command = "curl -sf http://127.0.0.1:3847/health"
+interval_sec = 2.0
+timeout_sec = 5.0
+retries = 15
+start_period_sec = 15.0
+
+[[artifacts]]
+source = "/data/workspace/design.hfc.json"
+destination = "design.hfc.json"
+
+[[artifacts]]
+source = "/data/workspace/issues.hfc.json"
+destination = "issues.hfc.json"

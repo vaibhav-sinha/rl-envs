@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "gates": {
+    "require_change": true,
+    "no_detached_nodes": true,
+    "additions_only": true
+  },
+  "checks": [
+    {
+      "id": "must_contain_text_1",
+      "type": "must_contain_text",
+      "required": true,
+      "contains": "order",
+      "scope": "new_frames"
+    },
+    {
+      "id": "must_contain_image_2",
+      "type": "must_contain_image",
+      "required": true,
+      "scope": "new_frames"
+    }
+  ],
+  "visual": [
+    {
+      "id": "good_design_1",
+      "type": "good_design"
+    },
+    {
+      "id": "task_completeness_1",
+      "type": "task_completeness"
+    },
+    {
+      "id": "design_preference_3",
+      "type": "design_preference",
+      "reference_asset": "ref-design_preference_3.png"
+    },
+    {
+      "id": "design_consistency_4",
+      "type": "design_consistency",
+      "reference_asset": "ref-design_consistency_4.png",
+      "criteria": [
+        "- The new design should have similar typography - text size, weight, etc",
+        "- It should use similar border, corner radius, etc",
+        "- It should use similar spacing, padding, etc",
+        "- It should display item details in a similar manner",
+        "- It should use similar sizing and styles for icons"
+      ]
+    }
+  ],
+  "category_importance": {
+    "commands": 0.15,
+    "checks": 0.35,
+    "design_system": 0.2,
+    "visual": 0.51,
+    "metadata": 0.1,
+    "heuristics": 0.1
+  }
+}
