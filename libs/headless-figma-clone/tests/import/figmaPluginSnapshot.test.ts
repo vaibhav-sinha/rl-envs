@@ -96,4 +96,40 @@ describe('boundsFromProps', () => {
     );
     expect(text).toMatchObject({ x: 0, y: 0, width: 120, height: 32 });
   });
+
+  it('imports SECTION → FRAME with parent-relative coords from page-absolute export', () => {
+    const raw = readFileSync(join(fixturesDir, 'section-frame.snapshot.json'), 'utf8');
+    const snapshot = parseFigmaPluginSnapshot(JSON.parse(raw));
+    const { envelope } = importFigmaPluginSnapshot(snapshot, { fileName: 'Section Import' });
+
+    const page = envelope.document.children[0]!;
+    const section = page.children.find((n) => n.type === 'SECTION' && n.name === 'Orders');
+    expect(section?.type).toBe('SECTION');
+    if (section?.type !== 'SECTION') return;
+
+    expect(section.x).toBe(2179);
+    expect(section.y).toBe(-2659);
+
+    const frame = section.children.find((c) => c.type === 'FRAME');
+    expect(frame?.type).toBe('FRAME');
+    if (frame?.type !== 'FRAME') return;
+
+    expect(frame.x).toBe(2742);
+    expect(frame.y).toBe(3003);
+
+    const text = frame.children.find((c) => c.type === 'TEXT');
+    expect(text?.type).toBe('TEXT');
+    if (text?.type !== 'TEXT') return;
+    expect(text.x).toBe(24);
+    expect(text.y).toBe(24);
+
+    const compiled = designCompiler.compileSubtree({
+      envelope,
+      rootNodeId: section.id,
+      options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
+    });
+    const blob = `${compiled.html}\n${compiled.css}`;
+    expect(blob).toContain('Order details');
+    expect(blob).toMatch(/left:2742px|left:80px/);
+  });
 });

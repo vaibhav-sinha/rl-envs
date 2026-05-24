@@ -57,7 +57,7 @@ export interface MetadataNodeDTO {
   id: string;
   type: NodeType;
   name: string;
-  bounds?: { x: number; y: number; width: number; height: number };
+  bounds?: { x: number; y: number; width: number; height: number }; // page-absolute (Plugin API absoluteBoundingBox)
   visible?: boolean;
   opacity?: number;
   rotation?: number;

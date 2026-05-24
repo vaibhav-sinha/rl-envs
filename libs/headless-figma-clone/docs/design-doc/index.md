@@ -23,6 +23,7 @@ This folder is the **normative implementation specification** for the headless F
 | [HTTP host](./http-host.md) | `/health`, MCP route, static asset hosting (phase 3+) |
 | [Rendering and screenshot pipeline](./rendering-pipeline.md) | Compiler interfaces, CSS/HTML/SVG rules, Playwright flow, pseudocode |
 | [Bounding boxes and layout resolution](./layout-and-bounds.md) | Order of passes, rotation, Phase 4 layout resolution hooks |
+| [Coordinate model (Plugin API parity)](./coordinates.md) | Storage vs metadata vs import; container-parent rules |
 | [Observability, errors, and logging](./observability.md) | Structured logs, error codes, warnings array |
 | [Security (local service)](./security.md) | `upload_assets`, bind address, path traversal |
 | [Automated testing](./testing.md) | Test matrix, fixtures, golden screenshots, required suites, `node --test` command |

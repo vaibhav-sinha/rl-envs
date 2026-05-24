@@ -130,23 +130,55 @@ def _resolve_auto(
     # Step 2: exactly 1 added top-level frame
     added_top = added_top_level_frame_ids(envelope, graph)
     if len(added_top) == 1:
-        return _target_from_ids(added_top, strategy="auto", auto_step=2)
+        return _target_from_ids(
+            [added_top[0]],
+            strategy="auto",
+            auto_step=2,
+        )
 
     # Step 3: exactly 1 modified top-level frame
     modified_top = modified_top_level_frame_ids(envelope, graph)
     if len(modified_top) == 1:
-        return _target_from_ids(modified_top, strategy="auto", auto_step=3)
+        return _target_from_ids(
+            [modified_top[0]],
+            strategy="auto",
+            auto_step=3,
+        )
 
-    # Step 4: allowed region — largest added inside, else largest changed inside
+    # Step 4: allowed region — composite multiple topmost added, else largest inside
     if under_roots:
+        topmost_inside = topmost_added_frame_ids(
+            envelope, graph, under_roots=under_roots
+        )
+        if len(topmost_inside) >= 2:
+            return _target_from_ids(
+                topmost_inside,
+                strategy="auto",
+                composite=True,
+                auto_step=4,
+            )
+        if len(topmost_inside) == 1:
+            return _target_from_ids(
+                [topmost_inside[0]],
+                strategy="auto",
+                auto_step=4,
+            )
         added_inside = largest_added_frame_id(envelope, graph, under_roots=under_roots)
         if added_inside:
-            return _target_from_ids([added_inside], strategy="auto", auto_step=4)
+            return _target_from_ids(
+                [added_inside],
+                strategy="auto",
+                auto_step=4,
+            )
         changed_inside = largest_changed_frame_id(
             envelope, graph, under_roots=under_roots
         )
         if changed_inside:
-            return _target_from_ids([changed_inside], strategy="auto", auto_step=4)
+            return _target_from_ids(
+                [changed_inside],
+                strategy="auto",
+                auto_step=4,
+            )
 
     # Step 5: multiple added frames under same parent
     sibling_group = added_frames_under_same_parent(envelope, graph)
@@ -161,7 +193,11 @@ def _resolve_auto(
             )
         minimal = minimal_enclosing_for_changes(envelope, graph)
         if minimal:
-            return _target_from_ids([minimal], strategy="auto", auto_step=5)
+            return _target_from_ids(
+                [minimal],
+                strategy="auto",
+                auto_step=5,
+            )
 
     # Step 6: fallback largest frame among all changes
     fallback = largest_frame_among_changes(
@@ -171,7 +207,11 @@ def _resolve_auto(
         allowed_root_ids=allowed_root_refs,
     )
     if fallback:
-        return _target_from_ids([fallback], strategy="auto", auto_step=6)
+        return _target_from_ids(
+            [fallback],
+            strategy="auto",
+            auto_step=6,
+        )
     return None
 
 

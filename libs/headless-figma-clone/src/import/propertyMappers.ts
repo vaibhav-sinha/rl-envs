@@ -7,6 +7,7 @@ import type {
   StrokeCap,
   StrokeJoin,
 } from '../model/types.js';
+import { containerChildPageOrigin, type Point } from '../geometry/coordinates.js';
 import type { ImportReport } from './importReport.js';
 import type { FigmaIdMap } from './idMap.js';
 
@@ -231,22 +232,43 @@ export function mapBlendOpacity(props: Record<string, unknown>): Record<string, 
   return out;
 }
 
-/** Page/canvas origin of a parent node (sum of ancestor x/y in the HFC tree). */
-export type ParentPageOrigin = { x: number; y: number };
+/** Page-absolute origin of the container parent for import coordinate conversion. */
+export type ParentPageOrigin = Point;
 
-/** Page/canvas origin for this node's children after import. */
+/** @deprecated Use {@link containerChildPageOrigin} with parent node type. */
 export function childPageOrigin(parentPageOrigin: ParentPageOrigin | undefined, bounds: ParentPageOrigin): ParentPageOrigin {
+  return containerChildPageOrigin(parentPageOrigin, bounds, 'FRAME');
+}
+
+export function syncRelativeTransformTranslation(
+  blendFields: Record<string, unknown>,
+  x: number,
+  y: number
+): Record<string, unknown> {
+  const rt = blendFields.relativeTransform;
+  if (
+    Array.isArray(rt) &&
+    rt.length === 2 &&
+    Array.isArray(rt[0]) &&
+    Array.isArray(rt[1]) &&
+    rt[0].length === 3 &&
+    rt[1].length === 3
+  ) {
+    const next: [[number, number, number], [number, number, number]] = [
+      [rt[0][0] as number, rt[0][1] as number, x],
+      [rt[1][0] as number, rt[1][1] as number, y],
+    ];
+    return { ...blendFields, relativeTransform: next };
+  }
   return {
-    x: (parentPageOrigin?.x ?? 0) + bounds.x,
-    y: (parentPageOrigin?.y ?? 0) + bounds.y,
+    ...blendFields,
+    relativeTransform: [
+      [1, 0, x],
+      [0, 1, y],
+    ] as [[number, number, number], [number, number, number]],
   };
 }
 
-/**
- * Bounds for HFC nodes. Plugin snapshots prefer `absoluteBoundingBox` (page space);
- * subtract `parentPageOrigin` so nested nodes get parent-relative x/y for the compiler.
- * Fallback `x`/`y` props are already parent-relative in Figma.
- */
 function hasLocalGeometry(props: Record<string, unknown>): boolean {
   return (
     typeof prop(props, 'x') === 'number' &&
@@ -257,11 +279,9 @@ function hasLocalGeometry(props: Record<string, unknown>): boolean {
 }
 
 /**
- * Bounds for HFC nodes. Prefer Figma parent-relative `x`/`y`/`width`/`height` when present;
- * otherwise derive from `absoluteBoundingBox` minus `parentPageOrigin`.
- *
- * When `parentPageOrigin` is set, prefer `absoluteBoundingBox` first: grouped nodes sometimes
- * export frame-space `x`/`y` that would be double-translated by group normalization.
+ * Bounds for HFC nodes (Plugin API container-parent-relative storage).
+ * When `absoluteBoundingBox` exists, always derive x/y from page-absolute box minus
+ * `parentPageOrigin`. Only use raw export x/y when no absoluteBoundingBox is present.
  */
 export function boundsFromProps(
   props: Record<string, unknown>,
@@ -273,10 +293,12 @@ export function boundsFromProps(
   height: number;
 } {
   const box = prop(props, 'absoluteBoundingBox') as Record<string, unknown> | undefined;
-  if (box && parentPageOrigin) {
+  if (box) {
+    const ox = parentPageOrigin?.x ?? 0;
+    const oy = parentPageOrigin?.y ?? 0;
     return {
-      x: num(box.x) - parentPageOrigin.x,
-      y: num(box.y) - parentPageOrigin.y,
+      x: num(box.x) - ox,
+      y: num(box.y) - oy,
       width: num(box.width),
       height: num(box.height),
     };
@@ -287,16 +309,6 @@ export function boundsFromProps(
       y: num(prop(props, 'y')),
       width: num(prop(props, 'width'), 1),
       height: num(prop(props, 'height'), 1),
-    };
-  }
-  if (box) {
-    const ox = parentPageOrigin?.x ?? 0;
-    const oy = parentPageOrigin?.y ?? 0;
-    return {
-      x: num(box.x) - ox,
-      y: num(box.y) - oy,
-      width: num(box.width),
-      height: num(box.height),
     };
   }
   return {

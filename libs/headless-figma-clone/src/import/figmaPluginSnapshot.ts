@@ -8,7 +8,6 @@ import type {
   DocumentNode,
   FileEnvelope,
   FrameNode,
-  GroupNode,
   InstanceNode,
   PageNode,
   SceneNode,
@@ -22,11 +21,12 @@ import type {
 import type { FigmaPluginSnapshot, SerializedAsset, SerializedNode } from './snapshotSchema.js';
 import { FigmaIdMap } from './idMap.js';
 import { createImportReport, importDebug, importStrict, importVerbose, type ImportReport } from './importReport.js';
+import { containerChildPageOrigin } from '../geometry/coordinates.js';
 import {
   boundsFromProps,
-  childPageOrigin,
   type ParentPageOrigin,
   mapBlendOpacity,
+  syncRelativeTransformTranslation,
   mapCornerRadii,
   mapEffects,
   mapEffectsPreservingEmpty,
@@ -252,7 +252,7 @@ export function importFigmaPluginSnapshot(
 
 function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
   const b = boundsFromProps(node.properties);
-  const pageOrigin = childPageOrigin(undefined, b);
+  const pageOrigin = containerChildPageOrigin(undefined, b, 'PAGE');
   const page: PageNode = {
     id: ctx.idMap.allocate(node.id),
     type: 'PAGE',
@@ -273,29 +273,6 @@ function importPage(node: SerializedNode, ctx: ImportContext): PageNode {
     if (imported) page.children.push(imported);
   }
   return page;
-}
-
-/**
- * Figma group children are group-relative; compiler expects frame-space when using coordLocalOrigin.
- * Nested groups: normalize inner descendants first, then apply this group's offset once.
- */
-function normalizeGroupChildrenToFrameSpace(g: GroupNode): void {
-  for (const ch of g.children) {
-    if (ch.type === 'GROUP') {
-      const lx = ch.x;
-      const ly = ch.y;
-      normalizeGroupChildrenToFrameSpace(ch);
-      for (const sub of ch.children) {
-        sub.x += g.x;
-        sub.y += g.y;
-      }
-      ch.x = g.x + lx;
-      ch.y = g.y + ly;
-    } else {
-      ch.x += g.x;
-      ch.y += g.y;
-    }
-  }
 }
 
 function attachComponentMasterRoots(
@@ -499,28 +476,27 @@ function linkDeferredInstanceMainComponents(ctx: ImportContext): void {
 function importSceneNode(
   node: SerializedNode,
   ctx: ImportContext,
-  parentPageOrigin?: ParentPageOrigin,
-  parentIsGroup = false
+  parentPageOrigin?: ParentPageOrigin
 ): SceneNode | null {
   const { idMap, imageRemap, report } = ctx;
 
   if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET' || node.type === 'TABLE') {
     const p = node.properties;
     reportUnmappedProperties(node.id, p, report);
+    const b = boundsFromProps(p, parentPageOrigin);
     const base = {
       id: idMap.allocate(node.id),
       name: node.name,
       sourceFigmaId: node.id,
-      ...mapBlendOpacity(p),
+      ...syncRelativeTransformTranslation(mapBlendOpacity(p), b.x, b.y),
       ...mapLayoutSelf(p),
       ...mapIconExportFromSnapshot(p, ctx.iconExportRemap),
     };
-    const b = boundsFromProps(p, parentPageOrigin);
-    const nodePageOrigin = childPageOrigin(parentPageOrigin, b);
+    const nodePageOrigin = containerChildPageOrigin(parentPageOrigin, b, node.type);
     const importChildren = (): SceneNode[] => {
       const kids: SceneNode[] = [];
       for (const c of node.children ?? []) {
-        const n = importSceneNode(c, ctx, nodePageOrigin, node.type === 'GROUP');
+        const n = importSceneNode(c, ctx, nodePageOrigin);
         if (n) kids.push(n);
       }
       return kids;
@@ -564,9 +540,9 @@ function importSceneNode(
         const rootFrameId = idMap.allocate(`${c.id}:root`);
         const childBounds = boundsFromProps(childProps, nodePageOrigin);
         const childKids: SceneNode[] = [];
-        const variantPageOrigin = childPageOrigin(nodePageOrigin, childBounds);
+        const variantPageOrigin = containerChildPageOrigin(nodePageOrigin, childBounds, 'COMPONENT');
         for (const gc of c.children ?? []) {
-          const n = importSceneNode(gc, ctx, variantPageOrigin, false);
+          const n = importSceneNode(gc, ctx, variantPageOrigin);
           if (n) childKids.push(n);
         }
         const rootFrame = buildFrameFromSerialized(c, rootFrameId, ctx, childKids, {
@@ -653,11 +629,12 @@ function importSceneNode(
 
   const p = node.properties;
   reportUnmappedProperties(node.id, p, report);
+  const b = boundsFromProps(p, parentPageOrigin);
   const base = {
     id: idMap.allocate(node.id),
     name: node.name,
     sourceFigmaId: node.id,
-    ...mapBlendOpacity(p),
+    ...syncRelativeTransformTranslation(mapBlendOpacity(p), b.x, b.y),
     ...mapLayoutSelf(p),
     ...mapLayoutExtras(p),
     ...mapIconExportFromSnapshot(p, ctx.iconExportRemap),
@@ -667,8 +644,7 @@ function importSceneNode(
       ? { componentPropertyReferences: mapComponentPropertyReferences(prop(p, 'componentPropertyReferences')) }
       : {}),
   };
-  const b = boundsFromProps(p, parentPageOrigin);
-  const nodePageOrigin = childPageOrigin(parentPageOrigin, b);
+  const nodePageOrigin = containerChildPageOrigin(parentPageOrigin, b, node.type);
   const fills = mapPaintsExtended(prop(p, 'fills'), imageRemap, idMap);
   const strokes = mapPaintsExtended(prop(p, 'strokes'), imageRemap, idMap);
   const effects = mapEffects(prop(p, 'effects'));
@@ -678,7 +654,7 @@ function importSceneNode(
   const importChildren = (): SceneNode[] => {
     const kids: SceneNode[] = [];
     for (const c of node.children ?? []) {
-      const n = importSceneNode(c, ctx, nodePageOrigin, node.type === 'GROUP');
+      const n = importSceneNode(c, ctx, nodePageOrigin);
       if (n) kids.push(n);
     }
     return kids;
@@ -815,7 +791,7 @@ function importSceneNode(
       } as SceneNode;
     }
     case 'GROUP': {
-      const group = {
+      return {
         ...base,
         type: 'GROUP' as const,
         x: b.x,
@@ -824,10 +800,6 @@ function importSceneNode(
         height: b.height,
         children: importChildren(),
       };
-      if (!parentIsGroup) {
-        normalizeGroupChildrenToFrameSpace(group);
-      }
-      return group;
     }
     case 'TRANSFORM_GROUP': {
       return {

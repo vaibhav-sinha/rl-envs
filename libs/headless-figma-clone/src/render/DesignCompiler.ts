@@ -22,6 +22,7 @@ import {
   patternBackgroundPosition,
   patternRepeatCellSize,
 } from './patternTiles.js';
+import { groupLocalOffsetFromContainerRelative } from '../geometry/coordinates.js';
 import { flexChildLayoutCss, constraintPositionCss } from '../layout/flexChildCss.js';
 import { frameGridInnerStyle, isGridFrame } from '../layout/gridLayout.js';
 import {
@@ -1261,27 +1262,9 @@ function emitVector(
   );
 }
 
-/** Local offset for a GROUP child stored in frame space (see import normalizeGroupChildrenToFrameSpace). */
+/** CSS offset for a GROUP child using container-parent-relative stored coordinates. */
 function groupChildLocalOffset(node: SceneNode, group: GroupNode): { x: number; y: number } {
-  let relX = node.x - group.x;
-  let relY = node.y - group.y;
-  if (relY > group.height + 1 && node.y >= group.y + group.y) {
-    relX = node.x - 2 * group.x;
-    relY = node.y - 2 * group.y;
-  }
-  if (relY > group.height + 1) {
-    for (const ch of group.children) {
-      if (ch.type !== 'GROUP') continue;
-      const nestedX = ch.x - group.x;
-      const nestedY = ch.y - group.y;
-      if (nestedY > 0) {
-        relX = node.x - 2 * group.x - 2 * nestedX;
-        relY = node.y - 2 * group.y - 2 * nestedY;
-        break;
-      }
-    }
-  }
-  return { x: relX, y: relY };
+  return groupLocalOffsetFromContainerRelative(node, group);
 }
 
 /** Figma GROUP: positioned wrapper; children use coordinates relative to group origin. */

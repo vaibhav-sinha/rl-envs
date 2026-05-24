@@ -1,0 +1,86 @@
+{
+  "snapshotVersion": 1,
+  "exportedAt": "2026-05-24T12:00:00.000Z",
+  "figmaFileKey": "test-section",
+  "figmaFileName": "Section Frame",
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "properties": {},
+    "children": [
+      {
+        "id": "0:1",
+        "type": "PAGE",
+        "name": "Page 1",
+        "properties": {
+          "absoluteBoundingBox": { "x": 0, "y": 0, "width": 2000, "height": 2000 }
+        },
+        "children": [
+          {
+            "id": "2:1",
+            "type": "SECTION",
+            "name": "Orders",
+            "properties": {
+              "x": 2179,
+              "y": -2659,
+              "width": 1200,
+              "height": 1000,
+              "absoluteBoundingBox": { "x": 2179, "y": -2659, "width": 1200, "height": 1000 },
+              "fills": [
+                {
+                  "type": "SOLID",
+                  "color": { "r": 0.96, "g": 0.96, "b": 0.96 }
+                }
+              ]
+            },
+            "children": [
+              {
+                "id": "2:2",
+                "type": "FRAME",
+                "name": "OrderDetails",
+                "properties": {
+                  "x": 4921,
+                  "y": 344,
+                  "width": 360,
+                  "height": 800,
+                  "absoluteBoundingBox": { "x": 4921, "y": 344, "width": 360, "height": 800 },
+                  "fills": [
+                    {
+                      "type": "SOLID",
+                      "color": { "r": 1, "g": 1, "b": 1 }
+                    }
+                  ],
+                  "clipsContent": true
+                },
+                "children": [
+                  {
+                    "id": "2:3",
+                    "type": "TEXT",
+                    "name": "Title",
+                    "properties": {
+                      "x": 4945,
+                      "y": 368,
+                      "width": 200,
+                      "height": 24,
+                      "absoluteBoundingBox": { "x": 4945, "y": 368, "width": 200, "height": 24 },
+                      "characters": "Order details",
+                      "fontSize": 18,
+                      "fontName": { "family": "Inter", "style": "Regular" }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "variableCollections": [],
+  "paintStyles": [],
+  "textStyles": [],
+  "effectStyles": [],
+  "gridStyles": [],
+  "assets": []
+}

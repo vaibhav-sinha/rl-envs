@@ -50,14 +50,14 @@ describe('collectMetadataTree', () => {
       },
     });
     const frame = env.document.children[0]!.children.find((c) => c.id === frameId)!;
-    const meta = collectMetadataTree(frame, {});
+    const meta = collectMetadataTree(frame, { working: env });
     expect(meta.layoutMode).toBe('HORIZONTAL');
     expect(meta.layoutWrap).toBe('WRAP');
     expect(meta.itemSpacing).toBe(8);
     expect(meta.layoutGridTracks).toBe(12);
 
     const table = env.document.children[0]!.children.find((c) => c.type === 'TABLE')!;
-    const tableMeta = collectMetadataTree(table, {});
+    const tableMeta = collectMetadataTree(table, { working: env });
     expect(tableMeta.tableColumns).toBe(2);
     expect(tableMeta.tableRows).toBe(2);
   });
@@ -76,9 +76,9 @@ describe('collectMetadataTree', () => {
       node: { type: 'RECTANGLE', name: 'Inner', x: 0, y: 0, width: 10, height: 10 },
     });
     const outer = env.document.children[0]!.children.find((c) => c.id === outerId)!;
-    const shallow = collectMetadataTree(outer, { maxDepth: 0 });
+    const shallow = collectMetadataTree(outer, { maxDepth: 0, working: env });
     expect(shallow.children).toBeUndefined();
-    const deep = collectMetadataTree(outer, { maxDepth: 2 });
+    const deep = collectMetadataTree(outer, { maxDepth: 2, working: env });
     expect(deep.children?.[0]?.name).toBe('Inner');
   });
 
@@ -107,10 +107,10 @@ describe('collectMetadataTree', () => {
     });
     const section = env.document.children[0]!.children.find((c) => c.id === sectionId)!;
     const group = env.document.children[0]!.children.find((c) => c.id === groupId)!;
-    const sectionMeta = collectMetadataTree(section, { maxDepth: 2 });
+    const sectionMeta = collectMetadataTree(section, { maxDepth: 2, working: env });
     expect(sectionMeta.children?.[0]?.id).toBe(frameId);
     expect(sectionMeta.children?.[0]?.name).toBe('Inner');
-    const groupMeta = collectMetadataTree(group, { maxDepth: 2 });
+    const groupMeta = collectMetadataTree(group, { maxDepth: 2, working: env });
     expect(groupMeta.children?.[0]?.name).toBe('Dot');
   });
 
@@ -142,7 +142,7 @@ describe('collectMetadataTree', () => {
       },
     });
     const node = env.document.children[0]!.children.find((c) => c.id === inst)!;
-    const meta = collectMetadataTree(node, {});
+    const meta = collectMetadataTree(node, { working: env });
     expect(meta.mainComponentId).toBe(comp);
   });
 
@@ -204,5 +204,24 @@ describe('collectMetadataTree', () => {
     expect(setMeta.children?.map((c) => c.name).sort()).toEqual(['A', 'B']);
     const innerA = setMeta.children?.find((c) => c.name === 'A');
     expect(innerA?.children?.[0]?.children?.[0]?.name).toBe('Label');
+  });
+
+  it('returns page-absolute bounds for nested frame under section', () => {
+    const env = emptyEnvelope();
+    const pid = pageId(env);
+    const sectionId = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: { type: 'SECTION', name: 'S', x: 100, y: 200, width: 800, height: 600, children: [] },
+    });
+    applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: sectionId,
+      node: { type: 'FRAME', name: 'Inner', x: 50, y: 60, width: 400, height: 300, children: [] },
+    });
+    const section = env.document.children[0]!.children.find((c) => c.id === sectionId)!;
+    const meta = collectMetadataTree(section, { maxDepth: 2, working: env });
+    expect(meta.bounds).toEqual({ x: 100, y: 200, width: 800, height: 600 });
+    expect(meta.children?.[0]?.bounds).toEqual({ x: 150, y: 260, width: 400, height: 300 });
   });
 });
