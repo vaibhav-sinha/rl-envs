@@ -58,6 +58,10 @@ ENV PATH="/opt/figma-verifier/.venv/bin:${PATH}" \
 COPY envs/figma-design/shared/verifier/figma_eval /opt/figma-verifier/figma_eval
 COPY envs/figma-design/shared/verifier/eval-spec.schema.json /opt/figma-verifier/eval-spec.schema.json
 
+COPY envs/figma-design/designs/ /opt/figma-design/designs/
+COPY envs/figma-design/scripts/prepare-task-design.mjs /opt/figma-design/scripts/prepare-task-design.mjs
+COPY envs/figma-design/scripts/prune-hfc.mjs /opt/figma-design/scripts/prune-hfc.mjs
+
 EXPOSE 3847
 ENTRYPOINT ["/usr/local/bin/figma-entrypoint.sh"]
 CMD ["/bin/bash"]

@@ -31,6 +31,8 @@ container start → entrypoint → MCP /health ready → agent → verifier
 ```text
 envs/figma-design/
 ├── agents/                    # custom Harbor agents (e.g. cursor-cli + skills)
+├── designs/                   # shared design exports (design.hfc.json + assets per export)
+│   └── <export-name>/
 ├── dataset.toml
 ├── shared/
 │   ├── environment/
@@ -40,19 +42,18 @@ envs/figma-design/
 ├── scripts/
 │   ├── build-base.mjs
 │   ├── new-task.mjs
+│   ├── prepare-task-design.mjs
 │   └── rerun-verifier.py
 └── tasks/
     └── <task-id>/
         ├── instruction.md
         ├── task.toml
         ├── environment/
-        │   ├── Dockerfile               # FROM base + COPY design, assets, baseline
-        │   ├── design.hfc.json          # starting design (single source of truth)
-        │   ├── design.hfc.assets/       # optional HFC bitmap sidecar (if fixture uses one)
+        │   ├── Dockerfile               # FROM base + design-spec + prepare script
+        │   ├── design-spec.json         # { "base": "<export-name>", "node_exclusions": [...] }
         │   └── assets/                  # reference files for the agent → /app/assets/
         └── tests/
             ├── check.py              # RewardKit → figma_eval (Python)
-            ├── figma_eval/           # grading engine (incl. LiteLLM visual judge)
             ├── test.sh
             └── eval-spec.json        # task grading spec (optional; preserved on sync)
 ```
@@ -64,7 +65,7 @@ Tasks intentionally have **no** `solution/` directory (RL / agent-only eval).
 - Docker Desktop (or Docker Engine) running
 - [Harbor](https://www.harborframework.com/) CLI: `pip install harbor` or `uv tool install harbor`
 - Node 20+ (only for local HFC development; the image builds HFC inside Docker)
-- [Git LFS](https://git-lfs.com/) for task design files (`*.hfc.json` are stored in LFS)
+- [Git LFS](https://git-lfs.com/) for shared design exports (`*.hfc.json` are stored in LFS)
 
 After clone or checkout, pull LFS objects **before** `harbor run` or building a task image:
 
@@ -72,12 +73,12 @@ After clone or checkout, pull LFS objects **before** `harbor run` or building a 
 git lfs pull
 ```
 
-Without this, `environment/design.hfc.json` may be a small pointer file (~130 bytes) instead of the real design (~100MB+). Docker will bake the pointer into the image, HFC will fail to parse it at startup (`Unexpected token 'v', "version ht"...`), and Harbor will report **`HealthcheckError`** on `curl http://127.0.0.1:3847/health`.
+Without this, `designs/<export-name>/design.hfc.json` may be a small pointer file (~130 bytes) instead of the real design (~100MB+). Docker will bake the pointer into the image, HFC will fail to parse it at startup (`Unexpected token 'v', "version ht"...`), and Harbor will report **`HealthcheckError`** on `curl http://127.0.0.1:3847/health`.
 
-To pull one task’s design only:
+To pull one shared export only:
 
 ```bash
-git lfs pull --include="envs/figma-design/tasks/<task-id>/environment/design.hfc.json"
+git lfs pull --include="envs/figma-design/designs/oker-final-design/design.hfc.json"
 ```
 
 Confirm the file size on disk before running (not the LFS pointer).
@@ -98,28 +99,28 @@ This produces `metaphi/figma-design-base:latest` with headless-figma-clone, Play
 ## Add a task
 
 ```bash
-node envs/figma-design/scripts/new-task.mjs my-task-id
+node envs/figma-design/scripts/new-task.mjs my-task-id --design oker-final-design
 
-# optional: custom fixture and starter eval-spec
+# optional: starter eval-spec
 node envs/figma-design/scripts/new-task.mjs my-task-id \
-  --fixture libs/headless-figma-clone/tests/fixtures/phase2-compile-harness.hfc.json \
+  --design oker-final-design \
   --eval-spec
-
-cd envs/figma-design
-harbor add tasks/my-task-id
 ```
 
-Edit `tasks/my-task-id/instruction.md`, then rebuild only the thin task layer (Harbor does this on `harbor run`). New tasks from `new-task.mjs` and the Task Builder prepend `shared/instruction-preamble.txt`; keep that block when editing tasks.
+This scaffolds the task and runs `harbor add` to register it in `dataset.toml`. Edit `tasks/my-task-id/instruction.md`, then rebuild the base image when shared designs change, and rebuild the thin task layer (Harbor does this on `harbor run`). New tasks from `new-task.mjs` and the Task Builder prepend `shared/instruction-preamble.txt`; keep that block when editing tasks.
 
 ### Task assets and design baseline
 
-Each task image copies:
+Shared designs live under `designs/<export-name>/`. Each task references one via `environment/design-spec.json` (`base`, optional `node_exclusions`).
 
-- `environment/design.hfc.json` → `/data/workspace/design.hfc.json` (mutable; HFC MCP loads and saves here)
-- the same file → `/tests/design.initial.hfc.json` (immutable baseline for verifiers)
-- `environment/assets/` → `/app/assets/` (reference PNGs, copy, etc. for the agent)
+At Docker build time, `prepare-task-design.mjs` (from the base image) reads the spec, copies the shared export from `/opt/figma-design/designs/`, applies exclusions, and writes:
 
-If the fixture has a sibling `*.hfc.assets/` directory (embedded bitmaps), `new-task.mjs` copies it into `environment/` and adds a `COPY` into `/data/workspace/`.
+- `/data/workspace/design.hfc.json` (mutable; HFC MCP loads and saves here)
+- `/tests/design.initial.hfc.json` (immutable baseline for verifiers)
+
+It then removes `/opt/figma-design/designs/` from the container.
+
+Task images also copy `environment/assets/` → `/app/assets/` (reference PNGs, copy, etc. for the agent).
 
 Mention agent assets in `instruction.md` as `/app/assets/<file>`. Agents typically use `upload_assets` with `filePath` relative to cwd `/app`.
 
@@ -300,8 +301,8 @@ Single-container tasks work with standard Docker environments (including many cl
 ## Pitfalls
 
 - **Docker not running** — base and task builds fail immediately.
-- **Git LFS not pulled** — `design.hfc.json` in the task image is an LFS pointer; MCP never starts; healthcheck fails with `HealthcheckError`. Run `git lfs pull` and rebuild (`harbor run ... --force-build`).
+- **Git LFS not pulled** — shared `designs/*/design.hfc.json` in the base image is an LFS pointer; MCP never starts; healthcheck fails with `HealthcheckError`. Run `git lfs pull`, rebuild the base image, then rebuild tasks.
 - **`FROM metaphi/figma-design-base:latest` missing** — run `build-base.mjs` first.
 - **`.hfc` without `.json`** — engine requires `*.hfc.json`.
 - **MCP URL hostname** — must be `127.0.0.1` in single-container setup, not a Compose service name.
-- **Changed `design.hfc.json`** — rebuild the task image; baseline is baked at build time.
+- **Changed shared design export** — rebuild the base image (designs are baked into base), then rebuild task images.

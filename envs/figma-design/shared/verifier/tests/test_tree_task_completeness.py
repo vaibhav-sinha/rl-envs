@@ -128,7 +128,7 @@ def test_without_allowed_roots_picks_largest_overall():
 def test_oker_job_picks_full_screen_not_otp_cell():
     before_path = (
         _REPO_ROOT
-        / "envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json"
+        / "envs/figma-design/designs/oker-final-design/design.hfc.json"
     )
     after_path = (
         _REPO_ROOT

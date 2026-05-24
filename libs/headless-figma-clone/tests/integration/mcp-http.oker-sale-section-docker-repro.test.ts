@@ -21,7 +21,7 @@ import { getToolText } from '../helpers/toolResult.js';
 
 const designFixturePath = join(
   import.meta.dirname,
-  '../../../../envs/figma-design/tasks/oker-create-sale-section/environment/design.hfc.json'
+  '../../../../envs/figma-design/designs/oker-final-design/design.hfc.json'
 );
 
 /** Agent script: insert sale section into Home content frame (I9150), after BrandSpotlight. */

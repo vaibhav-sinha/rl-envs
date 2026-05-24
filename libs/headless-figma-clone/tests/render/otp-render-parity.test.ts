@@ -8,7 +8,7 @@ import type { FileEnvelope, FrameNode, InstanceNode, TextNode } from '../../src/
 
 const OTP_HFC = join(
   __dirname,
-  '../../../../envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json'
+  '../../../../envs/figma-design/designs/oker-final-design/design.hfc.json'
 );
 
 function loadOtpEnvelope(): FileEnvelope {

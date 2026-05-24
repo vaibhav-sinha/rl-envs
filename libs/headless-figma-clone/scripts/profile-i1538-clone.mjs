@@ -12,7 +12,7 @@ import v8 from 'node:v8';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const designPath = join(
   __dirname,
-  '../../../envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json'
+  '../../../envs/figma-design/designs/oker-final-design/design.hfc.json'
 );
 
 const { DocumentEngine } = await import('../dist/engine/DocumentEngine.js');

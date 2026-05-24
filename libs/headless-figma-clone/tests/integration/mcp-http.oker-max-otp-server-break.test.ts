@@ -17,7 +17,7 @@ import { getToolText } from '../helpers/toolResult.js';
 
 const designFixturePath = join(
   import.meta.dirname,
-  '../../../../envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json'
+  '../../../../envs/figma-design/designs/oker-final-design/design.hfc.json'
 );
 
 /** Agent script from cursor-cli (I27 + I1228). */

@@ -15,9 +15,18 @@ import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportPr
 import { PageMultiSelect } from '../components/PageMultiSelect';
 import { useFilePages } from '../hooks/useFilePages';
 import { logExportError } from '../../../src/exportError.js';
+import { taskBuilderApi, type DesignListItem } from '../api/taskBuilder';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+
+function slugifyDesignName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 export function ExportTab({
   onLog,
@@ -26,7 +35,10 @@ export function ExportTab({
   onLog: (t: string, e?: boolean) => void;
   defaultFileName: string;
 }) {
+  const [exportMode, setExportMode] = useState<'new' | 're'>('new');
   const [fileName, setFileName] = useState(defaultFileName);
+  const [reexportTarget, setReexportTarget] = useState<string | null>(null);
+  const [designs, setDesigns] = useState<DesignListItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<MultiPhaseExportProgress | null>(null);
   const [outcome, setOutcome] = useState<ExportOutcome | null>(null);
@@ -40,6 +52,18 @@ export function ExportTab({
     setProgress((prev) => applyExportProgressSnapshot(prev, snapshot));
   };
 
+  const refreshDesigns = async () => {
+    try {
+      const body = await taskBuilderApi.listDesigns();
+      setDesigns(body.designs);
+      if (body.designs.length > 0 && !reexportTarget) {
+        setReexportTarget(body.designs[0]!.name);
+      }
+    } catch {
+      setDesigns([]);
+    }
+  };
+
   const refreshReadySessions = async () => {
     try {
       const sessions = await listReadyExportSessions();
@@ -50,6 +74,7 @@ export function ExportTab({
   };
 
   useEffect(() => {
+    void refreshDesigns();
     void refreshReadySessions();
   }, []);
 
@@ -65,10 +90,12 @@ export function ExportTab({
     const finish = replay ? replayFinishExportStreamSession : finishExportStreamSession;
     const result = await finish(exportId, {
       standaloneFileName: name,
+      exportMode,
+      reexportTarget: exportMode === 're' ? reexportTarget ?? undefined : undefined,
       ...(replay ? { source: 'disk' as const } : {}),
     });
     setProgress((prev) => (prev ? applyFinalizeProgress(prev, 1, 1) : prev));
-    const path = result.filePath ?? `${name}.hfc.json`;
+    const path = result.filePath ?? `designs/${slugifyDesignName(name)}/design.hfc.json`;
     setOutcome({
       kind: 'success',
       title: 'Export complete',
@@ -76,11 +103,19 @@ export function ExportTab({
     });
     setPendingExportId(null);
     onLog(`Saved: ${path}`);
+    void refreshDesigns();
     void refreshReadySessions();
   };
 
   const runExport = async () => {
-    const name = fileName.trim() || defaultFileName;
+    const name =
+      exportMode === 're'
+        ? (reexportTarget ?? '').trim()
+        : slugifyDesignName(fileName.trim() || defaultFileName);
+    if (!name) {
+      onLog(exportMode === 're' ? 'Select an export to overwrite' : 'Enter an export name', true);
+      return;
+    }
     setBusy(true);
     setProgress(createInitialExportProgress());
     setOutcome(null);
@@ -152,11 +187,20 @@ export function ExportTab({
     }
   };
 
+  const exportLabel =
+    exportMode === 're'
+      ? busy
+        ? 'Re-exporting…'
+        : 'Re-export'
+      : busy
+        ? 'Exporting…'
+        : 'Export File';
+
   return (
     <div className="p-3 flex flex-col gap-3">
       <p className="text-[11px] text-muted m-0">
-        Export the current Figma file to HFC workspace via Task Builder (port 3856). Only selected pages
-        are streamed. Large files stream incrementally to avoid memory limits.
+        Export the current Figma file to the shared designs library via Task Builder. Only selected
+        pages are streamed. Large files stream incrementally to avoid memory limits.
       </p>
       <PageMultiSelect
         pages={filePages.pages}
@@ -169,10 +213,60 @@ export function ExportTab({
         loading={filePages.loading}
         error={filePages.error}
       />
-      <div>
-        <Label htmlFor="export-name">File name</Label>
-        <Input id="export-name" value={fileName} onChange={(e) => setFileName(e.target.value)} className="mt-1" />
+      <div className="flex flex-col gap-2">
+        <p className="text-[10px] text-muted m-0 font-medium">Export mode</p>
+        <div className="flex gap-2">
+          <Button
+            variant={exportMode === 'new' ? 'primary' : 'default'}
+            disabled={busy}
+            onClick={() => setExportMode('new')}
+          >
+            New export
+          </Button>
+          <Button
+            variant={exportMode === 're' ? 'primary' : 'default'}
+            disabled={busy}
+            onClick={() => setExportMode('re')}
+          >
+            Re-export
+          </Button>
+        </div>
       </div>
+      {exportMode === 'new' ? (
+        <div>
+          <Label htmlFor="export-name">Export name</Label>
+          <Input
+            id="export-name"
+            value={fileName}
+            onChange={(e) => setFileName(e.target.value)}
+            className="mt-1"
+          />
+          <p className="text-[10px] text-muted mt-1 m-0">
+            Saved under designs/{slugifyDesignName(fileName.trim() || defaultFileName) || '…'}/
+          </p>
+        </div>
+      ) : (
+        <div>
+          <Label htmlFor="reexport-target">Existing export</Label>
+          {designs.length === 0 ? (
+            <p className="text-[10px] text-muted mt-1 m-0">No exports found in designs library.</p>
+          ) : (
+            <select
+              id="reexport-target"
+              className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-[11px]"
+              value={reexportTarget ?? ''}
+              disabled={busy}
+              onChange={(e) => setReexportTarget(e.target.value)}
+            >
+              {designs.map((d) => (
+                <option key={d.name} value={d.name}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
       {busy && progress ? <ExportProgressPanel progress={progress} /> : null}
       {outcome ? <ExportOutcomeBanner outcome={outcome} onDismiss={() => setOutcome(null)} /> : null}
       {pendingExportId ? (
@@ -183,7 +277,14 @@ export function ExportTab({
           <Button
             variant="secondary"
             disabled={busy}
-            onClick={() => void retryFinalize(pendingExportId, fileName.trim() || defaultFileName)}
+            onClick={() =>
+              void retryFinalize(
+                pendingExportId,
+                exportMode === 're'
+                  ? (reexportTarget ?? '')
+                  : slugifyDesignName(fileName.trim() || defaultFileName)
+              )
+            }
           >
             Retry finalize
           </Button>
@@ -215,10 +316,15 @@ export function ExportTab({
       ) : null}
       <Button
         variant="primary"
-        disabled={busy || !filePages.hasSelection || filePages.loading}
+        disabled={
+          busy ||
+          !filePages.hasSelection ||
+          filePages.loading ||
+          (exportMode === 're' && (designs.length === 0 || !reexportTarget))
+        }
         onClick={() => void runExport()}
       >
-        {busy ? 'Exporting…' : 'Export File'}
+        {exportLabel}
       </Button>
 
       <hr className="border-0 border-t border-border my-1" />
@@ -234,9 +340,7 @@ export function ExportTab({
             <span className="text-[10px] font-mono text-foreground break-all">{pickedNodeId}</span>
           </div>
         ) : null}
-        {nodeIdError ? (
-          <p className="text-[10px] text-destructive m-0">{nodeIdError}</p>
-        ) : null}
+        {nodeIdError ? <p className="text-[10px] text-destructive m-0">{nodeIdError}</p> : null}
         <Button variant="default" disabled={busy} onClick={() => void handleGetNodeId()}>
           Get Node ID
         </Button>

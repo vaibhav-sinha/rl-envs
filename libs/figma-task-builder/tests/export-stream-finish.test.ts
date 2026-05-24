@@ -22,7 +22,7 @@ describe('ExportStreamSessionStore.finish', () => {
   beforeEach(() => {
     baseDir = mkdtempSync(join(tmpdir(), 'tb-stream-'));
     process.env.TB_TASKS_DIR = join(baseDir, 'drafts');
-    process.env.TB_EXPORT_DIR = join(baseDir, 'exports');
+    process.env.TB_DESIGNS_DIR = join(baseDir, 'designs');
     process.env.TB_HFC_HTTP_ONLY = '1';
     config = loadConfig();
     process.env.HFC_IMPORT_SESSION_ROOTS = config.exportSessionsDir;
@@ -136,7 +136,7 @@ describe('ExportStreamSessionStore.finish', () => {
     }
 
     const result = await store.finish(exportId, { standaloneFileName: 'Minimal' });
-    expect(result.filePath).toBe(join(config.exportDir, 'Minimal.hfc.json'));
+    expect(result.filePath).toBe(join(config.designsDir, 'minimal', 'design.hfc.json'));
     expect(readFileSync(result.filePath!, 'utf8')).toContain('"fileKey"');
 
     const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;

@@ -4,7 +4,7 @@ import type { CheckCatalog } from './types';
 export const WIZARD_STEPS: { id: WizardStep; label: string; hint: string }[] = [
   { id: 'name', label: 'Name', hint: 'Task slug and folder name' },
   { id: 'instruction', label: 'Instruction', hint: 'What the agent should do' },
-  { id: 'export', label: 'Export', hint: 'Baseline design snapshot' },
+  { id: 'export', label: 'Design', hint: 'Choose shared design export' },
   { id: 'gates', label: 'Gates', hint: 'Hard pass/fail prerequisites' },
   { id: 'checks', label: 'Checks', hint: 'Deterministic tree rules' },
   { id: 'design_system', label: 'Design system', hint: 'Token and style adherence' },

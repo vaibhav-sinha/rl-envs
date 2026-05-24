@@ -41,10 +41,9 @@ export interface ExportStreamSessionInfo {
 }
 
 export interface FinishStreamOptions {
-  taskId?: string;
-  mode?: 'full' | 'exclude';
-  excludeNodeIds?: string[];
   standaloneFileName?: string;
+  exportMode?: 'new' | 're';
+  reexportTarget?: string;
   source?: FinishStreamSource;
 }
 
@@ -225,16 +224,15 @@ export class ExportStreamSessionStore {
       const store = new TasksStore(this.config);
       let result: FinishStreamResult = { exportId, slug: imported.slug, replayedFromDisk };
 
-      if (options.taskId) {
-        const applied = store.applyTaskExportImport(
-          options.taskId,
-          imported,
-          options.mode ?? 'full',
-          options.excludeNodeIds
-        );
-        result = { ...result, saved: applied.saved };
-      } else if (options.standaloneFileName ?? manifest?.hfcFileName) {
-        const standalone = store.persistStandaloneImport(imported, exportId);
+      if (options.standaloneFileName ?? manifest?.hfcFileName) {
+        const designName = options.standaloneFileName ?? manifest?.hfcFileName ?? imported.slug;
+        const exportMode = options.exportMode ?? 'new';
+        const standalone = store.persistDesignExport(imported, {
+          mode: exportMode,
+          designName,
+          reexportTarget: options.reexportTarget,
+          exportId,
+        });
         result = { ...result, filePath: standalone.filePath };
         dbg.log('persist', `filePath=${standalone.filePath}`);
       }

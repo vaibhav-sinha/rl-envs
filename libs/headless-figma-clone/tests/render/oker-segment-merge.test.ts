@@ -9,7 +9,7 @@ import { mergeDetachedChildrenIntoRoot } from '../../src/render/instanceMerge.js
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const okerDesignPath = join(
   __dirname,
-  '../../../../envs/figma-design/tasks/oker-create-sale-section/environment/design.hfc.json'
+  '../../../../envs/figma-design/designs/oker-final-design/design.hfc.json'
 );
 
 function findNodeById(node: { id?: string; children?: unknown[] }, id: string): unknown {

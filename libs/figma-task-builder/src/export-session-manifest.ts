@@ -60,10 +60,9 @@ export function patchSessionManifest(
 }
 
 export interface FinishRequestRecord {
-  taskId?: string;
-  mode?: 'full' | 'exclude';
-  excludeNodeIds?: string[];
   standaloneFileName?: string;
+  exportMode?: 'new' | 're';
+  reexportTarget?: string;
   source?: 'auto' | 'memory' | 'disk';
   savedAt: string;
 }

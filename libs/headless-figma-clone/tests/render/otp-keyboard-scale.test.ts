@@ -8,7 +8,7 @@ import { resolveHfcNodeIdBySourceFigmaId } from '../../src/resolveNodeRef.js';
 
 const OTP_HFC = join(
   __dirname,
-  '../../../../envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json'
+  '../../../../envs/figma-design/designs/oker-final-design/design.hfc.json'
 );
 
 function loadOtpEnvelope(): FileEnvelope {

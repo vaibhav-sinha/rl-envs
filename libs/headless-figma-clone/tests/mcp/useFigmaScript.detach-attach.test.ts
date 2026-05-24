@@ -10,7 +10,7 @@ import { createConsoleLogger } from '../../src/util/logger.js';
 /** Read-only task fixture; never load or save this path directly. */
 const designFixturePath = join(
   import.meta.dirname,
-  '../../../../envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json'
+  '../../../../envs/figma-design/designs/oker-final-design/design.hfc.json'
 );
 
 /** Copies the fixture into a temp workspace; applyTransaction writes only there. */

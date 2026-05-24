@@ -81,6 +81,11 @@ function taskIdFromUrl(url: string): string | null {
   return m ? decodeURIComponent(m[1]!) : null;
 }
 
+function designNameFromUrl(url: string): string | null {
+  const m = url.match(/^\/designs\/([^/?]+)/);
+  return m ? decodeURIComponent(m[1]!) : null;
+}
+
 function exportIdFromStreamUrl(url: string): string | null {
   const m = url.match(/^\/export\/stream\/([^/]+)/);
   return m ? decodeURIComponent(m[1]!) : null;
@@ -107,6 +112,7 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
           status: 'ok',
           tasksDir: config.tasksDir,
           harborTasksDir: config.harborTasksDir,
+          designsDir: config.designsDir,
           hfcUrl: config.hfcUrl,
         });
         return;
@@ -114,6 +120,17 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
 
       if (req.method === 'GET' && url === '/check-catalog') {
         sendJson(res, 200, CHECK_CATALOG);
+        return;
+      }
+
+      if (req.method === 'GET' && url === '/designs') {
+        sendJson(res, 200, { designs: store.listDesigns() });
+        return;
+      }
+
+      const designName = designNameFromUrl(url);
+      if (designName && req.method === 'GET' && url === `/designs/${designName}`) {
+        sendJson(res, 200, { design: store.getDesign(designName) });
         return;
       }
 
@@ -173,19 +190,17 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
             url === `/export/stream/${streamExportId}/replay-finish`)
         ) {
           const body = (await readJsonBody(req)) as {
-            taskId?: string;
-            mode?: 'full' | 'exclude';
-            excludeNodeIds?: string[];
             standaloneFileName?: string;
+            exportMode?: 'new' | 're';
+            reexportTarget?: string;
             source?: 'auto' | 'memory' | 'disk';
           };
           const source =
             url.endsWith('/replay-finish') ? 'disk' : (body.source ?? 'auto');
           const result = await streamStore.finish(streamExportId, {
-            taskId: body.taskId,
-            mode: body.mode,
-            excludeNodeIds: body.excludeNodeIds,
             standaloneFileName: body.standaloneFileName,
+            exportMode: body.exportMode,
+            reexportTarget: body.reexportTarget,
             source,
           });
           sendJson(res, 200, result);
@@ -207,52 +222,32 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
             metadata: body.metadata as import('./types.js').BuilderState['metadata'] | undefined,
             instruction: body.instruction as string | undefined,
             evalSpec: body.evalSpec as import('./types.js').EvalSpec | undefined,
-            export: body.export as import('./types.js').BuilderState['export'] | undefined,
+            design: body.design as import('./types.js').BuilderState['design'] | undefined,
           });
           sendJson(res, 200, task);
+          return;
+        }
+
+        if (req.method === 'PATCH' && url === `/tasks/${taskId}/design-spec`) {
+          const body = (await readJsonBody(req)) as {
+            base?: string;
+            node_exclusions?: string[];
+          };
+          if (!body.base?.trim()) {
+            sendError(res, 400, 'base is required');
+            return;
+          }
+          const result = store.saveDesignSpec(taskId, {
+            base: body.base.trim(),
+            node_exclusions: body.node_exclusions,
+          });
+          sendJson(res, 200, result);
           return;
         }
 
         if (req.method === 'DELETE' && url === `/tasks/${taskId}`) {
           store.deleteTask(taskId);
           sendJson(res, 200, { ok: true });
-          return;
-        }
-
-        if (req.method === 'POST' && url === `/tasks/${taskId}/export`) {
-          const body = (await readJsonBody(req)) as {
-            snapshot?: unknown;
-            mode?: 'full' | 'exclude' | 'copy';
-            excludeNodeIds?: string[];
-            copyFromTaskId?: string;
-            excludeFigmaNodeIds?: string[];
-          };
-          if (!body.mode) {
-            sendError(res, 400, 'mode required');
-            return;
-          }
-          if (body.mode === 'copy') {
-            if (!body.copyFromTaskId?.trim()) {
-              sendError(res, 400, 'copyFromTaskId required for copy mode');
-              return;
-            }
-            const result = await store.copyExportTask(taskId, {
-              copyFromTaskId: body.copyFromTaskId.trim(),
-              excludeFigmaNodeIds: body.excludeFigmaNodeIds,
-            });
-            sendJson(res, 200, result);
-            return;
-          }
-          if (body.snapshot === undefined) {
-            sendError(res, 400, 'snapshot required for full/exclude export');
-            return;
-          }
-          const result = await store.exportTask(taskId, {
-            snapshot: body.snapshot,
-            mode: body.mode,
-            excludeNodeIds: body.excludeNodeIds,
-          });
-          sendJson(res, 200, result);
           return;
         }
 
@@ -283,7 +278,15 @@ export function createTaskBuilderServer(config: TaskBuilderConfig, store: TasksS
       sendError(res, 404, 'Not found');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      const status = msg.startsWith('NOT_FOUND') ? 404 : msg.startsWith('DUPLICATE') ? 409 : 400;
+      const status = msg.startsWith('NOT_FOUND')
+        ? 404
+        : msg.startsWith('DUPLICATE')
+          ? 409
+          : msg.startsWith('DESIGN_EXISTS')
+            ? 409
+            : msg.startsWith('HARBOR_ADD_FAILED')
+              ? 502
+              : 400;
       sendError(res, status, msg);
     }
   });

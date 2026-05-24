@@ -13,7 +13,7 @@ import {
 
 const OTP_HFC = join(
   import.meta.dirname,
-  '../../../../envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json'
+  '../../../../envs/figma-design/designs/oker-final-design/design.hfc.json'
 );
 
 function firstPageId(env: FileEnvelope): string {

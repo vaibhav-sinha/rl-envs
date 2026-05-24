@@ -10,11 +10,14 @@ export interface TaskBuilderConfig {
   httpPort: number;
   tasksDir: string;
   harborTasksDir: string;
+  datasetRoot: string;
+  datasetTomlPath: string;
   hfcUrl: string;
-  exportDir: string;
+  designsDir: string;
   exportSessionsDir: string;
   sharedVerifierDir: string;
   evalSpecSchemaPath: string;
+  designSpecSchemaPath: string;
 }
 
 export function loadConfig(): TaskBuilderConfig {
@@ -24,18 +27,24 @@ export function loadConfig(): TaskBuilderConfig {
   const harborTasksDir =
     process.env.TB_HARBOR_TASKS_DIR?.trim() ||
     join(repoRoot, 'envs', 'figma-design', 'tasks');
+  const datasetRoot =
+    process.env.TB_DATASET_ROOT?.trim() ||
+    join(repoRoot, 'envs', 'figma-design');
 
   const resolvedTasksDir = resolve(tasksDir);
+  const resolvedDatasetRoot = resolve(datasetRoot);
   return {
     httpHost: process.env.TB_HTTP_HOST?.trim() || '127.0.0.1',
     httpPort: Number(process.env.TB_HTTP_PORT ?? '3856'),
     tasksDir: resolvedTasksDir,
     harborTasksDir: resolve(harborTasksDir),
+    datasetRoot: resolvedDatasetRoot,
+    datasetTomlPath: join(resolvedDatasetRoot, 'dataset.toml'),
     hfcUrl: (process.env.TB_HFC_URL?.trim() || 'http://127.0.0.1:3847').replace(/\/$/, ''),
     exportSessionsDir: join(resolvedTasksDir, '.export-sessions'),
-    exportDir:
-      process.env.TB_EXPORT_DIR?.trim() ||
-      join(homedir(), '.headless-figma-clone', 'workspace'),
+    designsDir:
+      process.env.TB_DESIGNS_DIR?.trim() ||
+      join(repoRoot, 'envs', 'figma-design', 'designs'),
     sharedVerifierDir: join(repoRoot, 'envs', 'figma-design', 'shared', 'verifier'),
     evalSpecSchemaPath: join(
       repoRoot,
@@ -44,6 +53,13 @@ export function loadConfig(): TaskBuilderConfig {
       'shared',
       'verifier',
       'eval-spec.schema.json'
+    ),
+    designSpecSchemaPath: join(
+      repoRoot,
+      'envs',
+      'figma-design',
+      'shared',
+      'design-spec.schema.json'
     ),
   };
 }

@@ -10,7 +10,7 @@ from figma_eval.visual.run_visual import run_visual_check
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 OKER_BEFORE = (
     _REPO_ROOT
-    / "envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json"
+    / "envs/figma-design/designs/oker-final-design/design.hfc.json"
 )
 OKER_AFTER_JOB = (
     _REPO_ROOT

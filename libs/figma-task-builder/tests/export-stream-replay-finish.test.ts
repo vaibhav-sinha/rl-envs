@@ -21,7 +21,7 @@ describe('ExportStreamSessionStore disk replay finish', () => {
   beforeEach(() => {
     baseDir = mkdtempSync(join(tmpdir(), 'tb-replay-finish-'));
     process.env.TB_TASKS_DIR = join(baseDir, 'drafts');
-    process.env.TB_EXPORT_DIR = join(baseDir, 'exports');
+    process.env.TB_DESIGNS_DIR = join(baseDir, 'designs');
     process.env.TB_HFC_HTTP_ONLY = '1';
     config = loadConfig();
     process.env.HFC_IMPORT_SESSION_ROOTS = config.exportSessionsDir;
@@ -123,7 +123,7 @@ describe('ExportStreamSessionStore disk replay finish', () => {
       source: 'disk',
     });
 
-    expect(result.filePath).toBe(join(config.exportDir, 'Minimal.hfc.json'));
+    expect(result.filePath).toBe(join(config.designsDir, 'minimal', 'design.hfc.json'));
     expect(result.replayedFromDisk).toBe(true);
     const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
     const importCall = fetchMock.mock.calls.find((c) =>

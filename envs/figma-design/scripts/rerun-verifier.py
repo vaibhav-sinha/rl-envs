@@ -2,7 +2,8 @@
 """
 Re-run figma_eval verifiers on completed Harbor jobs without modifying job folders.
 
-Reads trial artifacts and task specs from the job (read-only), stages copies in a
+Reads trial artifacts and task specs from the job (read-only), resolves the baseline
+design from environment/design-spec.json + designs/<base>/, stages copies in a
 temp directory (so issues.hfc.json stays beside design.hfc.json), and writes fresh
 verifier output under verifier-reruns/ (or --output).
 
@@ -22,6 +23,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -30,6 +32,8 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 DATASET_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = DATASET_ROOT.parent.parent
+DESIGNS_ROOT = DATASET_ROOT / "designs"
+MATERIALIZE_SCRIPT = SCRIPT_DIR / "materialize-design-from-spec.mjs"
 VERIFIER_ROOT = DATASET_ROOT / "shared" / "verifier"
 DEFAULT_HFC_CLI = REPO_ROOT / "libs" / "headless-figma-clone" / "dist" / "cli.js"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "verifier-reruns"
@@ -86,11 +90,60 @@ def _task_paths_from_result(result: dict, repo_root: Path) -> dict[str, Path | N
     task_dir = _resolve_path(task_rel, repo_root)
     return {
         "task_dir": task_dir,
-        "before": task_dir / "environment" / "design.hfc.json",
+        "design_spec": task_dir / "environment" / "design-spec.json",
         "spec": task_dir / "tests" / "eval-spec.json",
         "instruction": task_dir / "instruction.md",
         "assets": task_dir / "environment" / "assets",
     }
+
+
+def _resolve_before_path(task_dir: Path, *, staging: Path) -> Path:
+    """Resolve baseline design from design-spec.json and shared designs/."""
+    spec_path = task_dir / "environment" / "design-spec.json"
+    if not spec_path.is_file():
+        raise FileNotFoundError(f"Missing design-spec.json for task: {spec_path}")
+
+    spec = _load_json(spec_path)
+    base = spec.get("base")
+    if not base or not isinstance(base, str):
+        raise ValueError(f"design-spec.json missing base: {spec_path}")
+
+    design_dir = DESIGNS_ROOT / base
+    source_design = design_dir / "design.hfc.json"
+    if not source_design.is_file():
+        raise FileNotFoundError(f"Shared design export not found: {source_design}")
+
+    exclusions = spec.get("node_exclusions") or []
+    if not exclusions:
+        return source_design
+
+    baseline_dir = staging / "baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    out_design = baseline_dir / "design.hfc.json"
+    subprocess.run(
+        [
+            "node",
+            str(MATERIALIZE_SCRIPT),
+            "--spec",
+            str(spec_path),
+            "--source",
+            str(source_design),
+            "--out",
+            str(out_design),
+        ],
+        check=True,
+        cwd=SCRIPT_DIR,
+    )
+
+    source_assets = design_dir / "design.hfc.assets"
+    if source_assets.is_dir():
+        shutil.copytree(
+            source_assets,
+            baseline_dir / "design.hfc.assets",
+            dirs_exist_ok=True,
+        )
+
+    return out_design
 
 
 def _stage_after_artifacts(trial_dir: Path, staging: Path) -> Path:
@@ -128,7 +181,7 @@ def _run_trial(
     result = _load_json(result_path)
     paths = _task_paths_from_result(result, repo_root)
 
-    for key in ("before", "spec", "instruction"):
+    for key in ("design_spec", "spec", "instruction"):
         p = paths[key]
         if p is None or not Path(p).is_file():
             raise FileNotFoundError(f"Missing {key} for trial {trial_dir.name}: {p}")
@@ -145,10 +198,12 @@ def _run_trial(
 
     with tempfile.TemporaryDirectory(prefix="figma-rerun-") as tmp:
         staging = Path(tmp)
+        before_path = _resolve_before_path(paths["task_dir"], staging=staging)
+        before_design = str(before_path.resolve())
         after_path = _stage_after_artifacts(trial_dir, staging)
 
         report = run_eval(
-            before_path=paths["before"],
+            before_path=before_path,
             after_path=after_path,
             spec_path=paths["spec"],
             instruction_path=paths["instruction"],
@@ -173,6 +228,8 @@ def _run_trial(
         "source_job": str(job_dir.resolve()) if job_dir else str(trial_dir.parent.resolve()),
         "source_trial": str(trial_dir.resolve()),
         "task_dir": str(paths["task_dir"].resolve()),
+        "before_design": before_design,
+        "design_spec": str(paths["design_spec"].resolve()),
         "skip_llm": skip_llm,
         "hfc_cli": hfc_cli or os.environ.get("HFC_CLI"),
         "original_reward": _original_reward(result),

@@ -32,7 +32,19 @@ export interface TaskListItem {
   status: 'draft' | 'complete';
   created_at: string;
   updated_at: string;
-  has_design_export: boolean;
+  has_design_spec: boolean;
+}
+
+export interface DesignListItem {
+  name: string;
+  has_sidecar: boolean;
+  updated_at: string;
+}
+
+export interface DesignSpec {
+  schema_version: 1;
+  base: string;
+  node_exclusions?: string[];
 }
 
 export interface EvalSpec {
@@ -60,17 +72,19 @@ export interface FullTask {
       verifier_timeout_sec: number;
       agent_timeout_sec: number;
     };
-    export: { completed: boolean; mode: string | null };
+    design: { completed: boolean; base?: string; node_exclusions?: string[] };
   };
   instruction: string;
   evalSpec: EvalSpec | null;
-  exportCompleted: boolean;
+  designSpec: DesignSpec | null;
+  designCompleted: boolean;
   assets: Array<{ filename: string; relativePath: string }>;
   checkCatalog: CheckCatalog;
 }
 
 export const taskBuilderApi = {
   getCheckCatalog: () => tbFetch<CheckCatalog>('/check-catalog'),
+  listDesigns: () => tbFetch<{ designs: DesignListItem[] }>('/designs'),
   listTasks: () => tbFetch<{ tasks: TaskListItem[] }>('/tasks'),
   createTask: (name: string, copyFrom?: string) =>
     tbFetch<{ task: { id: string } }>('/tasks', {
@@ -81,19 +95,10 @@ export const taskBuilderApi = {
   patchTask: (id: string, patch: Record<string, unknown>) =>
     tbFetch<FullTask>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteTask: (id: string) => tbFetch<{ ok: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
-  exportTask: (id: string, snapshot: unknown, mode: 'full' | 'exclude', excludeNodeIds?: string[]) =>
-    tbFetch<{ saved: boolean }>(`/tasks/${id}/export`, {
-      method: 'POST',
-      body: JSON.stringify({ snapshot, mode, excludeNodeIds }),
-    }),
-  copyExportTask: (id: string, copyFromTaskId: string, excludeFigmaNodeIds?: string[]) =>
-    tbFetch<{
-      saved: boolean;
-      has_source_figma_ids: boolean;
-      exclusions_applied: boolean;
-    }>(`/tasks/${id}/export`, {
-      method: 'POST',
-      body: JSON.stringify({ mode: 'copy', copyFromTaskId, excludeFigmaNodeIds }),
+  saveDesignSpec: (id: string, base: string, node_exclusions?: string[]) =>
+    tbFetch<{ saved: boolean }>(`/tasks/${id}/design-spec`, {
+      method: 'PATCH',
+      body: JSON.stringify({ base, node_exclusions }),
     }),
   uploadAsset: (id: string, filename: string, dataBase64: string) =>
     tbFetch<{ asset: { filename: string } }>(`/tasks/${id}/assets`, {

@@ -27,12 +27,10 @@ export interface BuilderState {
   updated_at: string;
   current_step: WizardStep;
   metadata: TaskMetadata;
-  export: {
+  design: {
     completed: boolean;
-    mode: 'full' | 'exclude' | 'copy' | null;
-    excludeNodeIds?: string[];
-    copyFromTaskId?: string;
-    excludeFigmaNodeIds?: string[];
+    base?: string;
+    node_exclusions?: string[];
   };
 }
 
@@ -42,7 +40,13 @@ export interface TaskListItem {
   status: TaskStatus;
   created_at: string;
   updated_at: string;
-  has_design_export: boolean;
+  has_design_spec: boolean;
+}
+
+export interface DesignListItem {
+  name: string;
+  has_sidecar: boolean;
+  updated_at: string;
 }
 
 export interface EvalSpec {
@@ -57,6 +61,12 @@ export interface EvalSpec {
   category_importance?: Record<string, number>;
 }
 
+export interface DesignSpec {
+  schema_version: 1;
+  base: string;
+  node_exclusions?: string[];
+}
+
 export interface TaskAssetInfo {
   filename: string;
   relativePath: string;
@@ -68,7 +78,8 @@ export interface FullTaskPayload {
   builderState: BuilderState;
   instruction: string;
   evalSpec: EvalSpec | null;
-  exportCompleted: boolean;
+  designSpec: DesignSpec | null;
+  designCompleted: boolean;
   assets: TaskAssetInfo[];
   checkCatalog: typeof import('./check-catalog.js').CHECK_CATALOG;
 }

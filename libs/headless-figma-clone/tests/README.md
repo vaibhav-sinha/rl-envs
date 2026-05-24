@@ -17,7 +17,7 @@ TypeScript integration tests are specified in [design-doc/implementation-plan-ph
 
 ## Memory benchmarks (oker I1538 clone)
 
-Requires `npm run build` and the oker task fixture at `envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json`.
+Requires `npm run build` and the oker task fixture at `envs/figma-design/designs/oker-final-design/design.hfc.json`.
 
 ```bash
 cd libs/headless-figma-clone

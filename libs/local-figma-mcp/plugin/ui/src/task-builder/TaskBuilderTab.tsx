@@ -1,32 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   taskBuilderApi,
+  type DesignListItem,
   type EvalSpec,
   type FullTask,
   type TaskListItem,
   type WizardStep,
 } from '../api/taskBuilder';
-import { logExportError } from '../../../src/exportError.js';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Textarea } from '../components/ui/textarea';
 import {
-  applyExportProgressSnapshot,
-  applyFinalizeProgress,
   captureScreenshot,
-  createInitialExportProgress,
-  exportSnapshotStreaming,
-  finishExportStreamSession,
-  replayFinishExportStreamSession,
   pickExcludeNodeIds,
   pickNodeId,
 } from '../lib/plugin-bridge';
-import type { ExportOutcome, MultiPhaseExportProgress } from '../lib/export-progress-state';
-import { ExportOutcomeBanner, ExportProgressPanel } from '../components/ExportProgress';
-import { PageMultiSelect } from '../components/PageMultiSelect';
-import { useFilePages } from '../hooks/useFilePages';
 import { WIZARD_STEPS, stepMeta } from './catalog-helpers';
 import { DEFAULT_CATEGORY_IMPORTANCE, normalizeEvalSpec } from './category-importance';
 import { sanitizeEvalSpecForSave } from './sanitize-eval-spec';
@@ -62,7 +52,6 @@ function slugify(s: string): string {
 }
 
 export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => void }) {
-  const filePages = useFilePages();
   const [view, setView] = useState<'idle' | 'list' | 'wizard'>('idle');
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -91,14 +80,10 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     category_importance: { ...DEFAULT_CATEGORY_IMPORTANCE },
   });
 
-  const [exportProgress, setExportProgress] = useState<MultiPhaseExportProgress | null>(null);
-  const [exportOutcome, setExportOutcome] = useState<ExportOutcome | null>(null);
-  const [pendingExportId, setPendingExportId] = useState<string | null>(null);
-  const [pendingExportMode, setPendingExportMode] = useState<'full' | 'exclude'>('full');
-  const [pendingExcludeNodeIds, setPendingExcludeNodeIds] = useState<string[] | undefined>();
+  const [designs, setDesigns] = useState<DesignListItem[]>([]);
+  const [selectedDesignBase, setSelectedDesignBase] = useState<string | null>(null);
+  const [nodeExclusions, setNodeExclusions] = useState<string[]>([]);
   const [showExcludeDialog, setShowExcludeDialog] = useState(false);
-  const [showCopyDialog, setShowCopyDialog] = useState(false);
-  const [copyFromTaskId, setCopyFromTaskId] = useState<string | null>(null);
   const [newCheckType, setNewCheckType] = useState('must_contain_text');
   const [newVisualType, setNewVisualType] = useState('design_consistency');
   const [newMetadataType, setNewMetadataType] = useState('diff');
@@ -136,6 +121,15 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     }
   }, [onLog]);
 
+  const refreshDesigns = useCallback(async () => {
+    try {
+      const { designs: list } = await taskBuilderApi.listDesigns();
+      setDesigns(list);
+    } catch (e) {
+      onLog(e instanceof Error ? e.message : String(e), true);
+    }
+  }, [onLog]);
+
   const loadTask = useCallback(async (id: string) => {
     const t = await taskBuilderApi.getTask(id);
     setTask(t);
@@ -148,9 +142,11 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     if (t.evalSpec) {
       setEvalSpec(ensureDefaultVisualChecks(normalizeEvalSpec(t.evalSpec as Record<string, unknown>)));
     }
+    setSelectedDesignBase(t.designSpec?.base ?? t.builderState.design.base ?? null);
+    setNodeExclusions(t.designSpec?.node_exclusions ?? t.builderState.design.node_exclusions ?? []);
     const resumedStep = t.builderState.current_step;
     setStep(
-      resumedStep === 'review' && t.exportCompleted ? 'instruction' : resumedStep
+      resumedStep === 'review' && t.designCompleted ? 'instruction' : resumedStep
     );
     setView('wizard');
   }, []);
@@ -158,6 +154,10 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
   useEffect(() => {
     if (view === 'list') void refreshList();
   }, [view, refreshList]);
+
+  useEffect(() => {
+    if (view === 'wizard' && step === 'export') void refreshDesigns();
+  }, [view, step, refreshDesigns]);
 
   const startCreate = () => {
     setNameInput('');
@@ -226,109 +226,25 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     }
   };
 
-  const reportExportProgress = (snapshot: Parameters<typeof applyExportProgressSnapshot>[1]) => {
-    setExportProgress((prev) => applyExportProgressSnapshot(prev, snapshot));
-  };
-
-  const runExport = async (mode: 'full' | 'exclude', excludeNodeIds?: string[]) => {
-    if (!taskId) return;
+  const saveDesignSpec = async () => {
+    if (!taskId || !selectedDesignBase) return;
     setBusy(true);
-    setExportProgress(createInitialExportProgress());
-    setExportOutcome(null);
-    setPendingExportId(null);
-    let streamFinished = false;
     try {
-      onLog('Streaming Figma export…');
-      const { exportId } = await exportSnapshotStreaming(taskId, {
-        excludeNodeIds,
-        includePageIds: [...filePages.selectedPageIds],
-        onProgress: reportExportProgress,
-      });
-      streamFinished = true;
-
-      try {
-        setExportProgress((prev) =>
-          prev
-            ? applyFinalizeProgress(prev, 0, 1, 'Saving to task draft…')
-            : prev
-        );
-        onLog('Finalizing on Task Builder…');
-        await finishExportStreamSession(exportId, {
-          taskId,
-          mode,
-          excludeNodeIds,
-        });
-        setExportProgress((prev) => (prev ? applyFinalizeProgress(prev, 1, 1) : prev));
-      } catch (finalizeError) {
-        setPendingExportId(exportId);
-        setPendingExportMode(mode);
-        setPendingExcludeNodeIds(excludeNodeIds);
-        throw finalizeError;
-      }
-
-      const updated = await taskBuilderApi.getTask(taskId);
-      setTask(updated);
-      setExportOutcome({
-        kind: 'success',
-        title: 'Export complete',
-        message: `Baseline design saved for task “${taskId}”. Continue to gates.`,
-      });
-      onLog('Design exported to draft');
-      setStep('gates');
-    } catch (e) {
-      const message = logExportError(
-        streamFinished ? 'ui/TaskBuilder/exportFinalize' : 'ui/TaskBuilder/exportStream',
-        e
+      await taskBuilderApi.saveDesignSpec(
+        taskId,
+        selectedDesignBase,
+        nodeExclusions.length > 0 ? nodeExclusions : undefined
       );
-      setExportOutcome({
-        kind: 'error',
-        title: streamFinished ? 'Finalize failed' : 'Export failed',
-        message,
-      });
-      onLog(message, true);
-    } finally {
-      setBusy(false);
-      setShowExcludeDialog(false);
-    }
-  };
-
-  const exportableTasks = useMemo(
-    () => tasks.filter((t) => t.has_design_export && t.id !== taskId),
-    [tasks, taskId]
-  );
-
-  const runCopyExport = async (excludeFigmaNodeIds?: string[]) => {
-    if (!taskId || !copyFromTaskId) return;
-    setBusy(true);
-    try {
-      const result = await taskBuilderApi.copyExportTask(taskId, copyFromTaskId, excludeFigmaNodeIds);
-      if (
-        excludeFigmaNodeIds &&
-        excludeFigmaNodeIds.length > 0 &&
-        !result.exclusions_applied
-      ) {
-        onLog(
-          'Source export has no Figma layer mapping; exclusions were ignored. Re-export the source task to enable exclusions.',
-          true
-        );
-      }
       const updated = await taskBuilderApi.getTask(taskId);
       setTask(updated);
-      onLog(`Design copied from ${copyFromTaskId}`);
+      onLog(`Design baseline set to ${selectedDesignBase}`);
       setStep('gates');
     } catch (e) {
       onLog(e instanceof Error ? e.message : String(e), true);
     } finally {
       setBusy(false);
-      setShowCopyDialog(false);
-      setCopyFromTaskId(null);
+      setShowExcludeDialog(false);
     }
-  };
-
-  const openCopyDialog = async () => {
-    setShowCopyDialog(true);
-    setCopyFromTaskId(null);
-    await refreshList();
   };
 
   const complete = async () => {
@@ -604,172 +520,86 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
         {step === 'export' && (
           <>
             <SectionIntro
-              title="Baseline export"
-              description="Captures the current Figma file as design.hfc.json — the before state agents are graded against. Only selected pages are included; exclusions apply within that scope."
+              title="Design baseline"
+              description="Choose a shared design export from envs/figma-design/designs/. The task references it via design-spec.json; per-task exclusions are applied at Docker build time."
             />
-            <PageMultiSelect
-              pages={filePages.pages}
-              selectedIds={filePages.selectedPageIds}
-              onToggle={filePages.togglePage}
-              onSelectAll={filePages.selectAll}
-              onClearAll={filePages.clearAll}
-              onRefresh={() => void filePages.refresh()}
-              disabled={busy}
-              loading={filePages.loading}
-              error={filePages.error}
-            />
-            {busy && exportProgress ? <ExportProgressPanel progress={exportProgress} /> : null}
-            {exportOutcome ? (
-              <ExportOutcomeBanner outcome={exportOutcome} onDismiss={() => setExportOutcome(null)} />
+            {designs.length === 0 ? (
+              <p className="text-[10px] text-muted m-0">
+                No design exports found. Use the Export tab to create one first.
+              </p>
+            ) : (
+              <div>
+                <Label htmlFor="design-base">Design export</Label>
+                <select
+                  id="design-base"
+                  className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-[11px]"
+                  value={selectedDesignBase ?? ''}
+                  disabled={busy}
+                  onChange={(e) => setSelectedDesignBase(e.target.value || null)}
+                >
+                  <option value="">Select a design…</option>
+                  {designs.map((d) => (
+                    <option key={d.name} value={d.name}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <Button disabled={busy} onClick={() => setShowExcludeDialog(true)}>
+              Configure node exclusions
+            </Button>
+            {nodeExclusions.length > 0 ? (
+              <p className="text-[10px] text-muted m-0">
+                Excluding {nodeExclusions.length} node(s): {nodeExclusions.join(', ')}
+              </p>
             ) : null}
-            {pendingExportId && taskId ? (
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={() => {
-                  void (async () => {
-                    setBusy(true);
-                    try {
-                      onLog('Replaying finalize from disk…');
-                      await replayFinishExportStreamSession(pendingExportId, {
-                        taskId,
-                        mode: pendingExportMode,
-                        excludeNodeIds: pendingExcludeNodeIds,
-                      });
-                      setPendingExportId(null);
-                      const updated = await taskBuilderApi.getTask(taskId);
-                      setTask(updated);
-                      setExportOutcome({
-                        kind: 'success',
-                        title: 'Export complete',
-                        message: `Baseline design saved for task “${taskId}”.`,
-                      });
-                      setStep('gates');
-                    } catch (e) {
-                      onLog(e instanceof Error ? e.message : String(e), true);
-                    } finally {
-                      setBusy(false);
-                    }
-                  })();
-                }}
-              >
-                Retry finalize
-              </Button>
-            ) : null}
-            <Button
-              variant="primary"
-              disabled={busy || !filePages.hasSelection || filePages.loading}
-              onClick={() => void runExport('full')}
-            >
-              {filePages.allSelected ? 'Export entire file' : 'Export selected pages'}
-            </Button>
-            <Button
-              disabled={busy || !filePages.hasSelection || filePages.loading}
-              onClick={() => setShowExcludeDialog(true)}
-            >
-              Export with exclusions
-            </Button>
-            <Button disabled={busy} onClick={() => void openCopyDialog()}>
-              Copy from existing task
-            </Button>
             {showExcludeDialog ? (
               <div className="rounded-md border border-[#555] p-2.5 space-y-2 bg-[#252525]">
                 <p className="text-[10px] m-0 text-muted">
-                  Select nodes in Figma to exclude from the baseline, then confirm.
+                  Select nodes in Figma to exclude from this task's baseline at build time.
                 </p>
                 <Button
                   size="sm"
-                  disabled={!filePages.hasSelection || filePages.loading}
+                  disabled={busy}
                   onClick={async () => {
                     try {
                       const ids = await pickExcludeNodeIds();
-                      onLog(`Excluding ${ids.length} node(s)`);
-                      await runExport('exclude', ids);
+                      setNodeExclusions(ids);
+                      onLog(`Will exclude ${ids.length} node(s) at build time`);
+                      setShowExcludeDialog(false);
                     } catch (e) {
                       onLog(e instanceof Error ? e.message : String(e), true);
                     }
                   }}
                 >
-                  Pick exclusions & export
+                  Pick exclusions in Figma
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setNodeExclusions([]);
+                    setShowExcludeDialog(false);
+                  }}
+                >
+                  Clear exclusions
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setShowExcludeDialog(false)}>
                   Cancel
                 </Button>
               </div>
             ) : null}
-            {showCopyDialog ? (
-              <div className="rounded-md border border-[#555] p-2.5 space-y-2 bg-[#252525]">
-                {!copyFromTaskId ? (
-                  <>
-                    <p className="text-[10px] m-0 text-muted">
-                      Select a task that already has a design export.
-                    </p>
-                    {exportableTasks.length === 0 ? (
-                      <p className="text-[10px] m-0 text-muted">No other tasks with design exports found.</p>
-                    ) : (
-                      <div className="max-h-[140px] overflow-auto space-y-1">
-                        {exportableTasks.map((t) => (
-                          <button
-                            key={`copy-${t.id}`}
-                            type="button"
-                            className="w-full text-left rounded border border-[#444] bg-[#1e1e1e] px-2 py-1.5 text-[10px] hover:bg-[#333]"
-                            onClick={() => setCopyFromTaskId(t.id)}
-                          >
-                            <span className="font-medium">{t.name}</span>
-                            <span className="text-muted ml-2">{t.status}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <p className="text-[10px] m-0 text-muted">
-                      Copying from <span className="font-mono text-foreground">{copyFromTaskId}</span>.
-                      Optionally exclude layers from the open Figma file.
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      disabled={busy}
-                      onClick={() => void runCopyExport()}
-                    >
-                      Copy without exclusions
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={busy}
-                      onClick={async () => {
-                        try {
-                          const ids = await pickExcludeNodeIds();
-                          onLog(`Excluding ${ids.length} layer(s) from copy`);
-                          await runCopyExport(ids);
-                        } catch (e) {
-                          onLog(e instanceof Error ? e.message : String(e), true);
-                        }
-                      }}
-                    >
-                      Pick exclusions & copy
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setCopyFromTaskId(null)}>
-                      Back
-                    </Button>
-                  </>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setShowCopyDialog(false);
-                    setCopyFromTaskId(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : null}
-            {task?.exportCompleted ? (
-              <p className="text-accent text-[10px] m-0">✓ Export complete — continue to gates.</p>
+            <Button
+              variant="primary"
+              disabled={busy || !selectedDesignBase}
+              onClick={() => void saveDesignSpec()}
+            >
+              Save design baseline
+            </Button>
+            {task?.designCompleted ? (
+              <p className="text-accent text-[10px] m-0">✓ Design baseline saved — continue to gates.</p>
             ) : null}
           </>
         )}
@@ -1121,7 +951,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
             Save & next
           </Button>
         )}
-        {step === 'export' && task?.exportCompleted && (
+        {step === 'export' && task?.designCompleted && (
           <Button
             size="sm"
             variant="primary"

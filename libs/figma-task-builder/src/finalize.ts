@@ -1,35 +1,32 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import type { TaskBuilderConfig } from './config.js';
 import type { BuilderState } from './types.js';
 import { assertUniqueCheckIds, validateEvalSpec } from './eval-spec-validator.js';
+import { validateDesignSpec, type DesignSpec } from './design-spec-validator.js';
+import { addTaskToDatasetManifest } from './harbor-dataset.js';
 
 const TASK_TEST_FILES = ['check.py', 'test.sh'] as const;
 const EVAL_SPEC_FILE = 'eval-spec.json';
-
-function sidecarDirForHfcJson(hfcPath: string): string {
-  if (!hfcPath.endsWith('.hfc.json')) return '';
-  return hfcPath.slice(0, -'.hfc.json'.length) + '.hfc.assets';
-}
+const DESIGN_SPEC_FILE = 'design-spec.json';
 
 /** Keep in sync with envs/figma-design/scripts/dockerfile-template.mjs */
-function renderTaskDockerfile(hasSidecar: boolean): string {
+function renderTaskDockerfile(): string {
   const lines = [
     'FROM metaphi/figma-design-base:latest',
     '',
-    'COPY design.hfc.json /data/workspace/design.hfc.json',
-    'COPY design.hfc.json /tests/design.initial.hfc.json',
+    'COPY design-spec.json /environment/design-spec.json',
     'COPY instruction.md /tests/instruction.md',
+    'COPY assets/ /app/assets/',
+    '',
+    'RUN node /opt/figma-design/scripts/prepare-task-design.mjs \\',
+    '  --spec /environment/design-spec.json',
+    '',
     'ENV HFC_INITIAL_FILE=/data/workspace/design.hfc.json',
     'ENV HFC_PREVIEW_ON_LOAD=0',
     '',
-    'COPY assets/ /app/assets/',
   ];
-  if (hasSidecar) {
-    lines.push('', 'COPY design.hfc.assets/ /data/workspace/design.hfc.assets/');
-  }
-  lines.push('');
-  return lines.join('\n');
+  return `${lines.join('\n')}`;
 }
 
 function renderTaskToml(taskId: string, meta: BuilderState['metadata']): string {
@@ -86,6 +83,16 @@ destination = "issues.hfc.json"
 `;
 }
 
+function designExportPath(config: TaskBuilderConfig, base: string): string {
+  return join(config.designsDir, base, 'design.hfc.json');
+}
+
+export function assertDesignBaseExists(config: TaskBuilderConfig, base: string): void {
+  if (!existsSync(designExportPath(config, base))) {
+    throw new Error(`DESIGN_NOT_FOUND: design export "${base}" not found in designs library`);
+  }
+}
+
 export function finalizeTask(config: TaskBuilderConfig, taskId: string): void {
   const draftRoot = join(config.tasksDir, taskId);
   const harborRoot = join(config.harborTasksDir, taskId);
@@ -94,10 +101,14 @@ export function finalizeTask(config: TaskBuilderConfig, taskId: string): void {
     throw new Error(`Draft not found: ${taskId}`);
   }
 
-  const designPath = join(draftRoot, 'environment', 'design.hfc.json');
-  if (!existsSync(designPath)) {
-    throw new Error('Export required: environment/design.hfc.json missing');
+  const designSpecPath = join(draftRoot, 'environment', DESIGN_SPEC_FILE);
+  if (!existsSync(designSpecPath)) {
+    throw new Error('Design spec required: environment/design-spec.json missing');
   }
+
+  const designSpec = JSON.parse(readFileSync(designSpecPath, 'utf8')) as DesignSpec;
+  validateDesignSpec(config.designSpecSchemaPath, designSpec);
+  assertDesignBaseExists(config, designSpec.base);
 
   const instructionPath = join(draftRoot, 'instruction.md');
   if (!existsSync(instructionPath)) {
@@ -112,16 +123,19 @@ export function finalizeTask(config: TaskBuilderConfig, taskId: string): void {
   validateEvalSpec(config.evalSpecSchemaPath, evalSpec);
   assertUniqueCheckIds(evalSpec as import('./types.js').EvalSpec);
 
-  const sidecar = sidecarDirForHfcJson(designPath);
-  const hasSidecar = sidecar !== '' && existsSync(join(draftRoot, 'environment', basename(sidecar)));
-
   mkdirSync(harborRoot, { recursive: true });
   mkdirSync(join(harborRoot, 'environment'), { recursive: true });
   mkdirSync(join(harborRoot, 'tests'), { recursive: true });
 
-  cpSync(join(draftRoot, 'environment'), join(harborRoot, 'environment'), { recursive: true });
+  const envDraft = join(draftRoot, 'environment');
+  const envHarbor = join(harborRoot, 'environment');
+  mkdirSync(envHarbor, { recursive: true });
+  cpSync(designSpecPath, join(envHarbor, DESIGN_SPEC_FILE));
+  if (existsSync(join(envDraft, 'assets'))) {
+    cpSync(join(envDraft, 'assets'), join(envHarbor, 'assets'), { recursive: true });
+  }
   cpSync(instructionPath, join(harborRoot, 'instruction.md'));
-  cpSync(instructionPath, join(harborRoot, 'environment', 'instruction.md'));
+  cpSync(instructionPath, join(envHarbor, 'instruction.md'));
 
   for (const name of TASK_TEST_FILES) {
     cpSync(join(config.sharedVerifierDir, name), join(harborRoot, 'tests', name));
@@ -133,7 +147,9 @@ export function finalizeTask(config: TaskBuilderConfig, taskId: string): void {
   ) as BuilderState;
 
   writeFileSync(join(harborRoot, 'task.toml'), renderTaskToml(taskId, state.metadata), 'utf8');
-  writeFileSync(join(harborRoot, 'environment', 'Dockerfile'), renderTaskDockerfile(hasSidecar), 'utf8');
+  writeFileSync(join(harborRoot, 'environment', 'Dockerfile'), renderTaskDockerfile(), 'utf8');
+
+  addTaskToDatasetManifest(config, taskId);
 
   writeFileSync(join(draftRoot, '.complete'), '', 'utf8');
 }
@@ -151,6 +167,11 @@ export function cloneHarborToDraft(config: TaskBuilderConfig, harborTaskId: stri
 
   cpSync(harborRoot, draftRoot, { recursive: true });
 
+  const designSpecPath = join(draftRoot, 'environment', DESIGN_SPEC_FILE);
+  const designSpec = existsSync(designSpecPath)
+    ? (JSON.parse(readFileSync(designSpecPath, 'utf8')) as DesignSpec)
+    : null;
+
   const now = new Date().toISOString();
   const builderState: BuilderState = {
     id: newDraftId,
@@ -165,7 +186,11 @@ export function cloneHarborToDraft(config: TaskBuilderConfig, harborTaskId: stri
       verifier_timeout_sec: 300,
       agent_timeout_sec: 600,
     },
-    export: { completed: existsSync(join(draftRoot, 'environment', 'design.hfc.json')), mode: 'full' },
+    design: {
+      completed: designSpec !== null,
+      base: designSpec?.base,
+      node_exclusions: designSpec?.node_exclusions,
+    },
   };
 
   writeFileSync(join(draftRoot, 'builder-state.json'), JSON.stringify(builderState, null, 2) + '\n', 'utf8');

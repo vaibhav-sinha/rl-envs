@@ -15,7 +15,17 @@ describe('Task Builder API', () => {
     baseDir = mkdtempSync(join(tmpdir(), 'tb-test-'));
     process.env.TB_TASKS_DIR = join(baseDir, 'drafts');
     process.env.TB_HARBOR_TASKS_DIR = join(baseDir, 'harbor');
+    process.env.TB_DESIGNS_DIR = join(baseDir, 'designs');
     process.env.TB_HTTP_PORT = '0';
+    process.env.TB_SKIP_HARBOR_ADD = '1';
+
+    const designsDir = process.env.TB_DESIGNS_DIR;
+    mkdirSync(join(designsDir!, 'shared-design'), { recursive: true });
+    writeFileSync(
+      join(designsDir!, 'shared-design', 'design.hfc.json'),
+      JSON.stringify({ schemaVersion: 1, document: { id: 'I0', type: 'DOCUMENT', children: [] } }) + '\n',
+      'utf8'
+    );
 
     const config = loadConfig();
     const store = new TasksStore(config);
@@ -66,8 +76,8 @@ describe('Task Builder API', () => {
     const envDir = join(draftsDir, taskId, 'environment');
     mkdirSync(envDir, { recursive: true });
     writeFileSync(
-      join(envDir, 'design.hfc.json'),
-      JSON.stringify({ schemaVersion: 1, document: { id: 'I0', type: 'DOCUMENT', children: [] } }) + '\n',
+      join(envDir, 'design-spec.json'),
+      JSON.stringify({ schema_version: 1, base: 'shared-design' }, null, 2) + '\n',
       'utf8'
     );
 
@@ -111,8 +121,8 @@ describe('Task Builder API', () => {
     const envDir = join(draftsDir, taskId, 'environment');
     mkdirSync(envDir, { recursive: true });
     writeFileSync(
-      join(envDir, 'design.hfc.json'),
-      JSON.stringify({ schemaVersion: 1, document: { id: 'I0', type: 'DOCUMENT', children: [] } }) + '\n',
+      join(envDir, 'design-spec.json'),
+      JSON.stringify({ schema_version: 1, base: 'shared-design' }, null, 2) + '\n',
       'utf8'
     );
 
@@ -138,74 +148,27 @@ describe('Task Builder API', () => {
     expect(readFileSync(join(draftsDir, taskId, 'instruction.md'), 'utf8')).toBe(marker);
   });
 
-  it('copies design export from another task with optional exclusions', async () => {
+  it('saves design-spec for a task with optional exclusions metadata', async () => {
     const draftsDir = process.env.TB_TASKS_DIR!;
 
-    for (const id of ['source-task', 'target-task']) {
-      const res = await fetch(`http://127.0.0.1:${port}/tasks`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: id }),
-      });
-      expect(res.status).toBe(201);
-    }
-
-    const envelope = {
-      schemaVersion: 1,
-      fileKey: 'fk',
-      fileName: 'Source',
-      nextInternalId: 3,
-      document: {
-        id: 'I0',
-        type: 'DOCUMENT',
-        name: 'Doc',
-        sourceFigmaId: '0:0',
-        children: [
-          {
-            id: 'I1',
-            type: 'PAGE',
-            name: 'Page',
-            sourceFigmaId: '0:1',
-            x: 0,
-            y: 0,
-            width: 100,
-            height: 100,
-            children: [
-              { id: 'I2', type: 'FRAME', name: 'Keep', sourceFigmaId: '1:1', x: 0, y: 0, width: 10, height: 10, children: [] },
-              { id: 'I3', type: 'FRAME', name: 'Drop', sourceFigmaId: '1:2', x: 0, y: 0, width: 10, height: 10, children: [] },
-            ],
-          },
-        ],
-      },
-    };
-
-    const sourceEnv = join(draftsDir, 'source-task', 'environment');
-    mkdirSync(sourceEnv, { recursive: true });
-    writeFileSync(join(sourceEnv, 'design.hfc.json'), JSON.stringify(envelope, null, 2) + '\n', 'utf8');
-    mkdirSync(join(sourceEnv, 'design.hfc.assets'), { recursive: true });
-    writeFileSync(join(sourceEnv, 'design.hfc.assets', 'abc.png'), Buffer.from('png'), 'utf8');
-
-    const copyRes = await fetch(`http://127.0.0.1:${port}/tasks/target-task/export`, {
+    const create = await fetch(`http://127.0.0.1:${port}/tasks`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        mode: 'copy',
-        copyFromTaskId: 'source-task',
-        excludeFigmaNodeIds: ['1:2'],
-      }),
+      body: JSON.stringify({ name: 'design-spec-task' }),
     });
-    expect(copyRes.status).toBe(200);
-    const copyBody = (await copyRes.json()) as { exclusions_applied: boolean };
-    expect(copyBody.exclusions_applied).toBe(true);
+    expect(create.status).toBe(201);
 
-    const copied = JSON.parse(
-      readFileSync(join(draftsDir, 'target-task', 'environment', 'design.hfc.json'), 'utf8')
-    ) as typeof envelope;
-    const pageChildren = copied.document.children[0]!.children;
-    expect(pageChildren.some((n) => n.sourceFigmaId === '1:2')).toBe(false);
-    expect(pageChildren.some((n) => n.sourceFigmaId === '1:1')).toBe(true);
-    expect(readFileSync(join(draftsDir, 'target-task', 'tests', 'eval-spec.json'), 'utf8')).toContain(
-      'schema_version'
-    );
+    const save = await fetch(`http://127.0.0.1:${port}/tasks/design-spec-task/design-spec`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ base: 'shared-design', node_exclusions: ['1:2'] }),
+    });
+    expect(save.status).toBe(200);
+
+    const spec = JSON.parse(
+      readFileSync(join(draftsDir, 'design-spec-task', 'environment', 'design-spec.json'), 'utf8')
+    ) as { base: string; node_exclusions: string[] };
+    expect(spec.base).toBe('shared-design');
+    expect(spec.node_exclusions).toEqual(['1:2']);
   });
 });

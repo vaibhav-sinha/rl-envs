@@ -153,10 +153,9 @@ export async function createExportStreamSession(): Promise<{ exportId: string }>
 export type FinishExportSource = 'auto' | 'memory' | 'disk';
 
 export interface FinishExportStreamOptions {
-  taskId?: string;
-  mode?: 'full' | 'exclude';
-  excludeNodeIds?: string[];
   standaloneFileName?: string;
+  exportMode?: 'new' | 're';
+  reexportTarget?: string;
   source?: FinishExportSource;
 }
 

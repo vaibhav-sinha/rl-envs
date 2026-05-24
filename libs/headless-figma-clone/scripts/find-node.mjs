@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 
 const p = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../envs/figma-design/tasks/oker-create-max-otp-screen/environment/design.hfc.json'
+  '../../../envs/figma-design/designs/oker-final-design/design.hfc.json'
 );
 const env = JSON.parse(readFileSync(p, 'utf8'));
 
