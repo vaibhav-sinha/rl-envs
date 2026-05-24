@@ -181,6 +181,99 @@ return { importedId: imported.id, same: imported.id === comp.id };
     });
   });
 
+  it('detachInstance keeps same handle id and allows appendChild without reassignment', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.createEmptyFile({ fileName: 'DetachParity' });
+
+      const run = await runUseFigmaScript(
+        `
+const shell = figma.createFrame();
+shell.resize(120, 48);
+const label = figma.createText();
+label.characters = 'Row';
+label.fontSize = 14;
+shell.appendChild(label);
+figma.currentPage.appendChild(shell);
+const comp = figma.createComponentFromNode(shell);
+
+const inst = figma.createInstance(comp);
+inst.x = 0;
+inst.y = 0;
+figma.currentPage.appendChild(inst);
+const beforeId = inst.id;
+inst.detachInstance();
+const afterId = inst.id;
+const box = figma.createRectangle();
+box.resize(8, 8);
+inst.appendChild(box);
+return {
+  sameId: beforeId === afterId,
+  childCount: inst.children.length,
+  lastChildType: inst.children[inst.children.length - 1]?.type,
+};
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+      const r = run.result as {
+        sameId: boolean;
+        childCount: number;
+        lastChildType: string;
+      };
+      expect(r.sameId).toBe(true);
+      expect(r.childCount).toBeGreaterThan(1);
+      expect(r.lastChildType).toBe('RECTANGLE');
+    });
+  });
+
+  it('clone instance then setProperties keeps children', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.createEmptyFile({ fileName: 'CloneProps' });
+
+      const run = await runUseFigmaScript(
+        `
+const shell = figma.createFrame();
+shell.resize(120, 48);
+const label = figma.createText();
+label.characters = 'Go';
+label.fontSize = 14;
+shell.appendChild(label);
+figma.currentPage.appendChild(shell);
+const comp = figma.createComponentFromNode(shell);
+comp.componentPropertyDefinitions = {
+  'Text#1:0': { type: 'TEXT', defaultValue: 'Go' },
+};
+
+const inst = figma.createInstance(comp);
+figma.currentPage.appendChild(inst);
+const row = inst.clone();
+const before = row.children.length;
+row.setProperties({ Text: 'Stop' });
+const after = row.children.length;
+return { before, after, textValue: row.componentProperties['Text#1:0']?.value };
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+      const r = run.result as { before: number; after: number; textValue: string };
+      expect(r.before).toBeGreaterThan(0);
+      expect(r.after).toBe(r.before);
+      expect(r.textValue).toBe('Stop');
+    });
+  });
+
   it('Object.keys on getNodeById handle includes type and width', async () => {
     await withWs(async () => {
       const engine = new DocumentEngine({

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ATIF Trajectory Viewer</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="header" id="header" hidden>
+      <div class="header-meta">
+        <h1 id="file-name">ATIF Trajectory</h1>
+        <p id="session-meta" class="session-meta"></p>
+      </div>
+      <button type="button" id="btn-open-another" class="btn-secondary">Open another file</button>
+    </header>
+
+    <div id="error-banner" class="error-banner" hidden role="alert"></div>
+
+    <main id="landing" class="landing">
+      <div class="landing-card" id="drop-zone">
+        <h2>ATIF Trajectory Viewer</h2>
+        <p class="landing-hint">Open a Harbor agent trajectory file to inspect the conversation.</p>
+        <button type="button" id="btn-open" class="btn-primary">Open trajectory.json</button>
+        <p class="landing-drop-hint">or drag and drop a file here</p>
+      </div>
+      <input type="file" id="file-input" accept=".json,application/json" hidden />
+    </main>
+
+    <main id="viewer" class="viewer" hidden>
+      <div id="timeline" class="timeline"></div>
+    </main>
+
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>

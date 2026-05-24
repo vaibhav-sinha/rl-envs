@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import type { ComponentNode, FileEnvelope, PageNode, Paint, SceneNode } from '../model/types.js';
 import { lookupAssetRecord, resolveAssetAbsolutePath } from '../images/resolveAssetBytes.js';
 import { findSceneNode } from './patternTiles.js';
+
+/** Absolute filesystem path → `file://` URL for Playwright offline screenshots. */
+export function absolutePathToFileUrl(absPath: string): string {
+  return pathToFileURL(absPath).href;
+}
 
 function sceneChildren(n: SceneNode): SceneNode[] | null {
   if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
@@ -142,6 +148,38 @@ export function buildImageDataUrlForSubtree(
 ): Record<string, string> {
   const hashes = collectImageHashesFromSubtree(envelope, rootNodeId);
   return buildImageDataUrlForHashes(envelope, jsonAbsolutePath, hashes);
+}
+
+/** Build `file://` URLs for disk assets (Playwright screenshots; avoids inlining bytes). */
+export function buildImageFileUrlForHashes(
+  envelope: FileEnvelope,
+  jsonAbsolutePath: string,
+  hashes: Iterable<string>
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const reg = envelope.assets?.byId;
+  if (!reg) return out;
+  for (const hash of hashes) {
+    const rec = lookupAssetRecord(reg, hash);
+    if (!rec) continue;
+    const abs = resolveAssetAbsolutePath(jsonAbsolutePath, rec);
+    if (!abs) continue;
+    const fileUrl = absolutePathToFileUrl(abs);
+    out[rec.sha256] = fileUrl;
+    out[rec.id] = fileUrl;
+    out[hash] = fileUrl;
+  }
+  return out;
+}
+
+/** Subtree-scoped `file://` image map for Playwright screenshot compile. */
+export function buildImageFileUrlForSubtree(
+  envelope: FileEnvelope,
+  jsonAbsolutePath: string,
+  rootNodeId: string
+): Record<string, string> {
+  const hashes = collectImageHashesFromSubtree(envelope, rootNodeId);
+  return buildImageFileUrlForHashes(envelope, jsonAbsolutePath, hashes);
 }
 
 /**

@@ -15,7 +15,7 @@ describe('BrandSpotlight instance merge (2415:175378)', () => {
   it('applies detached overrides for hero image and Chumbak copy', () => {
     const env = JSON.parse(readFileSync(SALE_HFC, 'utf8')) as FileEnvelope;
     const rootId = resolveHfcNodeIdBySourceFigmaId(env, '2415:175378');
-    expect(rootId).toBe('I9123');
+    expect(rootId).toBe('I9151');
 
     const out = designCompiler.compileSubtree({
       envelope: env,
@@ -51,8 +51,8 @@ describe('BrandSpotlight instance merge (2415:175378)', () => {
       },
     });
 
-    const overlayCss = out.html.match(/\.hfc-node-I73962\{([^}]+)\}/)?.[1] ?? '';
-    const iconCss = out.html.match(/\.hfc-node-I73963\{([^}]+)\}/)?.[1] ?? '';
+    const overlayCss = out.html.match(/\.hfc-node-I73990\{([^}]+)\}/)?.[1] ?? '';
+    const iconCss = out.html.match(/\.hfc-node-I73991\{([^}]+)\}/)?.[1] ?? '';
 
     expect(overlayCss).toContain('left:292px');
     expect(overlayCss).toContain('top:20px');

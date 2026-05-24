@@ -42,6 +42,10 @@ import type { EngineErrorCode } from '../util/errors.js';
 import { ValidationErr } from '../util/errors.js';
 import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } from './envelopeOps.js';
 import { applyComponentPropertiesToInstanceChildren } from '../instances/componentProperties.js';
+import {
+  resolveInstanceRootFrameInEnvelope,
+  resolveSelectedComponentIdInEnvelope,
+} from './componentResolve.js';
 import { preorderSceneEntries, type PreorderSceneEntry } from '../import/componentNodeIdMap.js';
 import {
   applyAutoLayoutIntrinsicSizingDeep,
@@ -1836,6 +1840,9 @@ export function duplicateNodeInEnvelope(
   const idx = list.findIndex((c) => c.id === nodeId);
   if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${nodeId}`);
   const cloned = cloneSceneSubtreeWithNewIds(working, node as SceneNode, signal);
+  if (cloned.type === 'INSTANCE' && !cloned.children?.length) {
+    refreshInstanceChildrenFromMain(working, cloned);
+  }
   list.splice(idx + 1, 0, cloned);
   return cloned.id;
 }
@@ -1874,10 +1881,10 @@ function walkFindComponentKey(nodes: SceneNode[], key: string): string | null {
 /** Rebuild INSTANCE detached subtree after variant / main changes (script-created instances). */
 export function refreshInstanceChildrenFromMain(working: FileEnvelope, inst: InstanceNode): void {
   try {
-    const root = resolveInstanceRootFrame(working, inst);
+    const root = resolveInstanceRootFrameInEnvelope(working, inst);
     inst.children = root.children.map((c) => cloneSceneSubtreeWithNewIds(working, c));
   } catch {
-    delete inst.children;
+    // Keep existing detached subtree when master resolution fails.
   }
 }
 
@@ -1952,26 +1959,13 @@ export function refreshInstanceChildrenPreservingIds(
       cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal)
     );
   } catch {
-    delete inst.children;
+    // Keep existing detached subtree when master resolution fails.
   }
 }
 
 /** Selected COMPONENT id for an instance (COMPONENT_SET variant resolution). */
 export function resolveSelectedComponentId(working: FileEnvelope, inst: InstanceNode): string {
-  const target = findNode(working.document, inst.mainComponentId);
-  if (!target) {
-    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId missing');
-  }
-  if (target.type === 'COMPONENT') return target.id;
-  if (target.type === 'COMPONENT_SET') {
-    const set = target as ComponentSetNode;
-    const key = set.variantPropertyKey ?? 'variant';
-    const raw = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
-    const options = set.variantOptions ?? set.componentIds;
-    const idx = options.indexOf(String(raw));
-    return set.componentIds[idx] ?? set.componentIds[0]!;
-  }
-  return inst.mainComponentId;
+  return resolveSelectedComponentIdInEnvelope(working, inst);
 }
 
 function syncInstanceAfterComponentProperties(
@@ -1985,10 +1979,12 @@ function syncInstanceAfterComponentProperties(
   let prevCompId: string;
   let nextCompId: string;
   try {
-    prevCompId = resolveSelectedComponentId(env, prevProbe);
-    nextCompId = resolveSelectedComponentId(env, nextProbe);
+    prevCompId = resolveSelectedComponentIdInEnvelope(env, prevProbe);
+    nextCompId = resolveSelectedComponentIdInEnvelope(env, nextProbe);
   } catch {
-    refreshInstanceChildrenFromMain(env, inst);
+    if (!inst.children?.length) {
+      refreshInstanceChildrenFromMain(env, inst);
+    }
     return;
   }
   if (prevCompId === nextCompId) {
@@ -2000,31 +1996,10 @@ function syncInstanceAfterComponentProperties(
 }
 
 function resolveInstanceRootFrame(working: FileEnvelope, inst: InstanceNode): FrameNode {
-  const target = findNode(working.document, inst.mainComponentId);
-  if (!target) {
-    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId missing');
-  }
-  let componentId = inst.mainComponentId;
-  if (target.type === 'COMPONENT_SET') {
-    const set = target;
-    const key = set.variantPropertyKey ?? 'variant';
-    const raw = inst.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
-    const options = set.variantOptions ?? set.componentIds;
-    const idx = options.indexOf(String(raw));
-    componentId = set.componentIds[idx] ?? set.componentIds[0]!;
-  }
-  const component = findNode(working.document, componentId);
-  if (!component || component.type !== 'COMPONENT') {
-    throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE main component not found');
-  }
-  const root = findNode(working.document, component.rootFrameId);
-  if (!root || root.type !== 'FRAME') {
-    throw new ValidationErr('VALIDATION_ERROR', 'COMPONENT root frame missing');
-  }
-  return root;
+  return resolveInstanceRootFrameInEnvelope(working, inst);
 }
 
-/** Detach an INSTANCE in-place; returns the new FRAME node id (Figma `detachInstance`). */
+/** Detach an INSTANCE in-place; returns the FRAME node id (same as instance id — Figma parity). */
 export function detachInstanceInEnvelope(working: FileEnvelope, instanceId: string): string {
   const inst = findNode(working.document, instanceId);
   if (!inst || inst.type !== 'INSTANCE') {
@@ -2038,18 +2013,44 @@ export function detachInstanceInEnvelope(working: FileEnvelope, instanceId: stri
   const idx = list.findIndex((c) => c.id === instanceId);
   if (idx < 0) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${instanceId}`);
 
-  const masterRoot = resolveInstanceRootFrame(working, inst);
-  const detached = cloneSceneSubtreeWithNewIds(working, masterRoot);
-  detached.x = inst.x;
-  detached.y = inst.y;
-  detached.width = inst.width;
-  detached.height = inst.height;
-  detached.visible = true;
-  detached.name = inst.name;
+  const masterRoot = resolveInstanceRootFrameInEnvelope(working, inst);
+  const childSource =
+    inst.children?.length ? inst.children : masterRoot.children;
+  const children = childSource.map((c) => cloneSceneSubtreeWithNewIds(working, c));
 
-  list.splice(idx, 1);
-  list.splice(idx, 0, detached);
-  return detached.id;
+  const frame: FrameNode = {
+    ...masterRoot,
+    type: 'FRAME',
+    id: inst.id,
+    name: inst.name,
+    x: inst.x,
+    y: inst.y,
+    width: inst.width,
+    height: inst.height,
+    visible: inst.visible ?? true,
+    rotation: inst.rotation ?? masterRoot.rotation,
+    opacity: inst.opacity ?? masterRoot.opacity,
+    blendMode: inst.blendMode ?? masterRoot.blendMode,
+    layoutGrow: inst.layoutGrow ?? masterRoot.layoutGrow,
+    layoutAlign: inst.layoutAlign ?? masterRoot.layoutAlign,
+    layoutPositioning: inst.layoutPositioning ?? masterRoot.layoutPositioning,
+    layoutSizingHorizontal: inst.layoutSizingHorizontal ?? masterRoot.layoutSizingHorizontal,
+    layoutSizingVertical: inst.layoutSizingVertical ?? masterRoot.layoutSizingVertical,
+    layoutMode: inst.layoutMode ?? masterRoot.layoutMode,
+    paddingLeft: inst.paddingLeft ?? masterRoot.paddingLeft,
+    paddingRight: inst.paddingRight ?? masterRoot.paddingRight,
+    paddingTop: inst.paddingTop ?? masterRoot.paddingTop,
+    paddingBottom: inst.paddingBottom ?? masterRoot.paddingBottom,
+    itemSpacing: inst.itemSpacing ?? masterRoot.itemSpacing,
+    primaryAxisAlignItems: inst.primaryAxisAlignItems ?? masterRoot.primaryAxisAlignItems,
+    counterAxisAlignItems: inst.counterAxisAlignItems ?? masterRoot.counterAxisAlignItems,
+    primaryAxisSizingMode: inst.primaryAxisSizingMode ?? masterRoot.primaryAxisSizingMode,
+    counterAxisSizingMode: inst.counterAxisSizingMode ?? masterRoot.counterAxisSizingMode,
+    children,
+  };
+
+  list[idx] = frame;
+  return inst.id;
 }
 
 function applyAutoLayoutChildDefaults(parent: FrameNode, child: SceneNode): void {

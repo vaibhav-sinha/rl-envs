@@ -866,7 +866,6 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
           const op: EngineOperation = { op: 'detachInstance', nodeId: id };
           ctx.ops.push(op);
           const frameId = applyScriptEngineOp(ctx, op)!;
-          ctx.deletedIds.add(id);
           return createHandleProxy(ctx, frameId);
         };
       }
@@ -2502,10 +2501,18 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
   get children(): unknown[] {
     if (!this.attached || this._id === null) return [];
     const live = scriptLookup(this.ctx, this._id);
-    if (!live || live.type !== 'INSTANCE') return [];
+    if (!live || (live.type !== 'INSTANCE' && live.type !== 'FRAME')) return [];
     return getImmediateSceneChildren(live, this.ctx.working, getNodeIndex(this.ctx))
       .filter((c) => !this.ctx.deletedIds.has(c.id))
       .map((c) => createHandleProxy(this.ctx, c.id));
+  }
+
+  appendChild(child: RuntimeSceneNode | { id: string }, index?: number): void {
+    this.appendChildInternal(child, index);
+  }
+
+  insertChild(index: number, child: RuntimeSceneNode | { id: string }): void {
+    this.appendChild(child, index);
   }
 
   swapComponent(componentNode: { id: string }): void {
@@ -2548,7 +2555,9 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
     const op: EngineOperation = { op: 'detachInstance', nodeId: nid };
     this.ctx.ops.push(op);
     const frameId = applyScriptEngineOp(this.ctx, op)!;
-    this.ctx.deletedIds.add(nid);
+    if (frameId !== nid) {
+      this.ctx.deletedIds.add(nid);
+    }
     this._id = frameId;
     this.attached = true;
     return createHandleProxy(this.ctx, frameId);

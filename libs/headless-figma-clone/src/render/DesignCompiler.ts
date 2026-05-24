@@ -1,3 +1,4 @@
+import { findNodeInDocument } from '../engine/componentResolve.js';
 import {
   applyComponentProperties,
   resolveVariantPropertyValue,
@@ -71,12 +72,12 @@ import type {
   BooleanOperationNode,
   ComponentInstanceNode,
   ComponentNode,
+  ComponentOverrideFields,
   ComponentSetNode,
   InstanceNode,
   Effect,
   EllipseNode,
   FileEnvelope,
-  DocumentNode,
   FrameNode,
   PageNode,
   LineNode,
@@ -2246,12 +2247,26 @@ function alignInstanceShellToVariantRoot(inst: InstanceNode, variantRoot: FrameN
 }
 
 /** Ensure explicit empty shell arrays on the instance clear the cloned variant root. */
-function syncClearedShellToComponentRoot(root: FrameNode, inst: InstanceAppearanceFields): void {
-  if (hasOwnAppearanceField(inst, 'fills') && (inst.fills?.length ?? 0) === 0) {
+function syncClearedShellToComponentRoot(
+  root: FrameNode,
+  inst: InstanceAppearanceFields,
+  overrides?: Record<string, ComponentOverrideFields>,
+  instanceId?: string
+): void {
+  const shell = instanceId ? overrides?.[instanceId] : undefined;
+  if (
+    hasOwnAppearanceField(inst, 'fills') &&
+    (inst.fills?.length ?? 0) === 0 &&
+    !(shell && Object.prototype.hasOwnProperty.call(shell, 'fills'))
+  ) {
     root.fills = [];
     delete root.fillStyleId;
   }
-  if (hasOwnAppearanceField(inst, 'strokes') && (inst.strokes?.length ?? 0) === 0) {
+  if (
+    hasOwnAppearanceField(inst, 'strokes') &&
+    (inst.strokes?.length ?? 0) === 0 &&
+    !(shell && Object.prototype.hasOwnProperty.call(shell, 'strokes'))
+  ) {
     root.strokes = [];
     delete root.strokeStyleId;
   }
@@ -2273,7 +2288,7 @@ function prepareInstanceComponentRoot(
   }
   applyInstanceAppearanceToRoot(root, buildInstanceAppearanceForRoot(inst, overrides));
   applyInstanceShellOverrideToRoot(root, inst.id, overrides);
-  syncClearedShellToComponentRoot(root, inst);
+  syncClearedShellToComponentRoot(root, inst, overrides, inst.id);
   normalizeInstanceComponentRootForEmit(root, inst);
   prepareClonedComponentSubtreeForEmit(root, env);
 }
@@ -2432,59 +2447,6 @@ function emitComponentInstance(
     );
   });
   htmlParts.push('</div>');
-}
-
-function findNodeInDocument(
-  document: DocumentNode,
-  id: string,
-  env?: FileEnvelope
-): SceneNode | PageNode | null {
-  for (const p of document.children) {
-    if (p.id === id) return p;
-    for (const n of p.children) {
-      const hit = findInSceneList(n, id);
-      if (hit) return hit;
-    }
-  }
-  if (env?.components) {
-    for (const c of env.components) {
-      if (c.id === id) {
-        return {
-          id: c.id,
-          type: 'COMPONENT',
-          name: c.name,
-          x: 0,
-          y: 0,
-          width: c.root.width,
-          height: c.root.height,
-          rootFrameId: c.root.id,
-        } as ComponentNode;
-      }
-      if (c.root.id === id) return c.root;
-    }
-  }
-  return null;
-
-  function findInSceneList(node: SceneNode, needle: string): SceneNode | null {
-    if (node.id === needle) return node;
-    if (
-      node.type === 'FRAME' ||
-      node.type === 'TRANSFORM_GROUP' ||
-      node.type === 'GROUP' ||
-      node.type === 'SECTION'
-    ) {
-      for (const ch of node.children) {
-        const inner = findInSceneList(ch, needle);
-        if (inner) return inner;
-      }
-    } else if (node.type === 'BOOLEAN_OPERATION') {
-      for (const ch of node.children as unknown as SceneNode[]) {
-        const inner = findInSceneList(ch, needle);
-        if (inner) return inner;
-      }
-    }
-    return null;
-  }
 }
 
 function remapOverridesForVariant(

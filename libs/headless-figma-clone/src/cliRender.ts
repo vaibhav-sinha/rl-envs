@@ -4,7 +4,7 @@ import { getDefaultFontsDir } from './fonts/packageRoot.js';
 import type { FileEnvelope } from './model/types.js';
 import { resolveHfcNodeIdBySourceFigmaId } from './resolveNodeRef.js';
 import { designCompiler } from './render/DesignCompiler.js';
-import { buildImageDataUrlForSubtree } from './render/imageDataUrls.js';
+import { buildImageFileUrlForSubtree } from './render/imageDataUrls.js';
 import { renderNodeToFile } from './render/renderNodeToFile.js';
 import { closeSharedBrowser } from './screenshot/PlaywrightScreenshotService.js';
 
@@ -69,7 +69,7 @@ export async function handleRenderCli(argv: string[]): Promise<void> {
           includeCss: true,
           inlineCss: true,
           fontBaseUrl: getLocalFontsFileBaseUrl(),
-          imageDataUrlByHash: buildImageDataUrlForSubtree(envelope, file, nodeId!),
+          imageDataUrlByHash: buildImageFileUrlForSubtree(envelope, file, nodeId!),
         },
       });
       writeFileSync(dumpHtml, compiled.html, 'utf8');

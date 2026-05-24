@@ -5,7 +5,7 @@ import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import { compileSubtreeForScreenshot } from '../render/compileForScreenshot.js';
 import { getLocalFontsFileBaseUrl } from '../fonts/localFontRegistry.js';
 import { designCompiler } from '../render/DesignCompiler.js';
-import { buildImageDataUrlForSubtree } from '../render/imageDataUrls.js';
+import { buildImageDataUrlForSubtree, buildImageFileUrlForSubtree } from '../render/imageDataUrls.js';
 import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
 import { collectMetadataTree, collectPagesIndex } from './metadata.js';
 import { runMcpToolWithCancellation } from './runMcpToolWithCancellation.js';
@@ -351,7 +351,7 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
             inlineCss: true,
             fontBaseUrl: getLocalFontsFileBaseUrl(),
             imageDataUrlByHash:
-              fp !== null ? buildImageDataUrlForSubtree(file, fp, args.nodeId) : {},
+              fp !== null ? buildImageFileUrlForSubtree(file, fp, args.nodeId) : {},
           },
           screenshot: playwrightScreenshotService,
           screenshotTimeoutMs: deps.screenshotTimeoutMs,

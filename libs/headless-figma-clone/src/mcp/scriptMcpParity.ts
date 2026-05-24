@@ -1,7 +1,7 @@
 import { findEnvelopeNode } from '../engine/DocumentEngine.js';
 import type { AnyTreeNode, FileEnvelope } from '../model/types.js';
 import { getLocalFontsFileBaseUrl } from '../fonts/localFontRegistry.js';
-import { buildImageDataUrlForSubtree } from '../render/imageDataUrls.js';
+import { buildImageFileUrlForSubtree } from '../render/imageDataUrls.js';
 import { compileSubtreeForScreenshot } from '../render/compileForScreenshot.js';
 import type { PlaywrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
 import { ValidationErr } from '../util/errors.js';
@@ -128,7 +128,7 @@ export async function captureScriptScreenshots(params: {
         fontBaseUrl: getLocalFontsFileBaseUrl(),
         imageDataUrlByHash:
           params.filePath !== null
-            ? buildImageDataUrlForSubtree(params.envelope, params.filePath, req.nodeId)
+            ? buildImageFileUrlForSubtree(params.envelope, params.filePath, req.nodeId)
             : {},
         placeholderNodeIds: params.placeholderNodeIds,
       },

@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import { getLocalFontsFileBaseUrl } from '../fonts/localFontRegistry.js';
 import type { FileEnvelope } from '../model/types.js';
 import { compileSubtreeForScreenshot } from './compileForScreenshot.js';
-import { buildImageDataUrlForSubtree } from './imageDataUrls.js';
+import { buildImageFileUrlForSubtree } from './imageDataUrls.js';
 import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
 
 const SCREENSHOT_TIMEOUT_MS = 30_000;
@@ -27,7 +27,7 @@ export async function renderNodeToFile(params: {
       includeCss: true,
       inlineCss: true,
       fontBaseUrl: getLocalFontsFileBaseUrl(),
-      imageDataUrlByHash: buildImageDataUrlForSubtree(
+      imageDataUrlByHash: buildImageFileUrlForSubtree(
         params.envelope,
         params.envelopePath,
         params.nodeId

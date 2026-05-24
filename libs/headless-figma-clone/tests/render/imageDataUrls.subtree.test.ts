@@ -1,10 +1,13 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { getLocalFontsFileBaseUrl } from '../../src/fonts/localFontRegistry.js';
 import type { ComponentNode, FileEnvelope, FrameNode, InstanceNode, PageNode, RectangleNode, SceneNode } from '../../src/model/types.js';
+import { designCompiler } from '../../src/render/DesignCompiler.js';
 import {
   buildImageDataUrlByHash,
   buildImageDataUrlForSubtree,
+  buildImageFileUrlForSubtree,
   collectImageHashesFromSubtree,
 } from '../../src/render/imageDataUrls.js';
 
@@ -30,6 +33,50 @@ describe('imageDataUrls subtree scope', () => {
     for (const url of Object.values(scoped)) {
       expect(url.startsWith('data:')).toBe(true);
     }
+  });
+
+  it('buildImageFileUrlForSubtree returns file URLs for resolvable assets', () => {
+    const env = JSON.parse(readFileSync(OTP_HFC, 'utf8')) as FileEnvelope;
+    const pageId = firstPageId(env);
+    const scoped = buildImageFileUrlForSubtree(env, OTP_HFC, pageId);
+    expect(Object.keys(scoped).length).toBeGreaterThan(0);
+    const uniqueUrls = new Set(Object.values(scoped));
+    for (const url of uniqueUrls) {
+      expect(url.startsWith('file:')).toBe(true);
+      expect(existsSync(new URL(url))).toBe(true);
+    }
+  });
+
+  it('buildImageFileUrlForSubtree keeps compiled HTML small vs data URL inlining', () => {
+    const env = JSON.parse(readFileSync(OTP_HFC, 'utf8')) as FileEnvelope;
+    const pageId = firstPageId(env);
+    const fileUrls = buildImageFileUrlForSubtree(env, OTP_HFC, pageId);
+    const dataUrls = buildImageDataUrlForSubtree(env, OTP_HFC, pageId);
+    const compiledFile = designCompiler.compileSubtree({
+      envelope: env,
+      rootNodeId: pageId,
+      options: {
+        viewportPaddingPx: 0,
+        includeCss: true,
+        inlineCss: true,
+        fontBaseUrl: getLocalFontsFileBaseUrl(),
+        imageDataUrlByHash: fileUrls,
+      },
+    });
+    const compiledData = designCompiler.compileSubtree({
+      envelope: env,
+      rootNodeId: pageId,
+      options: {
+        viewportPaddingPx: 0,
+        includeCss: true,
+        inlineCss: true,
+        fontBaseUrl: getLocalFontsFileBaseUrl(),
+        imageDataUrlByHash: dataUrls,
+      },
+    });
+    expect(compiledFile.html.length).toBeLessThan(compiledData.html.length / 10);
+    expect(compiledFile.html.length).toBeLessThan(10 * 1024 * 1024);
+    expect(compiledFile.html).not.toContain('data:image/');
   });
 
   it('collectImageHashesFromSubtree only includes hashes from the requested root', () => {

@@ -24,14 +24,14 @@ const designFixturePath = join(
   '../../../../envs/figma-design/tasks/oker-create-sale-section/environment/design.hfc.json'
 );
 
-/** Exact agent script from failed docker `Figma-use_figma` (tool_1e687a7f-9eb1-4e4b-89b9-ea80bef6541). */
+/** Agent script: insert sale section into Home content frame (I9150), after BrandSpotlight. */
 export const AGENT_SALE_SECTION_CODE = `
 await figma.setCurrentPageAsync(figma.root.children.find(p => p.name === 'Final design'));
 await figma.loadFontAsync({ family: 'Barlow', style: 'SemiBold' });
 await figma.loadFontAsync({ family: 'Barlow', style: 'Regular' });
 await figma.loadFontAsync({ family: 'Barlow', style: 'Bold' });
 
-const parentFrame = await figma.getNodeByIdAsync('I9142');
+const parentFrame = await figma.getNodeByIdAsync('I9150');
 const createdNodeIds = [];
 
 const saleSection = figma.createAutoLayout('VERTICAL', {
@@ -99,10 +99,15 @@ function parseToolJson(text: string): {
 async function mcpCall(
   client: Client,
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  options?: { timeoutMs?: number }
 ): Promise<{ ok: true; text: string; isError?: boolean } | { ok: false; error: string }> {
   try {
-    const result = await client.callTool({ name, arguments: args });
+    const result = await client.callTool(
+      { name, arguments: args },
+      undefined,
+      options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : undefined
+    );
     return { ok: true, text: getToolText(result), isError: result.isError === true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -160,10 +165,15 @@ describe('docker-like MCP (--file preload, preview off, default Node heap)', () 
   }, 600_000);
 
   it('agent sale-section use_figma succeeds or prints structured failure', async () => {
-    const use = await mcpCall(client, 'use_figma', {
-      skillNames: 'figma-use',
-      code: AGENT_SALE_SECTION_CODE,
-    });
+    const use = await mcpCall(
+      client,
+      'use_figma',
+      {
+        skillNames: 'figma-use',
+        code: AGENT_SALE_SECTION_CODE,
+      },
+      { timeoutMs: 600_000 }
+    );
 
     if (!use.ok) {
       logReproFailure('MCP transport error', server, use.error);
@@ -219,10 +229,15 @@ describe('docker Dockerfile as-shipped (preview ON at load)', () => {
   });
 
   it('use_figma after eager preview compile (matches missing env in task Dockerfile)', async () => {
-    const use = await mcpCall(client, 'use_figma', {
-      skillNames: 'figma-use',
-      code: AGENT_SALE_SECTION_CODE,
-    });
+    const use = await mcpCall(
+      client,
+      'use_figma',
+      {
+        skillNames: 'figma-use',
+        code: AGENT_SALE_SECTION_CODE,
+      },
+      { timeoutMs: 600_000 }
+    );
     if (!use.ok) {
       logReproFailure('preview-on: MCP transport error', server, use.error);
       expect(use.ok, use.error).toBe(true);
