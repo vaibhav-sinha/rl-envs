@@ -47,12 +47,18 @@ import { normalizeFigmaText, rawTextCharacters, splitFigmaParagraphRanges } from
 import { applyComponentOverridesToTree } from './instanceOverrideApply.js';
 import {
   alignInstanceShellToVariantRoot,
+  applyInstanceShellAppearanceToRoot,
   cloneComponentRootForInstance,
   instanceDetachedChildren,
   prepareClonedComponentSubtreeForEmit,
   prepareInstanceComponentRoot,
 } from './instancePrepare.js';
-import { computeStrokeBorder, borderCssDeclaration, rgbaFromSolid as strokeRgbaFromSolid } from './strokeRender.js';
+import {
+  computeStrokeBorder,
+  borderCssDeclaration,
+  effectiveStrokeWeight,
+  rgbaFromSolid as strokeRgbaFromSolid,
+} from './strokeRender.js';
 import { svgViewportForPathData, svgViewportForVectorPaths } from './vectorPathBounds.js';
 import {
   buildRootCssVariableBlock,
@@ -2170,9 +2176,13 @@ function instancePaintShellCss(
   const asFrame = inst as unknown as FrameNode;
   const fills = effectiveFrameFills(asFrame, env);
   const fillCss = stackedFillsCss(fills, imgMap, patternTiles, warnings, `instance_shell:${inst.id}`, env);
+  const frameStrokes = effectiveFrameStrokes(asFrame, env);
+  const strokeResult = computeStrokeBorder({ ...asFrame, strokes: frameStrokes }, inst.id, escapeAttr);
+  warnings.push(...strokeResult.warnings);
+  const border = borderCssDeclaration(strokeResult.borderCss);
   const shadow = nodeEffectsCss(effectiveFrameEffects(asFrame, env), env, inst, warnings, 'instance');
   const radiusCss = frameCornerRadiusCss(asFrame);
-  return `${fillCss}${shadow}${radiusCss}`;
+  return `${fillCss}${border}${shadow}${radiusCss}`;
 }
 
 /** Render instance bounds with local fills/effects when the component master is missing. */
@@ -2194,7 +2204,12 @@ function emitInstancePaintShell(
   const asFrame = inst as unknown as FrameNode;
   const fills = effectiveFrameFills(asFrame, env);
   const effects = effectiveFrameEffects(asFrame, env);
-  if (!fills.some((f) => f.visible !== false) && !effects?.some((e) => e.visible !== false)) {
+  const frameStrokes = effectiveFrameStrokes(asFrame, env);
+  const hasVisibleFill = fills.some((f) => f.visible !== false);
+  const hasVisibleEffect = effects?.some((e) => e.visible !== false) ?? false;
+  const hasVisibleStroke =
+    frameStrokes.some((s) => s.visible !== false) && effectiveStrokeWeight(asFrame) > 0;
+  if (!hasVisibleFill && !hasVisibleEffect && !hasVisibleStroke) {
     return false;
   }
   const fillCss = instancePaintShellCss(inst, env, imgMap, patternTiles, warnings, frameCornerRadiusCss);
@@ -2426,6 +2441,7 @@ function emitInstanceDetachedSubtree(
     constraints: { horizontal: 'MIN', vertical: 'MIN' },
   };
   applyComponentOverridesToTree(root, inst.overrides as ComponentInstanceNode['overrides']);
+  applyInstanceShellAppearanceToRoot(root, inst, inst.overrides as ComponentInstanceNode['overrides']);
   prepareClonedComponentSubtreeForEmit(root, env);
 
   const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);

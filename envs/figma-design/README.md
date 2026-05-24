@@ -149,7 +149,15 @@ Gates (`require_change`, `preserve_ids`, `allowed_change_inside_ids`, `additions
 
 Per-task **`category_importance`** sets relative priority (e.g. upweight `visual` on layout tasks). Values are **normalized internally** over categories that actually ran, so authors can use arbitrary positive numbers. Legacy `weights` in old specs is still read but `gates` entries are ignored for `raw`.
 
-Within each category, subchecks are combined with a **weighted mean**; each check/visual/metadata entry may set `"weight"` (default **1.0**).
+Within each category, subchecks are combined with a **weighted mean**. Non-visual checks default to weight **1.0**; visual checks use verifier defaults by type (overridable per entry via `"weight"`):
+
+| Visual check type | Default weight |
+|-------------------|----------------|
+| `task_completeness` | 8 |
+| `design_preference` | 3 |
+| `design_consistency` | 2 |
+| `good_design` | 1 |
+| `design_fit` | 2 |
 
 **Heuristics** (always-on when content changed): contrast uses the **minimum** contrast ratio across text nodes; readable font size uses the **minimum** per-text pass score (any text &lt; 10px fails that subcheck).
 

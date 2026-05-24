@@ -115,6 +115,18 @@ function syncClearedShellToComponentRoot(
   }
 }
 
+/** Copy instance shell paints (fills, strokes, radii, effects) onto a compile root frame. */
+export function applyInstanceShellAppearanceToRoot(
+  root: FrameNode,
+  inst: InstanceAppearanceFields & Pick<InstanceNode, 'id' | 'width' | 'height'>,
+  overrides: ComponentInstanceNode['overrides'] | undefined
+): void {
+  applyInstanceAppearanceToRoot(root, buildInstanceAppearanceForRoot(inst, overrides));
+  applyInstanceShellOverrideToRoot(root, inst.id, overrides);
+  syncClearedShellToComponentRoot(root, inst, overrides, inst.id);
+  normalizeInstanceComponentRootForEmit(root, inst);
+}
+
 export function prepareInstanceComponentRoot(
   root: FrameNode,
   inst: InstanceAppearanceFields &
@@ -129,10 +141,7 @@ export function prepareInstanceComponentRoot(
   if (detached) {
     mergeDetachedChildrenIntoRoot(root, detached, mergeCtx);
   }
-  applyInstanceAppearanceToRoot(root, buildInstanceAppearanceForRoot(inst, overrides));
-  applyInstanceShellOverrideToRoot(root, inst.id, overrides);
-  syncClearedShellToComponentRoot(root, inst, overrides, inst.id);
-  normalizeInstanceComponentRootForEmit(root, inst);
+  applyInstanceShellAppearanceToRoot(root, inst, overrides);
   prepareClonedComponentSubtreeForEmit(root, env);
 }
 

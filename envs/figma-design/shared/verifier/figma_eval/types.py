@@ -53,15 +53,33 @@ SCORING_CATEGORIES: tuple[SubCheckCategory, ...] = (
     "metadata",
 )
 
+# Default relative weights for visual LLM checks (overridable per check in eval-spec).
+DEFAULT_VISUAL_CHECK_WEIGHTS: dict[str, float] = {
+    "task_completeness": 8.0,
+    "design_preference": 3.0,
+    "design_consistency": 2.0,
+    "good_design": 1.0,
+    "design_fit": 2.0,
+}
 
-def subcheck_weight_from_spec(spec: dict[str, Any]) -> float:
-    """Per-subcheck weight from eval-spec; defaults to 1.0."""
-    raw = spec.get("weight", 1.0)
+
+def subcheck_weight_from_spec(spec: dict[str, Any], *, default: float = 1.0) -> float:
+    """Per-subcheck weight from eval-spec; uses *default* when weight is omitted."""
+    if "weight" not in spec:
+        return default
+    raw = spec["weight"]
     try:
         w = float(raw)
     except (TypeError, ValueError):
-        return 1.0
-    return w if w > 0 else 1.0
+        return default
+    return w if w > 0 else default
+
+
+def visual_subcheck_weight_from_spec(spec: dict[str, Any]) -> float:
+    """Visual check weight: type-specific default, overridable via eval-spec ``weight``."""
+    check_type = str(spec.get("type", ""))
+    type_default = DEFAULT_VISUAL_CHECK_WEIGHTS.get(check_type, 1.0)
+    return subcheck_weight_from_spec(spec, default=type_default)
 
 METADATA_PROPERTY_KEYS = frozenset(
     {"name", "pluginData", "description", "locked", "exportSettings", "reactions"}

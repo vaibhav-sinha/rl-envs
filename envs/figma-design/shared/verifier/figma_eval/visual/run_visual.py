@@ -19,7 +19,7 @@ from ..tree import (
     resolve_largest_change_region_node,
     resolve_task_completeness_screenshot_node,
 )
-from ..types import EditGraph, Envelope, SubCheckResult, subcheck_weight_from_spec
+from ..types import EditGraph, Envelope, SubCheckResult, visual_subcheck_weight_from_spec
 from .prompts import (
     build_design_consistency_prompt,
     build_design_fit_prompt,
@@ -69,7 +69,7 @@ def _visual_result(
         category="visual",
         score=score,
         applicable=True,
-        weight=subcheck_weight_from_spec(spec),
+        weight=visual_subcheck_weight_from_spec(spec),
         details=details,
     )
 
