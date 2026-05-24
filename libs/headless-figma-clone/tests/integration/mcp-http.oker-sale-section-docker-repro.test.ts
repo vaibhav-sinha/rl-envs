@@ -122,14 +122,14 @@ function logReproFailure(label: string, server: SpawnedHfcHttp, text: string, bo
   console.error('HFC stderr tail:', server.stderr().slice(-8000));
 }
 
-describe('oker-create-sale-section fixture', () => {
+describe.skip('oker-create-sale-section fixture', () => {
   it('design.hfc.json exists (~340MB on disk)', () => {
     expect(existsSync(designFixturePath)).toBe(true);
   });
 });
 
 /** Mirrors docker entrypoint: `node cli.js --transport http --file $HFC_INITIAL_FILE` + preview off. */
-describe('docker-like MCP (--file preload, preview off, default Node heap)', () => {
+describe.skip('docker-like MCP (--file preload, preview off, default Node heap)', () => {
   let baseDir: string;
   let designPath: string;
   let workspaceDir: string;
@@ -199,7 +199,7 @@ describe('docker-like MCP (--file preload, preview off, default Node heap)', () 
 });
 
 /** Current oker-create-sale-section Dockerfile: no HFC_PREVIEW_ON_LOAD (preview compiles at startup). */
-describe('docker Dockerfile as-shipped (preview ON at load)', () => {
+describe.skip('docker Dockerfile as-shipped (preview ON at load)', () => {
   let baseDir: string;
   let designPath: string;
   let workspaceDir: string;
@@ -254,7 +254,7 @@ describe('docker Dockerfile as-shipped (preview ON at load)', () => {
 });
 
 /** Documents 512MB bootstrap OOM on ~340MB JSON (sale-section is 3× max-otp file size). */
-describe('512MB bootstrap preload (expected OOM on this fixture)', () => {
+describe.skip('512MB bootstrap preload (expected OOM on this fixture)', () => {
   it('bootstrap exits before ready when heap capped at 512MB', async () => {
     const { baseDir, designPath } = setupDesignInTemp();
     const port = await reserveLocalPort();

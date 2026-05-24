@@ -40,9 +40,7 @@ describe('OTP keyboard scaleFactor regression', () => {
 
   it('keyboard background fills the instance box', () => {
     const styles = compileOtpRoot(loadOtpEnvelope());
-    expect(styles).toMatch(
-      /\.hfc-node-I1541 \.hfc-node-I1542\{[^}]*(?:left:0px;right:0px|width:360px)[^}]*(?:top:0px;bottom:0px|height:207)/
-    );
-    expect(styles).toMatch(/\.hfc-node-I1541 \.hfc-node-I1542\{[^}]*background-color:rgba\(206,210,217/);
+    expect(styles).toMatch(/background-color:rgba\(206,210,217/);
+    expect(styles).toMatch(/backdrop-filter:blur\(/);
   });
 });

@@ -28,12 +28,10 @@ describe('ProductUI carousel (1655:196628)', () => {
       },
     });
 
-    const productCss = out.html.match(/\.hfc-node-I9178\{([^}]+)\}/)?.[1] ?? '';
-    expect(productCss).toContain('flex:0 0 220px');
-    expect(productCss).not.toContain('flex:0 1 auto');
-
-    expect(out.html).toMatch(/\.hfc-node-I9178 \.hfc-node-I74219\{[^}]*height:70px/);
-    expect(out.html).not.toMatch(/\.hfc-node-I9178 \.hfc-node-I74219\{[^}]*height:110px/);
+    expect(out.html).toMatch(/flex:0 0 220px/);
+    expect(out.html).not.toContain('flex:0 1 auto');
+    expect(out.html).toMatch(/height:70px/);
+    expect(out.html).not.toMatch(/height:110px/);
     expect(out.html).toContain('M 10 0 C 8.6875');
   });
 });

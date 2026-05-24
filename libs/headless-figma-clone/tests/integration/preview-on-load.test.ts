@@ -1,4 +1,4 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -6,6 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { reserveLocalPort, spawnHfcHttpServer } from '../helpers/spawnHfcHttpServer.js';
 import { getToolText } from '../helpers/toolResult.js';
+import { resolveHfcNodeIdBySourceFigmaId } from '../../src/resolveNodeRef.js';
 
 const designFixturePath = join(
   import.meta.dirname,
@@ -60,7 +61,14 @@ describe('HFC_PREVIEW_ON_LOAD=0', () => {
 
   it('allows 512MB startup with assets when preview compile is skipped', async () => {
     expect(server.child.exitCode).toBeNull();
-    const meta = await client.callTool({ name: 'get_metadata', arguments: { nodeId: 'I27', maxDepth: 1 } });
+    const envelope = JSON.parse(readFileSync(designFixturePath, 'utf8'));
+    const env = envelope as { fileKey: string };
+    const nodeId = resolveHfcNodeIdBySourceFigmaId(envelope, '1621:130309');
+    expect(nodeId).toBeTruthy();
+    const meta = await client.callTool({
+      name: 'get_metadata',
+      arguments: { fileKey: env.fileKey, nodeId: nodeId!, maxDepth: 1 },
+    });
     const text = getToolText(meta);
     expect(text).toBeTruthy();
     const body = JSON.parse(text!) as { ok: boolean };

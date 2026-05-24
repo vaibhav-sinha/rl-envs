@@ -31,4 +31,21 @@ describe('oker SegmentedControl Inspiration segment', () => {
       /\.hfc-node-I48863\s+\.hfc-node-I48853\{[^}]*background-color:rgba\(51,51,51,1\)/
     );
   });
+
+  it('compiles detached SegmentedControl instance stored under Home overrides', () => {
+    const envelope = JSON.parse(readFileSync(okerDesignPath, 'utf8'));
+    const compiled = designCompiler.compileSubtree({
+      envelope,
+      rootNodeId: 'I9725',
+      options: {
+        includeCss: true,
+        inlineCss: true,
+        fontBaseUrl: getLocalFontsFileBaseUrl(),
+      },
+    });
+    expect(compiled.html).toMatch(/Inspiration/);
+    expect(compiled.html).not.toMatch(
+      /\.hfc-node-I48863\s+\.hfc-node-I48853\{[^}]*background-color:rgba\(51,51,51,1\)/
+    );
+  });
 });

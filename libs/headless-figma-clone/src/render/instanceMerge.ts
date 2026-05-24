@@ -221,6 +221,72 @@ function copyStrokeExtras(
   }
 }
 
+/** Keep formal shell overrides aligned with merged appearance when export omits `overrides`. */
+function reconcileInstanceShellOverridesFromDetached(
+  master: InstanceNode,
+  detached: InstanceNode,
+  ctx: InstanceMergeContext,
+  options?: MergePaintsOptions
+): void {
+  if (detached.overrides !== undefined) return;
+  const masterId = master.id;
+  if (!masterId) return;
+
+  const shellPatch: ComponentOverrideFields = {};
+  let touched = false;
+
+  if (shouldApplyDetachedPaintClear(ctx, masterId, detached.id, 'fills', detached.fills, options)) {
+    touched = true;
+    shellPatch.fills =
+      detached.fills!.length > 0 ? structuredClone(detached.fills!) : [];
+  }
+  if (shouldApplyDetachedPaintClear(ctx, masterId, detached.id, 'strokes', detached.strokes, options)) {
+    touched = true;
+    shellPatch.strokes =
+      detached.strokes!.length > 0 ? structuredClone(detached.strokes!) : [];
+  }
+  if (shouldApplyDetachedPaintClear(ctx, masterId, detached.id, 'effects', detached.effects, options)) {
+    touched = true;
+    shellPatch.effects =
+      detached.effects!.length > 0 ? structuredClone(detached.effects!) : [];
+  }
+  if (shouldApplyDetachedPaintClear(ctx, masterId, detached.id, 'backgrounds', detached.backgrounds, options)) {
+    touched = true;
+    shellPatch.backgrounds =
+      detached.backgrounds!.length > 0 ? structuredClone(detached.backgrounds!) : [];
+  }
+
+  if (!touched) return;
+
+  const overrides = { ...(master.overrides ?? {}) };
+  const shell: ComponentOverrideFields = { ...(overrides[masterId] ?? {}), ...shellPatch };
+  overrides[masterId] = shell;
+  master.overrides = overrides;
+}
+
+function didInstanceVariantSelectionChange(
+  masterBeforeMerge: InstanceNode,
+  detached: InstanceNode
+): boolean {
+  if (
+    detached.mainComponentId !== undefined &&
+    detached.mainComponentId !== masterBeforeMerge.mainComponentId
+  ) {
+    return true;
+  }
+  const masterProps = masterBeforeMerge.componentProperties;
+  const detachedProps = detached.componentProperties;
+  if (!detachedProps) return false;
+  for (const [key, value] of Object.entries(detachedProps)) {
+    if (value.type !== 'VARIANT') continue;
+    const current = masterProps?.[key];
+    if (!current || current.type !== 'VARIANT' || current.value !== value.value) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function mergeRectangleFromDetached(
   master: RectangleNode,
   detached: RectangleNode,
@@ -357,6 +423,7 @@ export function mergeInstanceFromDetached(
   detached: InstanceNode,
   ctx: InstanceMergeContext = { warnings: [] }
 ): void {
+  const masterBeforeMerge = structuredClone(master);
   copySceneBoundsFromDetached(master, detached);
   copyLayoutSelfFields(master, detached);
   copySceneAppearance(master, detached);
@@ -369,7 +436,11 @@ export function mergeInstanceFromDetached(
   if (detached.componentProperties !== undefined) {
     master.componentProperties = structuredClone(detached.componentProperties);
   }
-  if (detached.overrides !== undefined) master.overrides = structuredClone(detached.overrides);
+  if (detached.overrides !== undefined) {
+    master.overrides = structuredClone(detached.overrides);
+  } else if (didInstanceVariantSelectionChange(masterBeforeMerge, detached)) {
+    reconcileInstanceShellOverridesFromDetached(master, detached, ctx, instancePaintOptions);
+  }
   if (detached.children !== undefined) {
     master.children = structuredClone(detached.children);
   }

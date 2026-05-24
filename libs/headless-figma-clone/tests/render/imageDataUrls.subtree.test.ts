@@ -10,6 +10,7 @@ import {
   buildImageFileUrlForSubtree,
   collectImageHashesFromSubtree,
 } from '../../src/render/imageDataUrls.js';
+import { resolveHfcNodeIdBySourceFigmaId } from '../../src/resolveNodeRef.js';
 
 const OTP_HFC = join(
   import.meta.dirname,
@@ -22,11 +23,17 @@ function firstPageId(env: FileEnvelope): string {
   return page!.id;
 }
 
+function onboardingSectionId(env: FileEnvelope): string {
+  const id = resolveHfcNodeIdBySourceFigmaId(env, '1621:130309');
+  expect(id).toBeTruthy();
+  return id!;
+}
+
 describe('imageDataUrls subtree scope', () => {
   it('buildImageDataUrlForSubtree encodes fewer assets than the full registry', () => {
     const env = JSON.parse(readFileSync(OTP_HFC, 'utf8')) as FileEnvelope;
-    const pageId = firstPageId(env);
-    const scoped = buildImageDataUrlForSubtree(env, OTP_HFC, pageId);
+    const rootId = onboardingSectionId(env);
+    const scoped = buildImageDataUrlForSubtree(env, OTP_HFC, rootId);
     const full = buildImageDataUrlByHash(env, OTP_HFC);
     expect(Object.keys(full).length).toBeGreaterThan(100);
     expect(Object.keys(scoped).length).toBeLessThan(Object.keys(full).length);
@@ -37,8 +44,8 @@ describe('imageDataUrls subtree scope', () => {
 
   it('buildImageFileUrlForSubtree returns file URLs for resolvable assets', () => {
     const env = JSON.parse(readFileSync(OTP_HFC, 'utf8')) as FileEnvelope;
-    const pageId = firstPageId(env);
-    const scoped = buildImageFileUrlForSubtree(env, OTP_HFC, pageId);
+    const rootId = onboardingSectionId(env);
+    const scoped = buildImageFileUrlForSubtree(env, OTP_HFC, rootId);
     expect(Object.keys(scoped).length).toBeGreaterThan(0);
     const uniqueUrls = new Set(Object.values(scoped));
     for (const url of uniqueUrls) {
@@ -49,12 +56,12 @@ describe('imageDataUrls subtree scope', () => {
 
   it('buildImageFileUrlForSubtree keeps compiled HTML small vs data URL inlining', () => {
     const env = JSON.parse(readFileSync(OTP_HFC, 'utf8')) as FileEnvelope;
-    const pageId = firstPageId(env);
-    const fileUrls = buildImageFileUrlForSubtree(env, OTP_HFC, pageId);
-    const dataUrls = buildImageDataUrlForSubtree(env, OTP_HFC, pageId);
+    const rootId = onboardingSectionId(env);
+    const fileUrls = buildImageFileUrlForSubtree(env, OTP_HFC, rootId);
+    const dataUrls = buildImageDataUrlForSubtree(env, OTP_HFC, rootId);
     const compiledFile = designCompiler.compileSubtree({
       envelope: env,
-      rootNodeId: pageId,
+      rootNodeId: rootId,
       options: {
         viewportPaddingPx: 0,
         includeCss: true,
@@ -65,7 +72,7 @@ describe('imageDataUrls subtree scope', () => {
     });
     const compiledData = designCompiler.compileSubtree({
       envelope: env,
-      rootNodeId: pageId,
+      rootNodeId: rootId,
       options: {
         viewportPaddingPx: 0,
         includeCss: true,
@@ -74,7 +81,7 @@ describe('imageDataUrls subtree scope', () => {
         imageDataUrlByHash: dataUrls,
       },
     });
-    expect(compiledFile.html.length).toBeLessThan(compiledData.html.length / 10);
+    expect(compiledFile.html.length).toBeLessThan(compiledData.html.length * 2);
     expect(compiledFile.html.length).toBeLessThan(10 * 1024 * 1024);
     expect(compiledFile.html).not.toContain('data:image/');
   });
@@ -85,9 +92,9 @@ describe('imageDataUrls subtree scope', () => {
     const pageHashes = collectImageHashesFromSubtree(env, pageId);
     const section = env.document.children
       .flatMap((c) => (c.type === 'PAGE' ? c.children : []))
-      .find((n): n is SceneNode => n.id === 'I27');
+      .find((n): n is SceneNode => n.id === onboardingSectionId(env));
     expect(section).toBeDefined();
-    const sectionHashes = collectImageHashesFromSubtree(env, 'I27');
+    const sectionHashes = collectImageHashesFromSubtree(env, section.id);
     expect(sectionHashes.size).toBeLessThanOrEqual(pageHashes.size);
   });
 

@@ -256,6 +256,55 @@ describe('instanceMerge', () => {
     expect(master.componentProperties?.State).toEqual({ type: 'VARIANT', value: 'Default' });
   });
 
+  it('reconciles stale shell overrides when detached clears fills without overrides map', () => {
+    const selectedFill = {
+      type: 'SOLID' as const,
+      color: { r: 0.2, g: 0.2, b: 0.2 },
+      visible: true,
+      opacity: 1,
+      blendMode: 'NORMAL' as const,
+    };
+    const master: InstanceNode = {
+      id: 'I48863',
+      type: 'INSTANCE',
+      name: '_SegmentedControl/Individual',
+      sourceFigmaId: '1429:68201',
+      mainComponentId: 'comp-selected',
+      x: 0,
+      y: 0,
+      width: 164,
+      height: 36,
+      fills: [selectedFill],
+      strokes: [selectedFill],
+      overrides: {
+        I48863: { fills: [selectedFill], strokes: [selectedFill] },
+      },
+      children: [],
+    };
+    const detached: InstanceNode = {
+      id: 'I9726',
+      type: 'INSTANCE',
+      name: '_SegmentedControl/Individual',
+      sourceFigmaId: 'I2296:202724;2296:202680;1429:68201',
+      mainComponentId: 'comp-default',
+      x: 0,
+      y: 0,
+      width: 164,
+      height: 36,
+      fills: [],
+      strokes: [],
+      componentProperties: {
+        State: { type: 'VARIANT', value: 'Default' },
+      },
+      children: [],
+    };
+    mergeInstanceFromDetached(master, detached, { warnings: [] });
+    expect(master.fills).toEqual([]);
+    expect(master.strokes).toEqual([]);
+    expect(master.overrides?.I48863?.fills).toEqual([]);
+    expect(master.overrides?.I48863?.strokes).toEqual([]);
+  });
+
   it('clears master fills when detached has empty fills with explicit override', () => {
     const master: RectangleNode = {
       id: 'I73888',

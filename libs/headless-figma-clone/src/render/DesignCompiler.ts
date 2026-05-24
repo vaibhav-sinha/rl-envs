@@ -1,4 +1,5 @@
 import { findNodeInDocument } from '../engine/componentResolve.js';
+import { buildGraphIndexes } from '../engine/nodeIndex.js';
 import {
   applyComponentProperties,
   resolveVariantPropertyValue,
@@ -196,6 +197,34 @@ function findPageForSceneNode(envelope: FileEnvelope, sceneNodeId: string): Page
   for (const page of envelope.document.children) {
     if (page.type !== 'PAGE') continue;
     if (findSceneInList(page.children, sceneNodeId)) return page;
+  }
+  return null;
+}
+
+/** Scene nodes stored under `instance.children` (detached export) are indexed but not on the page tree. */
+function findIndexedSceneNode(envelope: FileEnvelope, id: string): SceneNode | null {
+  const node = buildGraphIndexes(envelope).nodes.get(id);
+  if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') return null;
+  return node as SceneNode;
+}
+
+function findCompileRootNode(envelope: FileEnvelope, id: string): SceneNode | null {
+  return findSceneNode(envelope, id) ?? findIndexedSceneNode(envelope, id);
+}
+
+function findPageForNode(envelope: FileEnvelope, nodeId: string): PageNode | null {
+  const fromScene = findPageForSceneNode(envelope, nodeId);
+  if (fromScene) return fromScene;
+  const { parentById, nodes } = buildGraphIndexes(envelope);
+  let cur: string | null | undefined = nodeId;
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const node = nodes.get(cur);
+    if (node?.type === 'PAGE') return node as PageNode;
+    const parentId = parentById.get(cur);
+    if (parentId === undefined || parentId === null) break;
+    cur = parentId;
   }
   return null;
 }
@@ -3159,16 +3188,12 @@ export const designCompiler: DesignCompiler = {
     if (page) {
       return compilePageNode(page, options, env);
     }
-    const root = findSceneNode(env, rootNodeId);
+    const root = findCompileRootNode(env, rootNodeId);
     if (!root) {
       throw new Error(`compileSubtree: unknown node id ${rootNodeId}`);
     }
-    const rootCloned = findSceneNode(env, rootNodeId);
-    if (!rootCloned) {
-      throw new Error(`compileSubtree: unknown node id ${rootNodeId} after clone`);
-    }
-    const containingPage = findPageForSceneNode(env, rootNodeId);
-    return compileRootScenes([rootCloned], options, env, containingPage?.backgrounds);
+    const containingPage = findPageForNode(env, rootNodeId);
+    return compileRootScenes([root], options, env, containingPage?.backgrounds);
   },
 
   compileFirstPage({ envelope, options, pageId }): CompiledDesign {

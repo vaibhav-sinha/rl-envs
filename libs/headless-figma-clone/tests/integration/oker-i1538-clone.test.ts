@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { DocumentEngine } from '../../src/engine/DocumentEngine.js';
 import { runUseFigmaScript } from '../../src/mcp/useFigmaScript.js';
 import { JsonPersistence } from '../../src/persistence/JsonPersistence.js';
+import { resolveHfcNodeIdBySourceFigmaId } from '../../src/resolveNodeRef.js';
 import { createConsoleLogger } from '../../src/util/logger.js';
 
 const designFixturePath = join(
@@ -15,8 +16,8 @@ const designFixturePath = join(
 const CLONE_CODE = `
 const page = figma.root.children.find(p => p.name === 'Final design');
 await figma.setCurrentPageAsync(page);
-const section = page.children.find(n => n.name === 'Onboarding');
-const source = await figma.getNodeByIdAsync('I1538');
+const section = await figma.getNodeByIdAsync('__SECTION_ID__');
+const source = await figma.getNodeByIdAsync('__SOURCE_ID__');
 const clone = source.clone();
 clone.name = 'Onboarding/OTP/MaxAttempts';
 clone.x = 1313.25;
@@ -57,8 +58,16 @@ describe('oker I1538 clone integration', () => {
         logger: createConsoleLogger('error'),
       });
       await engine.loadFromDisk({ absolutePath: designPath, save: false });
+      const file = engine.getActiveFile()!;
+      const sectionId = resolveHfcNodeIdBySourceFigmaId(file, '1621:130309');
+      const sourceId = resolveHfcNodeIdBySourceFigmaId(file, '2176:169413');
+      expect(sectionId).toBeTruthy();
+      expect(sourceId).toBeTruthy();
 
-      const run = await runUseFigmaScript(CLONE_CODE, engine);
+      const run = await runUseFigmaScript(
+        CLONE_CODE.replace('__SECTION_ID__', sectionId!).replace('__SOURCE_ID__', sourceId!),
+        engine
+      );
       expect(run.kind).toBe('ok');
       if (run.kind !== 'ok') return;
 
@@ -69,14 +78,17 @@ describe('oker I1538 clone integration', () => {
         touchedNodeIds: run.touchedNodeIds,
       });
       expect(tx.success).toBe(true);
+      const fileAfter = engine.getActiveFile()!;
+      const createdId = (run.result as { id?: string; createdNodeIds?: string[] }).id
+        ?? (run.result as { createdNodeIds?: string[] }).createdNodeIds?.[0];
+      expect(createdId).toBeTruthy();
 
-      const file = engine.getActiveFile()!;
-      const section = file.document.children
+      const section = fileAfter.document.children
         .find((p) => p.type === 'PAGE' && p.name === 'Final design')
-        ?.children.find((n) => n.id === 'I27');
+        ?.children.find((n) => n.id === sectionId);
       const frame =
         section && 'children' in section
-          ? section.children.find((c) => c.name === 'Onboarding/OTP/MaxAttempts')
+          ? section.children.find((c) => c.id === createdId)
           : undefined;
       expect(frame?.type).toBe('FRAME');
       expect(frame && 'children' in frame ? frame.children.length : 0).toBeGreaterThanOrEqual(3);

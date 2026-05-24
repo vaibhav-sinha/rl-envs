@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { FrameNode, InstanceNode } from '../../src/model/types.js';
 import { applyInstanceAppearanceToRoot } from '../../src/render/instanceAppearance.js';
+import { applyInstanceShellOverrideToRoot } from '../../src/render/instanceOverrideApply.js';
 import { mergeDetachedChildrenIntoRoot } from '../../src/render/instanceMerge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -32,6 +33,7 @@ describe('oker SegmentedControl detached merge', () => {
     const shop = segRoot.children[1] as InstanceNode;
     expect(inspiration.id).toBe('I48863');
     expect(inspiration.fills).toEqual([]);
+    expect(inspiration.overrides?.I48863?.fills).toEqual([]);
     expect(inspiration.componentProperties?.State).toEqual({ type: 'VARIANT', value: 'Default' });
     expect(shop.fills?.[0]?.type).toBe('SOLID');
   });
@@ -44,6 +46,7 @@ describe('oker SegmentedControl detached merge', () => {
     const inspiration = segRoot.children[0] as InstanceNode;
     const defaultRoot = structuredClone(findNodeById(envelope.document, 'I48853')) as FrameNode;
     applyInstanceAppearanceToRoot(defaultRoot, { ...inspiration });
+    applyInstanceShellOverrideToRoot(defaultRoot, inspiration.id, inspiration.overrides);
     expect(inspiration.fills).toEqual([]);
     expect(defaultRoot.fills).toEqual([]);
   });
