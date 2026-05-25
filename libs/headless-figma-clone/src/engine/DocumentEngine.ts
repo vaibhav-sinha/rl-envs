@@ -79,6 +79,10 @@ import { assertFigmaObjectAssignable } from './pluginObjectAssign.js';
 import { applySideStrokeWeightPatch } from './sideStrokeWeights.js';
 import { validatePaintArray } from './validatePaints.js';
 import { assignGridChildAutoPlacement } from '../layout/gridLayout.js';
+import {
+  syncAxisSizingModesFromLayoutSizing,
+  syncLayoutSizingFromAxisSizingModes,
+} from '../layout/layoutSizingAxisSync.js';
 import { parseStyledSegmentsInput } from './styledSegmentsNormalize.js';
 import { validateStyledSegments } from './utf16Segments.js';
 import { findVariableDefinition } from '../variables/resolution.js';
@@ -446,8 +450,11 @@ function findParentInFrames(
   return null;
 }
 
-function isStrictAutoLayoutFrame(n: SceneNode): n is FrameNode {
-  return n.type === 'FRAME' && (n.layoutMode === 'HORIZONTAL' || n.layoutMode === 'VERTICAL');
+function isStrictAutoLayoutFrame(n: SceneNode): n is FrameNode | InstanceNode {
+  return (
+    (n.type === 'FRAME' || n.type === 'INSTANCE') &&
+    (n.layoutMode === 'HORIZONTAL' || n.layoutMode === 'VERTICAL')
+  );
 }
 
 /** Figma Plugin parity: sizing fields apply only on auto-layout frames, their subtree children, or text. */
@@ -467,8 +474,8 @@ export function validateLayoutSizingNodeContextForParent(
   if (
     logicalParent !== null &&
     logicalParent !== doc &&
-    logicalParent.type === 'FRAME' &&
-    isStrictAutoLayoutFrame(logicalParent)
+    (logicalParent.type === 'FRAME' || logicalParent.type === 'INSTANCE') &&
+    isStrictAutoLayoutFrame(logicalParent as SceneNode)
   ) {
     underAl = true;
   }
@@ -2477,6 +2484,18 @@ export function applyEngineOp(
           );
         }
         f.counterAxisSizingMode = validateAxisSizingMode(patch.counterAxisSizingMode, 'counterAxisSizingMode');
+      }
+      if (
+        ('layoutSizingHorizontal' in patch || 'layoutSizingVertical' in patch) &&
+        isHorizontalVerticalAutoLayout(f.layoutMode)
+      ) {
+        syncAxisSizingModesFromLayoutSizing(f);
+      }
+      if (
+        ('primaryAxisSizingMode' in patch || 'counterAxisSizingMode' in patch) &&
+        isHorizontalVerticalAutoLayout(f.layoutMode)
+      ) {
+        syncLayoutSizingFromAxisSizingModes(f);
       }
     }
     if (node.type === 'TEXT' && 'fontName' in patch) {

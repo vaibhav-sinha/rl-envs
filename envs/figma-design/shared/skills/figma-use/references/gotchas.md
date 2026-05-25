@@ -402,7 +402,9 @@ Use `layoutPositioning = 'ABSOLUTE'` only when you intentionally need manual coo
 
 ### Hug frame `width` and `height`
 
-When a frame hugs content (`layoutSizingHorizontal` / `layoutSizingVertical` is `HUG`, or `primaryAxisSizingMode` / `counterAxisSizingMode` is `AUTO`), `node.width` and `node.height` read during or immediately after `use_figma` may still reflect an old fixed size (e.g. height `96` while three stacked children need ~160px). **Do not remove auto-layout or switch to manual `y` placement solely because fetched dimensions look too small.**
+In Figma, `layoutSizingHorizontal` / `layoutSizingVertical` is shorthand for the same axis modes as `primaryAxisSizingMode` / `counterAxisSizingMode`. HFC syncs them on write and at compile (e.g. `layoutSizingVertical = 'HUG'` on a horizontal auto-layout frame sets `counterAxisSizingMode = 'AUTO'`).
+
+When a frame hugs content, `node.width` and `node.height` read during or immediately after `use_figma` may still reflect an old fixed size until children are appended or you call `get_screenshot` (compile-time intrinsic sizing). **Do not remove auto-layout or switch to manual `y` placement solely because fetched dimensions look too small.**
 
 ```js
 // WRONG — frame.height looks too small → assume layout is broken
@@ -411,9 +413,9 @@ if (buttonsFrame.height < 120) {
   resendBtn.y = 52  // manual fix based on bad height read
 }
 
-// CORRECT — verify visually; fix sizing modes if needed
-buttonsFrame.primaryAxisSizingMode = 'AUTO'  // hug along primary axis
-buttonsFrame.counterAxisSizingMode = 'AUTO'  // when appropriate
+// CORRECT — use Figma shorthand OR axis modes (equivalent in HFC)
+buttonsFrame.layoutSizingVertical = 'HUG'  // horizontal row: hug height
+// buttonsFrame.counterAxisSizingMode = 'AUTO'  // same effect
 // get_screenshot(buttonsFrame) to confirm; adjust itemSpacing / layoutSizing*, not x/y
 ```
 

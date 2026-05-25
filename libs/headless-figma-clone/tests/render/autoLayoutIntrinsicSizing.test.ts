@@ -164,8 +164,8 @@ describe('autoLayoutIntrinsicSizing — exported hug text + parent cross cap', (
       width: 156,
       height,
       layoutMode: 'VERTICAL',
-      layoutSizingHorizontal: 'HUG',
-      layoutSizingVertical: 'HUG',
+      primaryAxisSizingMode: 'FIXED',
+      counterAxisSizingMode: 'FIXED',
       children: [],
     });
     const grid: FrameNode = {
@@ -211,6 +211,7 @@ describe('autoLayoutIntrinsicSizing — exported hug text + parent cross cap', (
           layoutMode: 'HORIZONTAL',
           layoutSizingHorizontal: 'FIXED',
           layoutSizingVertical: 'HUG',
+          counterAxisSizingMode: 'FIXED',
           children: [],
         },
         grid,
@@ -282,5 +283,111 @@ describe('autoLayoutIntrinsicSizing — exported hug text + parent cross cap', (
     applyAutoLayoutIntrinsicSizingDeep(desc, undefined, undefined);
     expect(desc.height).toBe(16);
     expect(desc.height).not.toBe(110);
+  });
+
+  it('shrinks horizontal badge when only layoutSizingVertical is HUG (status-badge repro)', () => {
+    const label: TextNode = {
+      id: 'lbl',
+      name: 'Delivered',
+      type: 'TEXT',
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      characters: 'Delivered',
+      fontSize: 14,
+      fontName: { family: 'Inter', style: 'Regular' },
+      layoutSizingHorizontal: 'HUG',
+      layoutSizingVertical: 'HUG',
+      textAutoResize: 'WIDTH_AND_HEIGHT',
+    };
+    const badge: FrameNode = {
+      id: 'badge',
+      name: 'Status Badge',
+      type: 'FRAME',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      layoutMode: 'HORIZONTAL',
+      paddingLeft: 8,
+      paddingRight: 8,
+      paddingTop: 4,
+      paddingBottom: 4,
+      layoutSizingVertical: 'HUG',
+      children: [label],
+    };
+    const header: FrameNode = {
+      id: 'header',
+      name: 'Header',
+      type: 'FRAME',
+      x: 0,
+      y: 0,
+      width: 328,
+      height: 100,
+      layoutMode: 'HORIZONTAL',
+      itemSpacing: 8,
+      children: [badge],
+    };
+
+    applyAutoLayoutIntrinsicSizingDeep(header, undefined, undefined);
+    syncHugTextLayoutMetricsDeep(header, undefined, undefined);
+
+    expect(badge.height).toBeLessThan(50);
+    expect(badge.height).not.toBe(100);
+    expect(header.height).toBe(100);
+  });
+
+  it('shrinks header row when layoutSizingVertical HUG sets counter axis AUTO', () => {
+    const label: TextNode = {
+      id: 'lbl2',
+      name: 'Delivered',
+      type: 'TEXT',
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      characters: 'Delivered',
+      fontSize: 14,
+      fontName: { family: 'Inter', style: 'Regular' },
+      layoutSizingHorizontal: 'HUG',
+      layoutSizingVertical: 'HUG',
+      textAutoResize: 'WIDTH_AND_HEIGHT',
+    };
+    const badge: FrameNode = {
+      id: 'badge2',
+      name: 'Status Badge',
+      type: 'FRAME',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      layoutMode: 'HORIZONTAL',
+      paddingLeft: 8,
+      paddingRight: 8,
+      paddingTop: 4,
+      paddingBottom: 4,
+      layoutSizingVertical: 'HUG',
+      children: [label],
+    };
+    const header: FrameNode = {
+      id: 'header2',
+      name: 'Header',
+      type: 'FRAME',
+      x: 0,
+      y: 0,
+      width: 328,
+      height: 100,
+      layoutMode: 'HORIZONTAL',
+      layoutSizingVertical: 'HUG',
+      itemSpacing: 8,
+      children: [badge],
+    };
+
+    applyAutoLayoutIntrinsicSizingDeep(header, undefined, undefined);
+    syncHugTextLayoutMetricsDeep(header, undefined, undefined);
+
+    expect(badge.height).toBeLessThan(50);
+    expect(header.height).toBeLessThan(50);
   });
 });

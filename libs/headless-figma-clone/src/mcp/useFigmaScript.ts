@@ -75,6 +75,12 @@ import {
   TEXT_HANDLE_METHOD_KEYS,
 } from './scriptTextMethods.js';
 import { exposeAxisSizingMode, validateAxisSizingMode } from '../engine/axisSizingMode.js';
+import { validateLayoutSizing } from '../engine/phase7Fields.js';
+import {
+  syncAxisSizingModesFromLayoutSizing,
+  syncLayoutSizingFromAxisSizingModes,
+  type LayoutSizingAxisSyncTarget,
+} from '../layout/layoutSizingAxisSync.js';
 import {
   HFC_HANDLE_FLAG,
   HFC_HANDLE_MARKER,
@@ -812,6 +818,13 @@ function nodeSupportsAxisSizing(type: string): boolean {
   return type === 'FRAME' || type === 'INSTANCE';
 }
 
+function runtimeAutoLayoutAxisSyncTarget(target: RuntimeSceneNode): LayoutSizingAxisSyncTarget | null {
+  if (!nodeSupportsAxisSizing(target.type)) return null;
+  const mode = (target as { layoutMode?: FrameNode['layoutMode'] }).layoutMode;
+  if (mode !== 'HORIZONTAL' && mode !== 'VERTICAL') return null;
+  return target as RuntimeSceneNode & LayoutSizingAxisSyncTarget;
+}
+
 function createHandleProxy(ctx: ScriptContext, id: string): unknown {
   const traversal = () => scriptTraversalMethods(ctx, id);
   const textDeps = {
@@ -1410,12 +1423,42 @@ function wrapRuntimeNode<N extends RuntimeSceneNode>(node: N, ctx: ScriptContext
             `${p}: node must be an auto-layout frame or a child of an auto-layout frame`
           );
         }
+        const normalized = validateLayoutSizing(value, p);
+        Reflect.set(target, prop, normalized, receiver);
+        if (target.attached && target.getAttachedIdOrNull() !== null) {
+          const nodeId = target.getAttachedIdOrNull()!;
+          const upd: Record<string, unknown> = { [p]: normalized };
+          const syncTarget = runtimeAutoLayoutAxisSyncTarget(target);
+          if (syncTarget) {
+            syncAxisSizingModesFromLayoutSizing(syncTarget);
+            if (syncTarget.primaryAxisSizingMode !== undefined) {
+              upd.primaryAxisSizingMode = syncTarget.primaryAxisSizingMode;
+            }
+            if (syncTarget.counterAxisSizingMode !== undefined) {
+              upd.counterAxisSizingMode = syncTarget.counterAxisSizingMode;
+            }
+          }
+          queueUpdate(ctx, nodeId, upd);
+        }
+        return true;
       }
       if (nodeSupportsAxisSizing(target.type) && AXIS_SIZING_PROPS.has(p)) {
         const normalized = validateAxisSizingMode(value, p);
         Reflect.set(target, prop, normalized, receiver);
         if (target.attached && target.getAttachedIdOrNull() !== null) {
-          queueUpdate(ctx, target.getAttachedIdOrNull()!, { [p]: normalized });
+          const nodeId = target.getAttachedIdOrNull()!;
+          const upd: Record<string, unknown> = { [p]: normalized };
+          const syncTarget = runtimeAutoLayoutAxisSyncTarget(target);
+          if (syncTarget) {
+            syncLayoutSizingFromAxisSizingModes(syncTarget);
+            if (syncTarget.layoutSizingHorizontal !== undefined) {
+              upd.layoutSizingHorizontal = syncTarget.layoutSizingHorizontal;
+            }
+            if (syncTarget.layoutSizingVertical !== undefined) {
+              upd.layoutSizingVertical = syncTarget.layoutSizingVertical;
+            }
+          }
+          queueUpdate(ctx, nodeId, upd);
         }
         return true;
       }

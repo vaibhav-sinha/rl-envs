@@ -1,4 +1,8 @@
 import { normalizeAxisSizingModeStored } from '../engine/axisSizingMode.js';
+import {
+  axisSizingToLayoutSizing,
+  syncAxisSizingModesFromLayoutSizing,
+} from '../layout/layoutSizingAxisSync.js';
 import type {
   AxisSizingMode,
   FileEnvelope,
@@ -9,10 +13,6 @@ import type {
   TextNode,
   TransformGroupNode,
 } from '../model/types.js';
-
-function axisSizingToLayoutSizing(mode: AxisSizingMode): LayoutSizing {
-  return mode === 'AUTO' ? 'HUG' : 'FIXED';
-}
 import { effectiveTextMaxFontSizePx } from './typographyCss.js';
 import { measureTextWidthPx, metricsLineHeightPx, averageCharWidthPx } from '../fonts/textMetrics.js';
 
@@ -514,6 +514,8 @@ export function applyAutoLayoutIntrinsicSizingDeep(
   if (n.type !== 'FRAME') return;
   const f = n as FrameNode;
   if (!isFlexFrame(f)) return;
+
+  syncAxisSizingModesFromLayoutSizing(f, { onlyIfAxisUnset: true });
 
   const primaryMode = normalizeAxisSizingModeStored(f.primaryAxisSizingMode);
   const counterMode = normalizeAxisSizingModeStored(f.counterAxisSizingMode);

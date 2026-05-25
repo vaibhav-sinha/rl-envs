@@ -1,7 +1,12 @@
+import {
+  syncAxisSizingModesFromLayoutSizing,
+  type LayoutSizingAxisSyncTarget,
+} from '../layout/layoutSizingAxisSync.js';
 import type {
   DocumentNode,
   FontName,
   LayoutConstraints,
+  LayoutMode,
   LayoutPositioning,
   LayoutSelfFields,
   LayoutSizing,
@@ -168,6 +173,18 @@ export function applyLayoutSelfPatch(
     else if (v === 'MIN' || v === 'CENTER' || v === 'MAX' || v === 'AUTO') target[field] = v;
     else throw new ValidationErr('VALIDATION_ERROR', `${field} invalid`);
   }
+
+  if (
+    ('layoutSizingHorizontal' in patch || 'layoutSizingVertical' in patch) &&
+    isAutoLayoutFrameForAxisSync(target)
+  ) {
+    syncAxisSizingModesFromLayoutSizing(target as LayoutSelfFields & LayoutSizingAxisSyncTarget);
+  }
+}
+
+function isAutoLayoutFrameForAxisSync(target: LayoutSelfFields): boolean {
+  const mode = (target as { layoutMode?: LayoutMode }).layoutMode;
+  return mode === 'HORIZONTAL' || mode === 'VERTICAL';
 }
 
 export function assertGridChildFieldsInCreateSpec(
