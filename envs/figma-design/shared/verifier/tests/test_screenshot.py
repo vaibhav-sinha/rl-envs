@@ -77,8 +77,8 @@ def test_auto_step2_single_added_top_level():
     assert target.composite is False
 
 
-def test_auto_step2_targets_added_section():
-    """Auto step 2 screenshots the SECTION the agent added, not an inner frame."""
+def test_auto_step2_targets_inner_frame_when_section_added():
+    """Auto step 2 screenshots the screen frame inside an added SECTION."""
     before = _envelope([])
     after = _envelope(
         [
@@ -101,7 +101,39 @@ def test_auto_step2_targets_added_section():
         gates=None,
     )
     assert target is not None
-    assert target.node_ids == ["I20"]
+    assert target.node_ids == ["I21"]
+    assert target.auto_step == 2
+    assert target.details.get("screenshot_section_id") == "I20"
+    assert target.details.get("screenshot_section_child") == "I21"
+
+
+def test_auto_step2_section_picks_largest_added_child_frame():
+    before = _envelope([])
+    after = _envelope(
+        [
+            _section(
+                "I20",
+                "Orders",
+                1200,
+                1000,
+                children=[
+                    _frame("I21", "Thumb", 100, 100),
+                    _frame("I22", "OrderDetails", 360, 800),
+                ],
+            )
+        ]
+    )
+    graph = build_edit_graph(before, after)
+    target = resolve_screenshot_target(
+        screenshot_config={"strategy": "auto"},
+        spec={"id": "tc", "type": "task_completeness"},
+        before=before,
+        after=after,
+        graph=graph,
+        gates=None,
+    )
+    assert target is not None
+    assert target.node_ids == ["I22"]
     assert target.auto_step == 2
 
 

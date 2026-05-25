@@ -431,6 +431,27 @@ def _filter_under_roots(
     return [nid for nid in node_ids if is_node_under_roots(envelope, nid, under_roots)]
 
 
+def largest_added_descendant_frame_id(
+    envelope: Envelope,
+    graph: EditGraph,
+    root_id: str,
+) -> str | None:
+    """Largest added FRAME strictly inside ``root_id`` (excludes the root itself)."""
+    candidates: list[str] = []
+    for nid in graph.added_ids:
+        if nid == root_id:
+            continue
+        node = find_node(envelope, nid)
+        if not node or node.get("type") != "FRAME":
+            continue
+        if not is_node_under_roots(envelope, nid, [root_id]):
+            continue
+        candidates.append(nid)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda nid: _node_frame_area(envelope, nid))
+
+
 def largest_added_frame_id(
     envelope: Envelope,
     graph: EditGraph,

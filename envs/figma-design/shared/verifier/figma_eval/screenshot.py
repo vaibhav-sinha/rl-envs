@@ -7,6 +7,8 @@ from .edit_graph import changed_node_ids
 from .tree import (
     added_frames_under_same_parent,
     added_top_level_frame_ids,
+    find_node,
+    largest_added_descendant_frame_id,
     largest_added_frame_id,
     largest_changed_frame_id,
     largest_frame_among_changes,
@@ -81,6 +83,35 @@ def _resolve_explicit_ids(
     return resolved or None
 
 
+def _resolve_auto_step2_target(
+    envelope: Envelope,
+    graph: EditGraph,
+    top_level_id: str,
+) -> tuple[str, dict[str, Any]]:
+    """Prefer screen content over an added SECTION wrapper at auto step 2."""
+    node = find_node(envelope, top_level_id)
+    if not node or node.get("type") != "SECTION":
+        return top_level_id, {}
+
+    details: dict[str, Any] = {"screenshot_section_id": top_level_id}
+
+    child_frame = largest_added_descendant_frame_id(envelope, graph, top_level_id)
+    if child_frame:
+        details["screenshot_section_child"] = child_frame
+        return child_frame, details
+
+    frame_children = [
+        str(ch["id"])
+        for ch in node.get("children") or []
+        if ch.get("type") == "FRAME" and ch.get("id")
+    ]
+    if len(frame_children) == 1:
+        details["screenshot_section_child"] = frame_children[0]
+        return frame_children[0], details
+
+    return top_level_id, details
+
+
 def _target_from_ids(
     node_ids: list[str],
     *,
@@ -127,13 +158,17 @@ def _resolve_auto(
             auto_step=1,
         )
 
-    # Step 2: exactly 1 added top-level frame
+    # Step 2: exactly 1 added top-level frame (SECTION → inner screen frame)
     added_top = added_top_level_frame_ids(envelope, graph)
     if len(added_top) == 1:
+        target_id, step2_details = _resolve_auto_step2_target(
+            envelope, graph, added_top[0]
+        )
         return _target_from_ids(
-            [added_top[0]],
+            [target_id],
             strategy="auto",
             auto_step=2,
+            details=step2_details,
         )
 
     # Step 3: exactly 1 modified top-level frame
