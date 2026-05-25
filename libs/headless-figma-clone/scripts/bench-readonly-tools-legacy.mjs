@@ -1,8 +1,8 @@
 /**
- * Benchmark readonly MCP tools on oker sale section (Figma 1655:195069).
- * Prints timing.durationMs for get_design_context and get_screenshot (3 runs, median).
+ * Pre-overlay benchmark: legacy compileSubtree (full envelope clone, no renderContext).
+ * Use after `git checkout d3e8558` (parent of overlay commit) + build.
  *
- * Usage: npm run build && node scripts/bench-readonly-tools.mjs
+ * Usage: npm run build && node scripts/bench-readonly-tools-legacy.mjs
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -16,7 +16,6 @@ import { toolJson } from '../dist/mcp/useFigmaMap.js';
 import { JsonPersistence } from '../dist/persistence/JsonPersistence.js';
 import { resolveHfcNodeIdBySourceFigmaId } from '../dist/resolveNodeRef.js';
 import { compileSubtreeForScreenshot } from '../dist/render/compileForScreenshot.js';
-import { createCompileRenderContext } from '../dist/render/compileRenderContext.js';
 import { designCompiler } from '../dist/render/DesignCompiler.js';
 import {
   closeSharedBrowser,
@@ -61,8 +60,6 @@ async function benchDesignContext(engine, nodeId) {
       const compiled = designCompiler.compileSubtree({
         envelope: file,
         rootNodeId: nodeId,
-        graph: engine.getGraphIndexes(),
-        renderContext: createCompileRenderContext(),
         options: {
           viewportPaddingPx: 0,
           includeCss: true,
@@ -89,9 +86,6 @@ async function benchScreenshot(engine, nodeId) {
       const compiled = await compileSubtreeForScreenshot({
         envelope: file,
         rootNodeId: nodeId,
-        graph: engine.getGraphIndexes(),
-        renderContext: createCompileRenderContext(),
-        filePath: fp,
         options: {
           viewportPaddingPx: 0,
           includeCss: true,
@@ -127,15 +121,12 @@ async function main() {
     console.error(`Node ${FIGMA_NODE} not found`);
     process.exit(1);
   }
-
   const engine = await loadEngine();
   console.log(`fixture: ${OKER_PATH}`);
   console.log(`node: ${FIGMA_NODE} -> ${nodeId}`);
-  console.log(`runs: ${RUNS} (median durationMs)`);
-
+  console.log(`runs: ${RUNS} (median durationMs, legacy compile path)`);
   const designMs = await benchDesignContext(engine, nodeId);
   console.log(`get_design_context.durationMs (median): ${designMs}`);
-
   const shotMs = await benchScreenshot(engine, nodeId);
   console.log(`get_screenshot.durationMs (median): ${shotMs}`);
 }

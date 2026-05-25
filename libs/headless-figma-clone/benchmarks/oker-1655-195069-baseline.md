@@ -3,6 +3,8 @@
 Fixture: `envs/figma-design/designs/oker-final-design/design.hfc.json`  
 Figma node: `1655:195069` → HFC `I9149`
 
+Method: median of 3 runs, `timing.durationMs` from the same paths as `scripts/bench-readonly-tools.mjs` (MCP tool queue + compile + Playwright for screenshot).
+
 ## Golden compile hash (legacy clone path)
 
 ```
@@ -16,17 +18,28 @@ npm run build -w headless-figma-clone
 node libs/headless-figma-clone/scripts/capture-oker-golden.mjs
 ```
 
-## MCP tool timing
+## MCP tool timing (pre vs post)
 
-Record `timing.durationMs` from tool JSON (median of 3 runs):
+| Tool | Pre (`d3e8558`, before overlay) | Post (`905589d`, overlay + memo) | Δ ms | Δ % |
+|------|----------------------------------|-----------------------------------|------|-----|
+| `get_design_context` | 8886 | 6390 | −2496 | −28% |
+| `get_screenshot` | 8794 | 6296 | −2498 | −28% |
+
+Pre-change: parent of commit `905589d` (`d3e8558`), legacy `compileSubtree` (full envelope `structuredClone`, no `renderContext`).  
+Post-change: current `compiler-optimizations` / `905589d`, MCP path with `engine.getGraphIndexes()` + `CompileRenderContext`.
+
+Re-run:
 
 ```bash
+# Post (overlay path)
+npm run build -w headless-figma-clone
 npm run benchmark:readonly-compile -w headless-figma-clone
+
+# Pre (legacy path): checkout parent commit, cherry-pick or copy scripts/bench-readonly-tools-legacy.mjs, then:
+git checkout d3e8558
+npm run build -w headless-figma-clone
+node libs/headless-figma-clone/scripts/bench-readonly-tools-legacy.mjs
+git checkout compiler-optimizations
 ```
 
-| Tool | Median durationMs | Notes |
-|------|-------------------|-------|
-| `get_design_context` | 6450 | Overlay compile path (post Phase 2) |
-| `get_screenshot` | 6400 | Pattern tiles + Playwright (post Phase 4 wiring) |
-
-Re-run after each phase and compare to prior row.
+Recorded: 2026-05-25.
