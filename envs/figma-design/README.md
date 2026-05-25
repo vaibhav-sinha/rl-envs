@@ -283,8 +283,7 @@ Build the base image, pull Git LFS design files (`git lfs pull`), then:
 # Single task
 harbor run -p envs/figma-design/tasks/hello-frame --env docker -a terminus-2 -m anthropic/claude-sonnet-4-6
 
-# Full dataset
-harbor run -p envs/figma-design --env docker -a terminus-2 -m anthropic/claude-sonnet-4-6
+harbor run -p envs/figma-design/tasks --env docker -a terminus-2 -m anthropic/claude-sonnet-4-6
 
 # Cursor CLI with skills (requires --with-cursor-cli base build; see Pre-installed agents)
 # harbor run ... --agent-import-path agents.cursor_cli:CursorCliWithSkills -m cursor/auto

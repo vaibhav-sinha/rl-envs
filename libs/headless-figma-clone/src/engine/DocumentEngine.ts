@@ -78,6 +78,7 @@ import { validateEffects } from './validateEffects.js';
 import { assertFigmaObjectAssignable } from './pluginObjectAssign.js';
 import { applySideStrokeWeightPatch } from './sideStrokeWeights.js';
 import { validatePaintArray } from './validatePaints.js';
+import { applyPaintStyleIdsFromPatch } from './paintStyleIds.js';
 import { assignGridChildAutoPlacement } from '../layout/gridLayout.js';
 import {
   syncAxisSizingModesFromLayoutSizing,
@@ -3798,28 +3799,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       }
     }
     validateStrokeGeometry('RECTANGLE', r);
-    if ('fillStyleId' in patch) {
-      const fs = patch.fillStyleId;
-      if (fs === undefined || fs === null) {
-        delete r.fillStyleId;
-      } else {
-        if (typeof fs !== 'string' || !env.paintStyles?.some((s) => s.id === fs)) {
-          throw new ValidationErr('VALIDATION_ERROR', 'fillStyleId must reference an existing paint style');
-        }
-        r.fillStyleId = fs;
-      }
-    }
-    if ('effectStyleId' in patch) {
-      const es = patch.effectStyleId;
-      if (es === undefined || es === null) {
-        delete r.effectStyleId;
-      } else {
-        if (typeof es !== 'string' || !env.effectStyles?.some((s) => s.id === es)) {
-          throw new ValidationErr('VALIDATION_ERROR', 'effectStyleId must reference an existing effect style');
-        }
-        r.effectStyleId = es;
-      }
-    }
+    applyPaintStyleIdsFromPatch(r, patch, env);
     return;
   }
   if (node.type === 'ELLIPSE') {
@@ -3860,6 +3840,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     applyStrokeFieldsFromPatch(e as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('ELLIPSE', e);
+    applyPaintStyleIdsFromPatch(e, patch, env);
     return;
   }
   if (node.type === 'LINE') {
@@ -3907,6 +3888,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     if (typeof ln.strokeWeight !== 'number' || ln.strokeWeight <= 0) {
       throw new ValidationErr('VALIDATION_ERROR', 'LINE.strokeWeight must stay positive');
     }
+    applyPaintStyleIdsFromPatch(ln, patch, env);
     return;
   }
   if (node.type === 'POLYGON') {
@@ -3953,6 +3935,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     applyStrokeFieldsFromPatch(p as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('POLYGON', p);
+    applyPaintStyleIdsFromPatch(p, patch, env);
     return;
   }
   if (node.type === 'STAR') {
@@ -4006,6 +3989,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     applyStrokeFieldsFromPatch(s as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('STAR', s);
+    applyPaintStyleIdsFromPatch(s, patch, env);
     return;
   }
   if (node.type === 'VECTOR') {
@@ -4071,6 +4055,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
     }
     applyStrokeFieldsFromPatch(v as unknown as Record<string, unknown>, patch);
     validateStrokeGeometry('VECTOR', v);
+    applyPaintStyleIdsFromPatch(v, patch, env);
     return;
   }
   if (node.type === 'BOOLEAN_OPERATION') {
@@ -4114,6 +4099,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       validateBlendMode(patch.blendMode, 'BOOLEAN_OPERATION.blendMode');
       b.blendMode = patch.blendMode as BooleanOperationNode['blendMode'];
     }
+    applyPaintStyleIdsFromPatch(b, patch, env);
     return;
   }
   if (node.type === 'TRANSFORM_GROUP') {

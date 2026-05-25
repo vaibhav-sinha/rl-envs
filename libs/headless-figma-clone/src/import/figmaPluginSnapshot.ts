@@ -793,6 +793,9 @@ function importSceneNode(
         effects,
         ...strokeExtras,
         booleanOperation: (optStr(prop(p, 'booleanOperation')) ?? 'UNION') as 'UNION' | 'INTERSECT' | 'SUBTRACT' | 'EXCLUDE',
+        fillStyleId: mapStyleId(idMap, prop(p, 'fillStyleId')),
+        strokeStyleId: mapStyleId(idMap, prop(p, 'strokeStyleId')),
+        effectStyleId: mapStyleId(idMap, prop(p, 'effectStyleId')),
       } as SceneNode;
     }
     case 'GROUP': {

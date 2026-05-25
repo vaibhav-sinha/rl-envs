@@ -47,7 +47,7 @@ harbor run -p envs/figma-design/tasks/oker-create-order-details-screen \
   --env docker -a terminus-2 -m anthropic/claude-sonnet-4-6
 
 # Or run the full dataset
-harbor run -p envs/figma-design --env docker -a terminus-2 -m anthropic/claude-sonnet-4-6
+harbor run -p envs/figma-design/tasks --env docker -a terminus-2 -m anthropic/claude-sonnet-4-6
 ```
 
 ### Optional: Cursor CLI agent

@@ -68,15 +68,6 @@ At the surface level, the Figma Clone provides:
 
 We are explicit about non-goals: the Figma Clone is not a Figma replacement. It excludes the canvas editor, multiplayer, FigJam, Slides, Buzz, prototyping, Dev Mode codegen plugins, Code Connect, video and embed nodes, plugin payments, plugin-data persistence on nodes, and byte-identical Figma rendering. This is a feature, not a limitation: it lets us guarantee the surface that *does* exist behaves consistently and is fully testable.
 
-### 3.4 Why this matters for the contract
-
-If the contract is "produce 100s of high-quality Figma RL tasks," the binding constraint is not authoring tasks — it is running them. With the Figma Clone:
-
-- **No Figma seat per worker.** A trial fleet of 1,000 workers does not require 1,000 Figma seats.
-- **No flaky plugin window.** Real-Figma plugin sessions tie up a desktop process; the Figma Clone runs headless.
-- **Reproducibility for free.** The starting design is baked into the image; the verifier baseline is the same byte-for-byte file across every run.
-- **Trainable today, exportable tomorrow.** Skills learned against the Figma Clone's MCP transfer to Figma's MCP because the tool surface is the same.
-
 ---
 
 ## 4. Task Categories This Environment Unlocks
@@ -111,17 +102,23 @@ Tasks are seeded from a curated library of these designs. One of the bundled tas
 
 ## 6. Task Variety
 
-The environment supports a wide spectrum of task shapes out of the box. All of them share the same runtime, MCP surface, and verifier — only the instruction and `eval-spec.json` change.
+The environment supports a wide spectrum of task shapes out of the box. All of them share the same runtime, MCP surface, and verifier — only the instruction and `eval-spec.json` change. The bundled **oker** task set (ten tasks seeded from a real e-commerce design system) illustrates the range:
 
-- **Greenfield additions.** "Add a new top-level frame named `Hello`, 200×100 with light gray fill at (40,40)." Exercises basic Plugin API competence and structural sanity.
-- **Targeted property edits.** "Rename `Board` to `MainBoard`." Tests precise edits without collateral changes — guarded so renaming the wrong node, or doing more than a rename, is penalized.
-- **Contextual extensions.** "Add terms and conditions link and privacy link to the footer component." Tests reading existing structure, matching style, and integrating new content into a real layout — graded both structurally and visually.
-- **Design system implementation.** Build out new components, variants, or tokens against an existing system. Graded by token-adherence and style/variable-reuse design-system checks.
-- **Multi-screen flows.** Build or extend pages composed of multiple frames; the verifier scopes checks per parent so credit and penalties are localized.
-- **Reference-driven reconstruction.** Match a reference asset (PNG mock or competitor screenshot). Scored via a reference-comparison visual check, where an LLM judge scores preference between agent output and reference.
-- **Regression-style fixes.** Modify a node while preserving its style bindings (variables / shared styles). A dedicated regression check explicitly catches an agent stripping a `textStyleId`/`fillStyleId` and inlining values instead.
+- **Greenfield screen builds.** Create a full mobile screen from scratch inside an existing production file — e.g. an **Order Details** screen with per-shipment tracking, status-dependent content (Ordered, Shipped, Out for Delivery, Delivered), item thumbnails, amount breakup, and delivery address; a **Chat Support** screen with order context bar, user/agent message bubbles, image attachments, and session controls; or a **max OTP attempts** cooldown state in an onboarding sequence (disabled resend button plus countdown copy). Exercises navigation of a large file, reuse of existing components and assets, auto-layout at screen scale, and multi-section information hierarchy — graded with `task_completeness`, `good_design`, and reference-backed consistency checks.
 
-Per-task weights let subject matter experts tune what matters: a "rename" task downweights visual checks; a "build a hero section" task upweights them. Optional checks let the author reward best-effort behavior without making the gate fail.
+- **Targeted edits within existing screens.** Restructure a complex screen without rebuilding it — e.g. on the **PDP** frame, insert a shipping-and-delivery section below color/size choices, move Add to Cart into that section, expand Product Details by default, reorder More Information and "See how the product is styled," and remove duplicate CTAs. Changes are confined via `allowed_change_inside_ids`; structural checks assert real modification under the target frame, not cosmetic tweaks elsewhere.
+
+- **Contextual extensions to existing flows.** Add missing UI that must match sibling patterns in the same file — e.g. a **Brand Filter** screen for the PLP filter flow (multi-select brands with icons, Select All / Deselect All, bottom Apply/Reset bar, left filter-type rail); or a **Sale** section on the home Shop tab (horizontal bundle carousel, urgency banner with remaining-count, eye-catching discount treatment, mixed product types per bundle). Graded structurally (required text, images, minimum additions) and visually via `design_consistency` criteria that pin layout to reference screens (e.g. brand listing positioned like the existing color filter).
+
+- **Design-system implementation.** Systematic token and style work on real nodes — e.g. in the PDP frame, walk every descendant at any nesting level, create a named Fill/paint style for each fill (referencing existing color variables where applicable), and bind each node to its new style instead of inlining hex values. Graded heavily on style/variable-reuse and edited-regression checks, with a `design_consistency` rubric that requires the screen to look **pixel-identical** to the baseline despite the binding changes.
+
+- **Multi-screen and multi-state flows.** Tasks that span several frames or states in one edit — e.g. **Share Collection** (collection page with share affordance → bottom sheet with searchable friend list, checkboxes, and Share CTA, using assets from `/app/assets/`); **My Orders** plus **Order Details** as companion screens in a new Orders section; or adding a new cooldown state to an existing OTP onboarding sequence without disturbing prior states. The verifier scopes gates and checks per parent so credit and penalties stay localized to the frames the agent touched.
+
+- **Reference-driven variants.** Produce an alternative design that must diverge in specified ways while staying on-system — e.g. a **Browse/Category variant** that replaces the small-icon list with a two-column grid of large image-backed category cards and legible text overlays, without modifying the original screen (`additions_only`). Scored via `design_preference` against author reference PNGs and `design_consistency` criteria on typography, spacing, radii, and icon treatment.
+
+- **Regression-style preservation.** Edits where the visible design must not change even though the document model does — most clearly the apply-styles task above, where inlining fills into shared styles must not alter rendered appearance. The edited-regression and style-reuse checks catch agents that strip `textStyleId`/`fillStyleId` bindings or substitute one-off values; visual judges confirm the before/after screenshots still match.
+
+Per-task `category_importance` lets subject matter experts tune what matters: apply-styles upweights `metadata` (diff judge) and `design_system`; screen-building tasks upweight `visual`; confined PDP edits lean on gates plus `task_completeness`. Optional checks let the author reward best-effort behavior without making the gate fail.
 
 ---
 
@@ -137,6 +134,7 @@ Gates encode the structural invariants of the task. **Failing a gate caps the fi
 - **Preserve specified nodes** — listed nodes must still exist in the result. *Prevents:* agents that delete or recreate the file to satisfy a check, breaking the surrounding design.
 - **Confine changes to allowed regions** — all additions, modifications, and deletions must happen under specified roots. *Prevents:* drive-by edits to unrelated parts of the design (a frequent failure mode in long-context plans).
 - **Additions only** — no modifications or deletions. *Prevents:* destructive shortcuts on tasks where the goal is purely additive.
+- **No detached nodes** — every node created via `use_figma` must be attached to the document tree (recorded in `issues.hfc.json`). *Prevents:* agents that create nodes in memory but never parent them, leaving invisible or unreachable content.
 
 ### 7.2 Structural Checks
 
@@ -161,17 +159,35 @@ These three checks together close the "looks right, breaks the system" loophole:
 
 ### 7.4 Visual Checks (LLM Judge)
 
-Visual rubrics use a vision-capable LLM (configurable via `EVAL_JUDGE_MODEL`, defaults to `anthropic/claude-sonnet-4-6`) and the Figma Clone renderer to grade what the eye actually sees. Five spec types, each chosen to target a specific judgment we cannot do programmatically:
+Visual rubrics use a vision-capable LLM (configurable via `EVAL_JUDGE_MODEL`, default `gemini/gemini-3-flash-preview`) and the Figma Clone renderer to grade what the eye actually sees. Five spec types in `eval-spec.json`, each with a type-specific default weight inside the visual category (overridable per check via `weight`):
 
-- **Design consistency.** Render a focus node (largest added, all added, or a specified node); judge spacing, typography, color, hierarchy, alignment, and content overflow on a 1–5 scale. With a surrounding-context node, additional *fit* criteria are added (layout fit, scale, cohesion). *Use:* "is this thing well designed and does it belong here?"
-- **Task completeness.** Render the minimal enclosing frame containing all changes; ask the judge to enumerate task requirements and check each. Returns a binary `completed` flag. *Use:* end-to-end gate on whether the brief was fulfilled.
-- **Before vs. after.** Render the same surrounding context in baseline and result; ask the judge to score 0–10 how well the task was accomplished. *Use:* tasks where the value is the *delta*, not the absolute output.
-- **Compare with reference.** Compare agent output against an author-provided reference image; judge returns a 0–10 preference score. *Use:* tasks with a target visual.
-- **Diff (no images).** Pass the structural diff to the judge as text. *Use:* low-cost gating before paying for renders, or for tasks where structure is the whole story.
+| Type | Default weight | What it judges |
+|---|---|---|
+| `task_completeness` | 8.0 | Whether each task requirement is present *and* production-ready (not stubs or broken layout) |
+| `design_preference` | 3.0 | Whether the agent output is closer to a reference mock than the baseline |
+| `design_consistency` | 2.0 | How well the agent output matches a reference image against author-listed criteria (1–5 per criterion) |
+| `design_fit` | 2.0 | Custom prompt on a specific node, comparing before/after screenshots for integration into the parent frame |
+| `good_design` | 1.0 | General quality of the agent's new work — defect dimensions (placeholders, proportions, completeness) plus typography, spacing, color, hierarchy |
 
-LLM-judge calls are parallelized (default 4) and can be skipped entirely for fast offline iteration, in which case visual checks return a fixed placeholder so authors can still iterate on structural rubrics.
+Screenshot targets are resolved from a per-task `screenshot` block (`strategy`: `auto`, `explicit`, `largest_added_frame`, `minimal_enclosing`, `all_added_frames`, etc.). Renders land under `/logs/verifier/screenshots/`.
 
-### 7.5 Heuristics
+LLM-judge calls are parallelized (default 4) and can be skipped entirely (`skip_llm`) for fast offline iteration; skipped visual checks return a fixed placeholder score of **0.75** so authors can still iterate on structural rubrics.
+
+### 7.5 Metadata Checks (LLM Judge, No Screenshots)
+
+The `metadata_checks` array holds text-only LLM rubrics that share the `metadata` scoring category:
+
+- **`diff`** — passes a structured edit-graph summary plus the task instruction to the judge; returns a 0–10 score. *Use:* low-cost signal on whether the structural delta matches the brief before paying for renders, or as a complement to visual checks.
+
+Skipped metadata checks use the same **0.75** placeholder as visual checks.
+
+### 7.6 Command Correctness
+
+Always evaluated when `issues.hfc.json` records `use_figma` command attempts:
+
+- **Command correctness** — fraction of recorded plugin runs that succeeded. If any run failed, the score is capped at **0.5** even when most runs succeeded, so flaky scripting cannot fully mask broken edits. When no commands were recorded, the subcheck is marked not applicable and dropped from the category average.
+
+### 7.7 Heuristics
 
 Always-on, deterministic, scoped to content the agent touched. Cheap signals that catch the long tail of "looks plausible to a judge, fails on inspection":
 
@@ -179,7 +195,7 @@ Always-on, deterministic, scoped to content the agent touched. Cheap signals tha
 - **Distinct font count.** Penalizes more than five distinct font signatures. *Prevents:* "novelty by font soup," a typical generative failure mode.
 - **Readable font size.** Penalizes any text below 10px. *Prevents:* the agent shrinking text to fit a constraint.
 
-### 7.6 Why scoping matters (anti-reward-hacking note)
+### 7.8 Why scoping matters (anti-reward-hacking note)
 
 A subtle but critical design choice: **design-system checks and heuristics only consider the node IDs the agent touched** (additions and non-metadata modifications), traversed transitively. This means:
 
@@ -191,29 +207,64 @@ A subtle but critical design choice: **design-system checks and heuristics only 
 
 ## 8. Hierarchical Rewards
 
-The verifier emits a single `figma_design_score` ∈ [0, 10] but produces it from a multi-tier aggregation that is much more informative for RL credit assignment. The tiers, top-down:
+The verifier runs inside the trial container under **RewardKit** and exposes a single criterion, `figma_design_score`, in **`[0, 1]`**. Harbor uses that value as the trial reward. The same run also writes detailed reports where the score appears on a 0–10 scale:
 
-```
-final = clamp(0, 10,  completion_gate * raw * 10)
-
-raw = weighted_mean(category_scores, category_weights)
-  where category_scores ∈ {gates, structural checks, design system, visual, heuristics}
-  and each is a weighted mean over its applicable subchecks
-
-completion_gate = min(
-   1.0,
-   0.2 if any gate failed,
-   0.3 if any required structural check < 1.0
-)
+```text
+reward = clamp(0, 1, score_0_10 / 10)
+score_0_10 = clamp(0, 10, completion_gate × raw × 10)
 ```
 
-Default category weights: gates `1.0`, structural checks `0.35`, design system `0.2`, visual `0.35`, heuristics `0.1`. Per-task overrides live in `eval-spec.json`. Subchecks marked not applicable (because they are not relevant to this task — e.g., no content changes, so no design-system content to grade) are dropped before averaging, so unused checks neither help nor hurt.
+Scoring has two layers that must not be conflated:
+
+1. **`completion_gate`** — multiplicative hard caps from gates and required structural checks. **Gates never enter the quality average.**
+2. **`raw`** — weighted mean over **scoring categories only**, each category itself a weighted mean of its applicable subchecks.
+
+```
+completion_gate = 1.0
+  → min(0.2) if any applicable gate scores below 1.0
+  → min(0.3) if any applicable required structural check scores below 1.0
+
+raw = Σ (category_mean × normalized_importance)
+  over scoring categories with at least one applicable subcheck
+
+category_mean = Σ (subcheck_score × subcheck_weight) / Σ subcheck_weight
+  (not-applicable subchecks omitted)
+```
+
+### Scoring categories and default importance
+
+These six categories contribute to `raw`. Per-task overrides go in `eval-spec.json` under `category_importance` (the legacy `weights` key is also accepted; a `gates` entry is ignored if present). Importances are normalized to sum to 1 among categories that actually apply.
+
+| Category | Default importance | Subchecks |
+|---|---|---|
+| `commands` | 0.15 | `use_figma` success rate from `issues.hfc.json` |
+| `checks` | 0.35 | Per-task structural checks (`must_contain_text`, `property_on_node`, …) |
+| `design_system` | 0.2 | Token adherence, style/variable reuse, edited regression |
+| `visual` | 0.35 | LLM + screenshot judges (`good_design`, `task_completeness`, …) |
+| `heuristics` | 0.1 | Contrast, font count, readable font size |
+| `metadata` | 0.1 | Text-only LLM judges (`diff`) |
+
+Within the **visual** category, each check type has a built-in default weight (e.g. `task_completeness` **8.0**, `design_preference` **3.0**, `design_consistency` **2.0**, `design_fit` **2.0**, `good_design` **1.0**). Authors can override any subcheck via an explicit `weight` field in the spec entry.
+
+**Gates** (`require_change`, `preserve_ids`, `allowed_change_inside_ids`, `additions_only`, `no_detached_nodes`) appear in the report under the `gates` category for transparency but affect only `completion_gate`.
+
+### Example
+
+A task might set `"category_importance": { "visual": 0.51, "checks": 0.35, "commands": 0.15, … }` to emphasize visual judgment on a screen-building task, while a rename task might zero out visual importance and lean on `checks`.
+
+### Reports and RL properties
+
+After each trial, the verifier writes:
+
+- `/logs/verifier/reward.json` — final RewardKit reward
+- `/logs/verifier/eval-report.json` — `score`, `completion_gate`, `raw`, and per-subcheck list
+- `/logs/verifier/eval-report-details.json` — category-grouped breakdown with every subcheck's score (as `reward`), weight, applicability, and judge details
 
 This shape gives RL several useful properties:
 
-- **Sharp gates, dense gradient.** An agent that only half-completes a task gets a meaningfully non-zero raw score it can climb, but cannot reach the top band without passing gates and required checks. This is the same shape that has been shown to stabilize RL on multi-step tool-use tasks.
-- **Per-subcheck breakdown.** The full report lands in `/logs/verifier/eval-report-details.json` with every subcheck's identifier, category, score, applicability, weight, and details (matched node IDs, contrast ratios, sample violations, raw judge JSON). This is a clean signal source for offline RL rejection sampling, dense reward shaping, or post-hoc analysis.
-- **Determinism where it matters.** Gates, structural checks, design-system checks, and heuristics are fully deterministic. Only the visual category uses an LLM judge, and that runs at temperature 0 with structured JSON output, parsed strictly.
+- **Sharp gates, dense gradient.** An agent that only half-completes a task can still earn a non-zero `raw` score to climb, but `completion_gate` prevents reaching the top band without passing gates and required structural checks — the same pattern that stabilizes RL on multi-step tool-use tasks.
+- **Per-subcheck breakdown.** Matched node IDs, contrast ratios, command success counts, and raw judge JSON are all available for offline rejection sampling, dense reward shaping, or post-hoc analysis.
+- **Determinism where it matters.** Gates, structural checks, design-system checks, heuristics, and command correctness are fully deterministic. **Visual** and **metadata** categories use an LLM judge at temperature 0 with structured JSON output, parsed strictly. Set `skip_llm` to bypass LLM calls during rubric development (placeholder score **0.75**).
 
 ---
 
@@ -227,7 +278,9 @@ What a subject matter expert configures per task:
 - **Structural checks** with target node IDs and scopes pulled directly from the source Figma file.
 - **Visual checks** — which spec type, which node to render, which criteria to weight (consistency vs. fit), and any reference asset.
 - **Design-system stance** — opting a creative task out of token-allowlist enforcement; default behavior enforces the system.
-- **Category weights** — to express "this task is a rename, structural correctness is everything" vs. "this is a hero section, visual judgment dominates."
+- **`category_importance`** — to express "this task is a rename, structural correctness is everything" vs. "this is a hero section, visual judgment dominates."
+- **Visual and metadata checks** — which LLM judge types to run, screenshot strategy, reference assets, and per-check weights.
+- **Command and gate stance** — whether `no_detached_nodes` or command correctness should factor into scoring for script-heavy tasks.
 
 This per-task rubric authoring is what separates this from generic "is the JSON valid" evals. The grader has a **task-specific theory of correctness**, and that theory was written by a human who understands design.
 

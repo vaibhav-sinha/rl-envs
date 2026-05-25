@@ -460,7 +460,8 @@ function fontSizeForSvgText(env: FileEnvelope, t: TextNode, fallbackPx: number):
 function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; fontWeight: number; fills: Paint[] | undefined; fontSizeCss: string; fontName?: import('../model/types.js').FontName } {
   let fontSize = effectiveTextBaseFontSizePx(t, env);
   let fontWeight = t.fontWeight ?? 400;
-  let fills = t.fills;
+  const resolvedFills = effectiveShapeFills(t, env);
+  let fills = resolvedFills.length ? resolvedFills : t.fills;
   const fontName = effectiveTextBaseFontName(t, env);
   if (t.textStyleId) {
     const st = env.textStyles?.find((s) => s.id === t.textStyleId);
@@ -544,31 +545,52 @@ function effectiveTextCharacters(t: TextNode, env: FileEnvelope): string {
   return normalizeFigmaText(rawTextCharacters(t, env));
 }
 
-function effectiveRectFills(r: RectangleNode, env: FileEnvelope): Paint[] {
-  if (r.fills?.length) return r.fills;
-  if (r.fillStyleId) {
-    const ps = env.paintStyles?.find((p) => p.id === r.fillStyleId);
+type ShapeWithPaintStyles = {
+  fills?: Paint[];
+  strokes?: Paint[];
+  effects?: Effect[];
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
+};
+
+function effectiveShapeFills(node: ShapeWithPaintStyles, env: FileEnvelope): Paint[] {
+  if (node.fills?.length) return node.fills;
+  if (node.fillStyleId) {
+    const ps = env.paintStyles?.find((p) => p.id === node.fillStyleId);
     return ps?.paints ?? [];
   }
   return [];
 }
 
-function effectiveRectEffects(r: RectangleNode, env: FileEnvelope): Effect[] | undefined {
-  if (r.effects?.length) return r.effects;
-  if (r.effectStyleId) {
-    const st = env.effectStyles?.find((s) => s.id === r.effectStyleId);
+function effectiveShapeEffects(node: ShapeWithPaintStyles, env: FileEnvelope): Effect[] | undefined {
+  if (node.effects?.length) return node.effects;
+  if (node.effectStyleId) {
+    const st = env.effectStyles?.find((s) => s.id === node.effectStyleId);
     if (st?.effects?.length) return st.effects;
   }
-  return r.effects;
+  return node.effects;
+}
+
+function effectiveShapeStrokes(node: ShapeWithPaintStyles, env: FileEnvelope): Paint[] {
+  if (node.strokes?.length) return node.strokes;
+  if (node.strokeStyleId) {
+    const ps = env.paintStyles?.find((p) => p.id === node.strokeStyleId);
+    return ps?.paints ?? [];
+  }
+  return node.strokes ?? [];
+}
+
+function effectiveRectFills(r: RectangleNode, env: FileEnvelope): Paint[] {
+  return effectiveShapeFills(r, env);
+}
+
+function effectiveRectEffects(r: RectangleNode, env: FileEnvelope): Effect[] | undefined {
+  return effectiveShapeEffects(r, env);
 }
 
 function effectiveRectStrokes(r: RectangleNode, env: FileEnvelope): Paint[] {
-  if (r.strokes?.length) return r.strokes;
-  if (r.strokeStyleId) {
-    const ps = env.paintStyles?.find((p) => p.id === r.strokeStyleId);
-    return ps?.paints ?? [];
-  }
-  return r.strokes ?? [];
+  return effectiveShapeStrokes(r, env);
 }
 
 function effectiveFrameFills(f: FrameNode, env: FileEnvelope): Paint[] {
@@ -1130,9 +1152,12 @@ function operandPathD(op: SceneNode): string {
   return 'M0,0';
 }
 
-function booleanOperationFills(b: BooleanOperationNode): Paint[] {
-  const visible = (b.fills ?? []).filter((f) => f.visible !== false);
-  if (visible.length > 0) return b.fills ?? [];
+function booleanOperationFills(b: BooleanOperationNode, env: FileEnvelope): Paint[] {
+  const inline = b.fills ?? [];
+  const visibleInline = inline.filter((f) => f.visible !== false);
+  if (visibleInline.length > 0) return inline;
+  const fromStyle = effectiveShapeFills(b, env).filter((f) => f.visible !== false);
+  if (fromStyle.length > 0) return effectiveShapeFills(b, env);
   return [resolveBooleanDisplayFill(b)];
 }
 
@@ -1158,8 +1183,8 @@ function emitBooleanOperation(
 ): void {
   const w = b.width;
   const h = b.height;
-  const fills = booleanOperationFills(b);
-  const shadow = nodeEffectsCss(b.effects, env, b, warnings, 'boolean');
+  const fills = booleanOperationFills(b, env);
+  const shadow = nodeEffectsCss(effectiveShapeEffects(b, env), env, b, warnings, 'boolean');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;flex:${String(b.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
@@ -1228,24 +1253,26 @@ function emitVector(
   const w = Math.max(v.width, vp?.width ?? 0);
   const h = Math.max(v.height, vp?.height ?? 0);
   const viewBox = vp?.viewBox ?? `0 0 ${String(w)} ${String(h)}`;
-  const shadow = nodeEffectsCss(v.effects, env, v, warnings, 'vector');
+  const vectorFills = effectiveShapeFills(v, env);
+  const vectorStrokes = effectiveShapeStrokes(v, env);
+  const shadow = nodeEffectsCss(effectiveShapeEffects(v, env), env, v, warnings, 'vector');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;flex:${String(v.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
   htmlParts.push(`<div class="hfc-node-${v.id}" data-hfc-id="${v.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(v.id)}{${pos}width:${String(w)}px;height:${String(h)}px;box-sizing:border-box;${opRot}${shadow}}`);
   const sw = v.strokeWeight ?? 0;
-  const sp = v.strokes?.[0];
+  const sp = vectorStrokes[0];
   const strokePart =
     sp && sp.type === 'SOLID' && sw > 0
-      ? ` ${svgStrokeAttrs({ strokes: v.strokes, strokeWeight: sw, strokeCap: v.strokeCap, strokeJoin: v.strokeJoin })}${dashArrayAttr(v)}`
+      ? ` ${svgStrokeAttrs({ strokes: vectorStrokes, strokeWeight: sw, strokeCap: v.strokeCap, strokeJoin: v.strokeJoin })}${dashArrayAttr(v)}`
       : '';
   let defs = '';
   const pathHtml = v.vectorPaths
     .map((p, i) => {
       const stacked = buildSvgStackedFillPaths(
         p.data,
-        v.fills,
+        vectorFills,
         `${v.id}-p${String(i)}`,
         w,
         h,
@@ -2787,8 +2814,8 @@ function emitEllipse(
     );
     return;
   }
-  const shadow = nodeEffectsCss(e.effects, env, e, warnings, 'ellipse');
-  const fillCss = stackedFillsCss(e.fills ?? [], imgMap, patternTiles, warnings, `ellipse:${e.id}`, env);
+  const shadow = nodeEffectsCss(effectiveShapeEffects(e, env), env, e, warnings, 'ellipse');
+  const fillCss = stackedFillsCss(effectiveShapeFills(e, env), imgMap, patternTiles, warnings, `ellipse:${e.id}`, env);
   const pos = insideFlex
     ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(e.width)}px;height:${String(e.height)}px;`;
@@ -2796,7 +2823,8 @@ function emitEllipse(
   cssParts.push(
     `${hfcNodeCssSel(e.id)}{${pos}box-sizing:border-box;border-radius:50%;${fillCss}${opRot}${shadow}}`
   );
-  const stroke = e.strokes?.[0];
+  const ellipseStrokes = effectiveShapeStrokes(e, env);
+  const stroke = ellipseStrokes[0];
   const sw = e.strokeWeight ?? 0;
   if (stroke?.type === 'SOLID' && sw > 0) {
     cssParts.push(
@@ -2824,18 +2852,20 @@ function emitEllipseArcSvg(
   const w = e.width;
   const h = e.height;
   const d = ellipseArcPathD(w, h, e.arcData!);
-  const shadow = nodeEffectsCss(e.effects, env, e, warnings, 'ellipse');
+  const ellipseFills = effectiveShapeFills(e, env);
+  const ellipseStrokes = effectiveShapeStrokes(e, env);
+  const shadow = nodeEffectsCss(effectiveShapeEffects(e, env), env, e, warnings, 'ellipse');
   const pos = insideFlex
     ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${e.id}" data-hfc-id="${e.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(e.id)}{${pos}box-sizing:border-box;${opRot}${shadow}}`);
-  const stacked = buildSvgStackedFillPaths(d, e.fills, e.id, w, h, imgMap, warnings, `ellipse_arc:${e.id}`, env);
+  const stacked = buildSvgStackedFillPaths(d, ellipseFills, e.id, w, h, imgMap, warnings, `ellipse_arc:${e.id}`, env);
   const sw = e.strokeWeight ?? 0;
-  const sp = e.strokes?.[0];
+  const sp = ellipseStrokes[0];
   const strokePart =
     sp && sp.type === 'SOLID' && sw > 0
-      ? ` ${svgStrokeAttrs({ strokes: e.strokes, strokeWeight: sw, strokeCap: e.strokeCap, strokeJoin: e.strokeJoin })}${dashArrayAttr(e)}`
+      ? ` ${svgStrokeAttrs({ strokes: ellipseStrokes, strokeWeight: sw, strokeCap: e.strokeCap, strokeJoin: e.strokeJoin })}${dashArrayAttr(e)}`
       : '';
   const pathsHtml = appendSvgStrokeToPaths(stacked.pathsHtml, strokePart);
   htmlParts.push(
@@ -2905,8 +2935,9 @@ function emitLine(
   const w = ln.width;
   const h = ln.height;
   const { vbW, vbH, x1, y1, x2, y2, svgW, svgH, svgLeft, svgTop } = lineSvgLayout(ln);
-  const shadow = nodeEffectsCss(ln.effects, env, ln, warnings, 'line');
-  const stroke = ln.strokes[0];
+  const lineStrokes = effectiveShapeStrokes(ln, env);
+  const shadow = nodeEffectsCss(effectiveShapeEffects(ln, env), env, ln, warnings, 'line');
+  const stroke = lineStrokes[0];
   const col = stroke.type === 'SOLID' ? rgbaFromSolid(stroke) : '#000';
   const dash = ln.dashPattern?.length ? ` stroke-dasharray="${escapeAttr(ln.dashPattern.map((x) => String(x)).join(' '))}"` : '';
   const cap = mapStrokeCapSvg(ln.strokeCap);
@@ -2938,18 +2969,20 @@ function emitPolygon(
   const w = p.width;
   const h = p.height;
   const d = polygonPointsD(p.pointCount, w, h);
-  const shadow = nodeEffectsCss(p.effects, env, p, warnings, 'polygon');
+  const polygonFills = effectiveShapeFills(p, env);
+  const polygonStrokes = effectiveShapeStrokes(p, env);
+  const shadow = nodeEffectsCss(effectiveShapeEffects(p, env), env, p, warnings, 'polygon');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(p.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${p.id}" data-hfc-id="${p.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(p.id)}{${pos}${opRot}${shadow}}`);
-  const stacked = buildSvgStackedFillPaths(d, p.fills, p.id, w, h, imgMap, warnings, `polygon:${p.id}`, env);
+  const stacked = buildSvgStackedFillPaths(d, polygonFills, p.id, w, h, imgMap, warnings, `polygon:${p.id}`, env);
   const sw = p.strokeWeight ?? 0;
-  const sp = p.strokes?.[0];
+  const sp = polygonStrokes[0];
   const strokePart =
     sp && sp.type === 'SOLID' && sw > 0
-      ? ` ${svgStrokeAttrs({ strokes: p.strokes, strokeWeight: sw, strokeCap: p.strokeCap, strokeJoin: p.strokeJoin })}${dashArrayAttr(p)}`
+      ? ` ${svgStrokeAttrs({ strokes: polygonStrokes, strokeWeight: sw, strokeCap: p.strokeCap, strokeJoin: p.strokeJoin })}${dashArrayAttr(p)}`
       : '';
   const pathsHtml = appendSvgStrokeToPaths(stacked.pathsHtml, strokePart);
   htmlParts.push(
@@ -2973,18 +3006,20 @@ function emitStar(
   const w = s.width;
   const h = s.height;
   const d = starPathD(s.pointCount, s.innerRadius, w, h);
-  const shadow = nodeEffectsCss(s.effects, env, s, warnings, 'star');
+  const starFills = effectiveShapeFills(s, env);
+  const starStrokes = effectiveShapeStrokes(s, env);
+  const shadow = nodeEffectsCss(effectiveShapeEffects(s, env), env, s, warnings, 'star');
   const pos = insideFlex
     ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(s.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(w)}px;height:${String(h)}px;`;
   htmlParts.push(`<div class="hfc-node-${s.id}" data-hfc-id="${s.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(s.id)}{${pos}${opRot}${shadow}}`);
-  const stacked = buildSvgStackedFillPaths(d, s.fills, s.id, w, h, imgMap, warnings, `star:${s.id}`, env);
+  const stacked = buildSvgStackedFillPaths(d, starFills, s.id, w, h, imgMap, warnings, `star:${s.id}`, env);
   const sw = s.strokeWeight ?? 0;
-  const sp = s.strokes?.[0];
+  const sp = starStrokes[0];
   const strokePart =
     sp && sp.type === 'SOLID' && sw > 0
-      ? ` ${svgStrokeAttrs({ strokes: s.strokes, strokeWeight: sw, strokeCap: s.strokeCap, strokeJoin: s.strokeJoin })}${dashArrayAttr(s)}`
+      ? ` ${svgStrokeAttrs({ strokes: starStrokes, strokeWeight: sw, strokeCap: s.strokeCap, strokeJoin: s.strokeJoin })}${dashArrayAttr(s)}`
       : '';
   const pathsHtml = appendSvgStrokeToPaths(stacked.pathsHtml, strokePart);
   htmlParts.push(

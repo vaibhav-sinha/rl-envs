@@ -652,6 +652,9 @@ export interface EllipseNode extends NodeBase, LayoutSelfFields {
   dashPattern?: number[];
   effects?: Effect[];
   arcData?: { startingAngle: number; endingAngle: number; innerRadius: number };
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
 }
 
 export interface LineNode extends NodeBase, LayoutSelfFields {
@@ -669,6 +672,9 @@ export interface LineNode extends NodeBase, LayoutSelfFields {
   strokeJoin?: StrokeJoin;
   dashPattern?: number[];
   effects?: Effect[];
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
 }
 
 export interface PolygonNode extends NodeBase, LayoutSelfFields {
@@ -691,6 +697,9 @@ export interface PolygonNode extends NodeBase, LayoutSelfFields {
   miterLimit?: number;
   dashPattern?: number[];
   effects?: Effect[];
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
 }
 
 export interface StarNode extends NodeBase, LayoutSelfFields {
@@ -714,6 +723,9 @@ export interface StarNode extends NodeBase, LayoutSelfFields {
   miterLimit?: number;
   dashPattern?: number[];
   effects?: Effect[];
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
 }
 
 export interface VectorPathData {
@@ -741,6 +753,9 @@ export interface VectorNode extends NodeBase, LayoutSelfFields {
   miterLimit?: number;
   dashPattern?: number[];
   effects?: Effect[];
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
 }
 
 export type BooleanOperandNode = RectangleNode | EllipseNode | PolygonNode | StarNode | VectorNode;
@@ -759,6 +774,9 @@ export interface BooleanOperationNode extends NodeBase, LayoutSelfFields {
   children: BooleanOperandNode[];
   fills?: Paint[];
   effects?: Effect[];
+  fillStyleId?: string;
+  strokeStyleId?: string;
+  effectStyleId?: string;
 }
 
 /** @see Figma Plugin API — {@link https://developers.figma.com/docs/plugins/api/TransformModifier} */
