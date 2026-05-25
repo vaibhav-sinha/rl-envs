@@ -249,7 +249,11 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
           };
         }
         try {
-          const root = collectMetadataTree(node, { maxDepth: args.maxDepth, signal, working: file });
+          const root = collectMetadataTree(node, {
+            maxDepth: args.maxDepth,
+            signal,
+            graph: engine.getGraphIndexes(),
+          });
           const payload = {
             metadataFormatVersion: 1 as const,
             childStacking: 'later-children-on-top' as const,
