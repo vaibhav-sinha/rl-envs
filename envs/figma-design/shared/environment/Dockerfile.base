@@ -37,7 +37,8 @@ ENV HFC_CLI=/opt/hfc/dist/cli.js \
   HFC_HTTP_HOST=127.0.0.1 \
   HFC_HTTP_PORT=3847 \
   HFC_WORKSPACE_DIR=/data/workspace \
-  HFC_FONTS_DIR=/opt/hfc/fonts
+  HFC_FONTS_DIR=/opt/hfc/fonts \
+  FIGMA_DESIGN_HFC_PREBUILT=${HFC_PREBUILT}
 
 WORKDIR /app
 

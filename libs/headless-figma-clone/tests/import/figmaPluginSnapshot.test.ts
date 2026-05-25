@@ -114,8 +114,8 @@ describe('boundsFromProps', () => {
     expect(frame?.type).toBe('FRAME');
     if (frame?.type !== 'FRAME') return;
 
-    expect(frame.x).toBe(2742);
-    expect(frame.y).toBe(3003);
+    expect(frame.x).toBe(4921);
+    expect(frame.y).toBe(344);
 
     const text = frame.children.find((c) => c.type === 'TEXT');
     expect(text?.type).toBe('TEXT');
@@ -130,6 +130,6 @@ describe('boundsFromProps', () => {
     });
     const blob = `${compiled.html}\n${compiled.css}`;
     expect(blob).toContain('Order details');
-    expect(blob).toMatch(/left:2742px|left:80px/);
+    expect(blob).toMatch(/left:4921px|left:80px/);
   });
 });

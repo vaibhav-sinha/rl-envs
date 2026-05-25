@@ -44,7 +44,9 @@
                   "y": 344,
                   "width": 360,
                   "height": 800,
-                  "absoluteBoundingBox": { "x": 4921, "y": 344, "width": 360, "height": 800 },
+                  "relativeTransform": [[1, 0, 4921], [0, 1, 344]],
+                  "absoluteTransform": [[1, 0, 7100], [0, 1, -2315]],
+                  "absoluteBoundingBox": { "x": 7100, "y": -2315, "width": 360, "height": 800 },
                   "fills": [
                     {
                       "type": "SOLID",
@@ -63,7 +65,7 @@
                       "y": 368,
                       "width": 200,
                       "height": 24,
-                      "absoluteBoundingBox": { "x": 4945, "y": 368, "width": 200, "height": 24 },
+                      "absoluteBoundingBox": { "x": 7124, "y": -2291, "width": 200, "height": 24 },
                       "characters": "Order details",
                       "fontSize": 18,
                       "fontName": { "family": "Inter", "style": "Regular" }
