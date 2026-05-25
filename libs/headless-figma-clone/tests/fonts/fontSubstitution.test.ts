@@ -10,6 +10,13 @@ describe('fontSubstitution', () => {
     });
   });
 
+  it('keeps available Barlow faces', () => {
+    expect(resolveRenderingFontName({ family: 'Barlow', style: 'Semi Bold' })).toEqual({
+      family: 'Barlow',
+      style: 'Semi Bold',
+    });
+  });
+
   it('substitutes missing families to closest Inter weight', () => {
     expect(resolveRenderingFontName({ family: 'Roboto', style: 'Bold' })).toEqual({
       family: 'Inter',

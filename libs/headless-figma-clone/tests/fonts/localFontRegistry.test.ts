@@ -7,11 +7,13 @@ import {
 } from '../../src/fonts/localFontRegistry.js';
 
 describe('localFontRegistry', () => {
-  it('loads Inter manifest with all upright weights', () => {
+  it('loads bundled manifests with all upright weights', () => {
     const faces = listLocalFontFaces();
-    expect(faces.length).toBe(9);
+    expect(faces.length).toBe(18);
     expect(faces.some((f) => f.family === 'Inter' && f.style === 'Regular')).toBe(true);
+    expect(faces.some((f) => f.family === 'Barlow' && f.style === 'Semi Bold')).toBe(true);
     expect(isFontAvailable({ family: 'Inter', style: 'Semi Bold' })).toBe(true);
+    expect(isFontAvailable({ family: 'Barlow', style: 'Bold' })).toBe(true);
     expect(isFontAvailable({ family: 'Roboto', style: 'Regular' })).toBe(false);
   });
 
@@ -24,11 +26,13 @@ describe('localFontRegistry', () => {
   });
 
   it('emits @font-face rules with woff2 URLs', () => {
-    const css = getFontFaceCss('http://127.0.0.1:3847/fonts/inter/', [
+    const css = getFontFaceCss('http://127.0.0.1:3847/fonts/', [
       { family: 'Inter', style: 'Regular' },
+      { family: 'Barlow', style: 'Bold' },
     ]);
     expect(css).toContain('@font-face');
-    expect(css).toContain('Inter-Regular.woff2');
+    expect(css).toContain('inter/Inter-Regular.woff2');
+    expect(css).toContain('barlow/Barlow-Bold.woff2');
     expect(css).toContain('format("woff2")');
   });
 });

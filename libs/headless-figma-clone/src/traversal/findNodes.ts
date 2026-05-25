@@ -1,5 +1,6 @@
-import type { AnyTreeNode, FileEnvelope, SceneNode } from '../model/types.js';
+import type { AnyTreeNode, FileEnvelope, InstanceNode, SceneNode } from '../model/types.js';
 import { findEnvelopeNode } from '../engine/DocumentEngine.js';
+import { resolveSelectedComponentIdInEnvelope } from '../engine/componentResolve.js';
 import type { NodeIndex } from '../engine/nodeIndex.js';
 import { throwIfAborted } from '../mcp/inFlightAbort.js';
 import { ValidationErr } from '../util/errors.js';
@@ -127,18 +128,22 @@ function collectStructuralChildren(node: AnyTreeNode): SceneNode[] {
 
 function resolveInstanceMainComponentId(
   working: FileEnvelope,
-  inst: import('../model/types.js').ComponentInstanceNode,
+  inst: import('../model/types.js').ComponentInstanceNode | InstanceNode,
   nodeIndex?: NodeIndex
 ): string | null {
+  if (inst.type === 'INSTANCE') {
+    try {
+      return resolveSelectedComponentIdInEnvelope(working, inst);
+    } catch {
+      return inst.mainComponentId ?? null;
+    }
+  }
   const main = lookup(working, inst.mainComponentId, nodeIndex);
   if (!main) return null;
   if (main.type === 'COMPONENT') return main.id;
   if (main.type === 'COMPONENT_SET') {
     const set = main as import('../model/types.js').ComponentSetNode;
-    const raw = set.variantOptions?.[0];
-    const options = set.variantOptions ?? set.componentIds;
-    const idx = options.indexOf(String(raw));
-    return set.componentIds[idx] ?? set.componentIds[0] ?? null;
+    return set.componentIds[0] ?? null;
   }
   return null;
 }

@@ -103,7 +103,13 @@ import {
   assertTextFontsLoadedForNewText,
   assertTextFontsLoadedForPatch,
 } from '../fonts/textFontLoading.js';
-import { buildGraphIndexes, resolveParentNode, type GraphIndexes } from './nodeIndex.js';
+import {
+  findComponentSetForComponent,
+  getEnvelopeGraphIndexes,
+  graphIndexesForOp,
+  resolveParentNode,
+  type GraphIndexes,
+} from './nodeIndex.js';
 import { buildNodeRefIndex } from '../resolveNodeRef.js';
 import {
   applyIndexAfterDeleteOp,
@@ -2014,6 +2020,13 @@ export function duplicateNodeInEnvelope(
     });
   }
 
+  applyIndexForEngineOp(
+    graphIndexesForOp(working, ctx),
+    working,
+    { op: 'duplicateNode', nodeId },
+    cloned.id
+  );
+
   return cloned.id;
 }
 
@@ -2160,6 +2173,7 @@ function syncInstanceAfterComponentProperties(
   if (prevCompId === nextCompId) {
     applyComponentPropertiesToInstanceChildren(inst, nextProps);
   } else {
+    inst.mainComponentId = nextCompId;
     refreshInstanceChildrenPreservingIds(env, inst);
     applyComponentPropertiesToInstanceChildren(inst, nextProps);
   }
@@ -2229,6 +2243,12 @@ export function detachInstanceInEnvelope(
   };
 
   list[idx] = frame;
+  applyIndexForEngineOp(
+    graphIndexesForOp(working, ctx),
+    working,
+    { op: 'detachInstance', nodeId: instanceId },
+    inst.id
+  );
   return inst.id;
 }
 
@@ -2338,7 +2358,9 @@ export function applyCreateNodeOp(
   op: Extract<SceneGraphOperation, { op: 'createNode' }>,
   ctx?: EngineOpContext
 ): string {
-  const parent = lookupNodeForOp(working, op.parentId, ctx);
+  const indexes = graphIndexesForOp(working, ctx);
+  const effectiveCtx: EngineOpContext = ctx?.indexes ? ctx : { ...ctx, indexes };
+  const parent = lookupNodeForOp(working, op.parentId, effectiveCtx);
   if (!parent) throw new ValidationErr('UNKNOWN_NODE', `Unknown parent ${op.parentId}`);
   if (!parentAllowsChild(parent.type, op.node.type)) {
     throw new ValidationErr('VALIDATION_ERROR', `Cannot create ${op.node.type} under ${parent.type}`);
@@ -2346,7 +2368,7 @@ export function applyCreateNodeOp(
   let id: string;
   if (op.nodeId !== undefined) {
     id = op.nodeId;
-    const existing = lookupNodeForOp(working, id, ctx);
+    const existing = lookupNodeForOp(working, id, effectiveCtx);
     if (existing) {
       if (existing.type !== op.node.type) {
         throw new ValidationErr(
@@ -2410,7 +2432,7 @@ export function applyCreateNodeOp(
       op.node as Record<string, unknown>
     );
   }
-  attachSceneNode(working.document, op.parentId, op.index, node, ctx);
+  attachSceneNode(working.document, op.parentId, op.index, node, effectiveCtx);
   if (parent.type === 'FRAME' && node.type !== 'PAGE') {
     applyAutoLayoutChildDefaults(parent, node);
     if (parent.layoutMode === 'GRID') {
@@ -2426,6 +2448,7 @@ export function applyCreateNodeOp(
   if (isAutoLayoutFrame(parent)) {
     applyAutoLayoutIntrinsicSizingDeep(parent, working);
   }
+  applyIndexForEngineOp(indexes, working, op, id);
   return id;
 }
 
@@ -2438,10 +2461,11 @@ export function findEnvelopeNode(
   if (index) {
     const hit = index.get(nodeId);
     if (hit) return hit;
-  } else {
-    const hit = findNode(working.document, nodeId);
-    if (hit) return hit;
+    // Index build may call before the target is registered — walk without indexed resolve.
+    return findNode(working.document, nodeId);
   }
+  const hit = findNode(working.document, nodeId);
+  if (hit) return hit;
   return resolveNodeInEnvelope(working, nodeId) as AnyTreeNode | null;
 }
 
@@ -2465,11 +2489,77 @@ export function applyEngineOp(
     applyEnvelopeOperation(working, op);
     return undefined;
   }
+
+  const indexes = graphIndexesForOp(working, ctx);
+  const effectiveCtx: EngineOpContext = ctx?.indexes ? ctx : { ...ctx, indexes };
+
   if (op.op === 'createNode') {
-    return applyCreateNodeOp(working, op, ctx);
+    return applyCreateNodeOp(working, op, effectiveCtx);
   }
+
+  if (op.op === 'deleteNode') {
+    const deleteIds = collectDeleteUnindexIdsForOp(working, op, indexes);
+    const target = lookupNodeForOp(working, op.nodeId, effectiveCtx);
+    if (!target) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${op.nodeId}`);
+    const targetNode = target;
+
+    const instanceIdsToDelete = new Set<string>();
+
+    function walk(nodes: SceneNode[]): void {
+      for (const n of nodes) {
+        if (n.type === 'INSTANCE' || n.type === 'COMPONENT_INSTANCE') {
+          const mid = (n as unknown as { mainComponentId: string }).mainComponentId;
+          if (targetNode.type === 'COMPONENT_SET') {
+            if (mid === targetNode.id) instanceIdsToDelete.add(n.id);
+          } else if (targetNode.type === 'COMPONENT') {
+            if (mid === targetNode.id) {
+              instanceIdsToDelete.add(n.id);
+            } else {
+              const maybeSet = lookupNodeForOp(working, mid, effectiveCtx);
+              if (maybeSet && maybeSet.type === 'COMPONENT_SET') {
+                if ((maybeSet as ComponentSetNode).componentIds.includes(targetNode.id)) {
+                  instanceIdsToDelete.add(n.id);
+                }
+              } else {
+                const parentSet = findComponentSetForComponent(indexes, mid);
+                if (parentSet?.componentIds.includes(targetNode.id)) {
+                  instanceIdsToDelete.add(n.id);
+                }
+              }
+            }
+          }
+        }
+
+        if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
+          walk((n as unknown as { children: SceneNode[] }).children);
+        }
+        if (n.type === 'BOOLEAN_OPERATION') {
+          walk((n as unknown as { children: SceneNode[] }).children);
+        }
+      }
+    }
+
+    if (targetNode.type === 'COMPONENT' || targetNode.type === 'COMPONENT_SET') {
+      for (const p of working.document.children) {
+        walk(p.children);
+      }
+
+      for (const iid of instanceIdsToDelete) {
+        removeNodeById(working.document, iid);
+      }
+
+      if (targetNode.type === 'COMPONENT') {
+        removeNodeById(working.document, targetNode.rootFrameId);
+      }
+    }
+
+    removeNodeById(working.document, op.nodeId);
+    applyIndexAfterDeleteOp(indexes, deleteIds);
+    return undefined;
+  }
+
   if (op.op === 'updateNode') {
-    const node = lookupNodeForOp(working, op.nodeId, ctx);
+    const node = lookupNodeForOp(working, op.nodeId, effectiveCtx);
     if (!node) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${op.nodeId}`);
     const matrix = ENGINE_MATRIX.patchKeysByType as Record<string, Set<string> | undefined>;
     const allowed = matrix[node.type];
@@ -2501,7 +2591,7 @@ export function applyEngineOp(
         validateLayoutSizingNodeContextForParent(
           working.document,
           node as SceneNode,
-          lookupParentForOp(working, node.id, ctx),
+          lookupParentForOp(working, node.id, effectiveCtx),
           hint
         );
       }
@@ -2547,80 +2637,27 @@ export function applyEngineOp(
       else t.fontName = validateFontName(fn, 'fontName');
     }
     if ((sceneShapeTypes as readonly string[]).includes(node.type)) {
-      maybeApplyAutoLayoutIntrinsicSizingAfterChange(working, node as SceneNode, patch, ctx);
+      maybeApplyAutoLayoutIntrinsicSizingAfterChange(working, node as SceneNode, patch, effectiveCtx);
     }
+    applyIndexForEngineOp(indexes, working, op);
     return undefined;
   }
-  if (op.op === 'deleteNode') {
-    const target = lookupNodeForOp(working, op.nodeId, ctx);
-    if (!target) throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${op.nodeId}`);
-    const targetNode = target;
 
-    // Phase 9 — component master deletion cascade (prevent orphan component masters).
-    // Minimal rule set:
-    // - Deleting a COMPONENT deletes any INSTANCE/COMPONENT_INSTANCE nodes that reference it directly,
-    //   and also deletes instances that reference a COMPONENT_SET containing it.
-    // - Deleting a COMPONENT_SET deletes instances that reference that set directly.
-    // - Deleting a COMPONENT also deletes its root master FRAME.
-    const instanceIdsToDelete = new Set<string>();
-
-    function walk(nodes: SceneNode[]): void {
-      for (const n of nodes) {
-        if (n.type === 'INSTANCE' || n.type === 'COMPONENT_INSTANCE') {
-          const mid = (n as unknown as { mainComponentId: string }).mainComponentId;
-          if (targetNode.type === 'COMPONENT_SET') {
-            if (mid === targetNode.id) instanceIdsToDelete.add(n.id);
-          } else if (targetNode.type === 'COMPONENT') {
-            if (mid === targetNode.id) {
-              instanceIdsToDelete.add(n.id);
-            } else {
-              // If instance targets a set that contains this component, also delete it.
-              const maybeSet = findNode(working.document, mid);
-              if (maybeSet && maybeSet.type === 'COMPONENT_SET') {
-                if ((maybeSet as any).componentIds.includes(targetNode.id)) instanceIdsToDelete.add(n.id);
-              }
-            }
-          }
-        }
-
-        if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') {
-          walk((n as unknown as { children: SceneNode[] }).children);
-        }
-        if (n.type === 'BOOLEAN_OPERATION') {
-          walk((n as unknown as { children: SceneNode[] }).children);
-        }
-      }
-    }
-
-    if (targetNode.type === 'COMPONENT' || targetNode.type === 'COMPONENT_SET') {
-      for (const p of working.document.children) {
-        walk(p.children);
-      }
-
-      for (const iid of instanceIdsToDelete) {
-        removeNodeById(working.document, iid);
-      }
-
-      if (targetNode.type === 'COMPONENT') {
-        const root = targetNode.rootFrameId;
-        removeNodeById(working.document, root);
-      }
-    }
-
-    removeNodeById(working.document, op.nodeId);
-    return undefined;
-  }
   if (op.op === 'detachInstance') {
-    return detachInstanceInEnvelope(working, op.nodeId, ctx);
+    return detachInstanceInEnvelope(working, op.nodeId, effectiveCtx);
   }
+
   if (op.op === 'duplicateNode') {
-    return duplicateNodeInEnvelope(working, op.nodeId, ctx);
+    return duplicateNodeInEnvelope(working, op.nodeId, effectiveCtx);
   }
+
   if (op.op === 'moveNode') {
-    const subtree = detachSubtree(working.document, op.nodeId, ctx);
-    reattachSceneNode(working, op.newParentId, op.index, subtree, ctx);
+    const subtree = detachSubtree(working.document, op.nodeId, effectiveCtx);
+    reattachSceneNode(working, op.newParentId, op.index, subtree, effectiveCtx);
+    applyIndexForEngineOp(indexes, working, op);
     return undefined;
   }
+
   return undefined;
 }
 
@@ -2751,7 +2788,7 @@ export async function applyOpsToEnvelope(
   const touched = new Set<string>();
   const warnings: string[] = [];
   let opSteps = 0;
-  const graphIndexes = buildGraphIndexes(working);
+  const graphIndexes = getEnvelopeGraphIndexes(working);
   const engineCtx: EngineOpContext = { signal, indexes: graphIndexes };
 
   for (const op of ops) {
@@ -2780,22 +2817,14 @@ export async function applyOpsToEnvelope(
       continue;
     }
     if (isSceneGraphOperation(op)) {
-      if (op.op === 'deleteNode') {
-        const deleteIds = collectDeleteUnindexIdsForOp(working, op);
-        applyEngineOp(working, op, engineCtx);
-        applyIndexAfterDeleteOp(graphIndexes, deleteIds);
-        touched.add(op.nodeId);
-        continue;
-      }
       const id = applyEngineOp(working, op, engineCtx);
-      applyIndexForEngineOp(graphIndexes, working, op, id);
       if (op.op === 'createNode' && id) touched.add(id);
       else if (op.op === 'duplicateNode' && id) touched.add(id);
       else if (op.op === 'detachInstance' && id) touched.add(id);
       else if (op.op === 'moveNode') {
         touched.add(op.nodeId);
         touched.add(op.newParentId);
-      } else if (op.op === 'updateNode') {
+      } else if (op.op === 'updateNode' || op.op === 'deleteNode') {
         touched.add(op.nodeId);
       }
     }
@@ -2809,8 +2838,6 @@ export class DocumentEngine {
   private activeFilePath: string | null = null;
   private currentPageId: string | null = null;
   private previewListener: ((envelope: FileEnvelope) => void) | null = null;
-  private cachedGraphIndexes: GraphIndexes | null = null;
-  private cachedGraphIndexesFor: FileEnvelope | null = null;
   private cachedNodeRefIndex: Map<string, string> | null = null;
   private cachedNodeRefIndexFor: FileEnvelope | null = null;
 
@@ -2833,8 +2860,6 @@ export class DocumentEngine {
   }
 
   private invalidateIndexCache(): void {
-    this.cachedGraphIndexes = null;
-    this.cachedGraphIndexesFor = null;
     this.cachedNodeRefIndex = null;
     this.cachedNodeRefIndexFor = null;
   }
@@ -2847,17 +2872,12 @@ export class DocumentEngine {
     this.syncCurrentPageToDocument(envelope.document);
   }
 
-  /** Cached O(n) graph indexes for the active envelope; rebuilt when the envelope reference changes. */
+  /** Cached O(n) graph indexes for the active envelope; updated incrementally on mutations. */
   getGraphIndexes(): GraphIndexes {
     if (!this.activeFile) {
       throw new ValidationErr('NO_ACTIVE_FILE', 'No active file');
     }
-    if (this.cachedGraphIndexes && this.cachedGraphIndexesFor === this.activeFile) {
-      return this.cachedGraphIndexes;
-    }
-    this.cachedGraphIndexes = buildGraphIndexes(this.activeFile);
-    this.cachedGraphIndexesFor = this.activeFile;
-    return this.cachedGraphIndexes;
+    return getEnvelopeGraphIndexes(this.activeFile);
   }
 
   /** Cached sourceFigmaId / HFC id → HFC id map for the active envelope. */

@@ -2,10 +2,12 @@
  * Shared instance root preparation (merge detached subtrees, overrides, appearance).
  * Used by DesignCompiler emit paths.
  */
-import { applyComponentProperties, resolveVariantPropertyValue } from '../instances/componentProperties.js';
+import { applyComponentProperties } from '../instances/componentProperties.js';
 import {
   resolveComponentOrSetInEnvelope,
+  resolveComponentSetForInstance,
   resolveNodeInEnvelope,
+  resolveSelectedComponentIdInEnvelope,
 } from '../engine/componentResolve.js';
 import {
   applyAutoLayoutIntrinsicSizingDeep,
@@ -28,7 +30,6 @@ import type {
   ComponentInstanceNode,
   ComponentNode,
   ComponentOverrideFields,
-  ComponentSetNode,
   FileEnvelope,
   FrameNode,
   InstanceNode,
@@ -202,28 +203,18 @@ export function buildPreparedInstanceRoot(
   let root: FrameNode;
   let appliedOverrides: InstanceNode['overrides'] = inst.overrides;
 
-  if (target.type === 'COMPONENT') {
-    const component = target as ComponentNode;
-    const rootNode = resolveNodeInEnvelope(env, component.rootFrameId);
-    if (!rootNode || rootNode.type !== 'FRAME') return null;
-    alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
-    root = cloneComponentRootForInstance(rootNode as FrameNode);
-  } else {
-    const set = target as ComponentSetNode;
-    const selectedValue = resolveVariantPropertyValue(inst.componentProperties, set);
-    const options = set.variantOptions ?? set.componentIds;
-    const idx = options.indexOf(String(selectedValue));
-    const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];
-    if (!selectedComponentId) return null;
+  const selectedComponentId = resolveSelectedComponentIdInEnvelope(env, inst);
+  const set = resolveComponentSetForInstance(env, inst);
 
-    const selectedComponent = resolveNodeInEnvelope(env, selectedComponentId);
-    if (!selectedComponent || selectedComponent.type !== 'COMPONENT') return null;
-    const comp = selectedComponent as ComponentNode;
-    const rootNode = resolveNodeInEnvelope(env, comp.rootFrameId);
-    if (!rootNode || rootNode.type !== 'FRAME') return null;
-    alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
-    root = cloneComponentRootForInstance(rootNode as FrameNode);
+  const selectedComponent = resolveNodeInEnvelope(env, selectedComponentId);
+  if (!selectedComponent || selectedComponent.type !== 'COMPONENT') return null;
+  const comp = selectedComponent as ComponentNode;
+  const rootNode = resolveNodeInEnvelope(env, comp.rootFrameId);
+  if (!rootNode || rootNode.type !== 'FRAME') return null;
+  alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
+  root = cloneComponentRootForInstance(rootNode as FrameNode);
 
+  if (set) {
     const nodeIdMap = set.nodeIdMapByComponentId?.[selectedComponentId];
     appliedOverrides = remapOverridesForVariant(inst.overrides, nodeIdMap);
   }

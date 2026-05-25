@@ -160,3 +160,23 @@ export function findComponentSetForComponent(
   const set = graph.nodes.get(setId);
   return set?.type === 'COMPONENT_SET' ? (set as ComponentSetNode) : null;
 }
+
+const envelopeGraphByEnvelope = new WeakMap<FileEnvelope, GraphIndexes>();
+
+/** Lazily-built graph indexes for an envelope; kept current via incremental op updates. */
+export function getEnvelopeGraphIndexes(working: FileEnvelope): GraphIndexes {
+  let graph = envelopeGraphByEnvelope.get(working);
+  if (!graph) {
+    graph = buildGraphIndexes(working);
+    envelopeGraphByEnvelope.set(working, graph);
+  }
+  return graph;
+}
+
+/** Prefer op-scoped indexes (batched replay); fall back to the envelope's shared graph. */
+export function graphIndexesForOp(
+  working: FileEnvelope,
+  ctx?: { indexes?: GraphIndexes }
+): GraphIndexes {
+  return ctx?.indexes ?? getEnvelopeGraphIndexes(working);
+}

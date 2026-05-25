@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FontName } from '../model/types.js';
 import type { FontFamilyManifest, FontFaceManifestEntry, FontMetricsJson } from './fontTypes.js';
@@ -9,27 +9,45 @@ function fontKey(family: string, style: string): string {
   return `${family}\0${style}`;
 }
 
+/** Subdirectory under fonts/ (e.g. inter, barlow). */
+const BUNDLED_FAMILY_SLUGS = ['inter', 'barlow'] as const;
+
+interface LoadedFamily {
+  slug: string;
+  manifest: FontFamilyManifest;
+}
+
 let fontsDir = getDefaultFontsDir();
-let manifest: FontFamilyManifest | null = null;
-const faceByKey = new Map<string, FontFaceManifestEntry>();
+const loadedFamilies: LoadedFamily[] = [];
+const faceByKey = new Map<string, FontFaceManifestEntry & { slug: string }>();
 const metricsByKey = new Map<string, FontMetricsJson>();
 
-function loadManifest(): FontFamilyManifest {
-  if (manifest) return manifest;
-  const path = join(fontsDir, 'inter', 'manifest.json');
-  if (!existsSync(path)) {
-    throw new Error(`Font manifest not found: ${path}`);
+function familySlugForName(family: string): string | undefined {
+  const hit = loadedFamilies.find((f) => f.manifest.family === family);
+  return hit?.slug;
+}
+
+function loadManifests(): LoadedFamily[] {
+  if (loadedFamilies.length > 0) return loadedFamilies;
+
+  for (const slug of BUNDLED_FAMILY_SLUGS) {
+    const path = join(fontsDir, slug, 'manifest.json');
+    if (!existsSync(path)) {
+      throw new Error(`Font manifest not found: ${path}`);
+    }
+    const manifest = JSON.parse(readFileSync(path, 'utf8')) as FontFamilyManifest;
+    const entry: LoadedFamily = { slug, manifest };
+    loadedFamilies.push(entry);
+    for (const face of manifest.faces) {
+      faceByKey.set(fontKey(face.family, face.style), { ...face, slug });
+    }
   }
-  manifest = JSON.parse(readFileSync(path, 'utf8')) as FontFamilyManifest;
-  for (const face of manifest.faces) {
-    faceByKey.set(fontKey(face.family, face.style), face);
-  }
-  return manifest;
+  return loadedFamilies;
 }
 
 export function setFontsDir(dir: string): void {
   fontsDir = dir;
-  manifest = null;
+  loadedFamilies.length = 0;
   faceByKey.clear();
   metricsByKey.clear();
 }
@@ -43,21 +61,35 @@ export function getFontsDir(): string {
 }
 
 export function getInterManifest(): FontFamilyManifest {
-  return loadManifest();
+  loadManifests();
+  const inter = loadedFamilies.find((f) => f.slug === 'inter');
+  if (!inter) throw new Error('Inter manifest not loaded');
+  return inter.manifest;
 }
 
 export function listLocalFontFaces(): FontName[] {
-  const m = loadManifest();
-  return m.faces.map((f) => ({ family: f.family, style: f.style }));
+  const families = loadManifests();
+  const out: FontName[] = [];
+  for (const { manifest } of families) {
+    for (const face of manifest.faces) {
+      out.push({ family: face.family, style: face.style });
+    }
+  }
+  return out;
 }
 
 export function isFontAvailable(fontName: FontName): boolean {
-  loadManifest();
+  loadManifests();
   return faceByKey.has(fontKey(fontName.family, fontName.style));
 }
 
-export function getFontFaceEntry(fontName: FontName): FontFaceManifestEntry | undefined {
-  loadManifest();
+export function isBundledFamily(family: string): boolean {
+  loadManifests();
+  return loadedFamilies.some((f) => f.manifest.family === family);
+}
+
+export function getFontFaceEntry(fontName: FontName): (FontFaceManifestEntry & { slug: string }) | undefined {
+  loadManifests();
   return faceByKey.get(fontKey(fontName.family, fontName.style));
 }
 
@@ -69,7 +101,7 @@ export function getFontMetrics(fontName: FontName): FontMetricsJson | undefined 
   const face = getFontFaceEntry(fontName);
   if (!face) return undefined;
 
-  const metricsPath = join(fontsDir, 'inter', face.metrics);
+  const metricsPath = join(fontsDir, face.slug, face.metrics);
   if (!existsSync(metricsPath)) return undefined;
 
   const data = JSON.parse(readFileSync(metricsPath, 'utf8')) as FontMetricsJson;
@@ -77,12 +109,14 @@ export function getFontMetrics(fontName: FontName): FontMetricsJson | undefined 
   return data;
 }
 
-/** Closest Inter style by numeric weight when exact style is missing. */
-export function closestInterStyleForWeight(weight: number): FontName {
-  const m = loadManifest();
-  let best = m.faces[0]!;
+/** Closest bundled style by numeric weight when exact style is missing. */
+export function closestStyleForWeight(family: string, weight: number): FontName {
+  const families = loadManifests();
+  const loaded = families.find((f) => f.manifest.family === family);
+  const faces = loaded?.manifest.faces ?? getInterManifest().faces;
+  let best = faces[0]!;
   let bestDist = Math.abs(best.fontWeight - weight);
-  for (const face of m.faces) {
+  for (const face of faces) {
     const d = Math.abs(face.fontWeight - weight);
     if (d < bestDist) {
       best = face;
@@ -92,15 +126,24 @@ export function closestInterStyleForWeight(weight: number): FontName {
   return { family: best.family, style: best.style };
 }
 
+/** @deprecated Use closestStyleForWeight('Inter', weight) */
+export function closestInterStyleForWeight(weight: number): FontName {
+  return closestStyleForWeight('Inter', weight);
+}
+
 export function fontWeightForStyle(fontName: FontName): number {
   const face = getFontFaceEntry(fontName);
   return face?.fontWeight ?? 400;
 }
 
-/** Build @font-face rules for faces under `baseUrl` (must end with /). */
-export function getFontFaceCss(baseUrl: string, faces: FontName[]): string {
-  loadManifest();
+function fontFileUrl(baseUrl: string, slug: string, file: string): string {
   const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  return `${normalizedBase}${slug}/${encodeURIComponent(file)}`;
+}
+
+/** Build @font-face rules for faces under `baseUrl` (fonts root, must end with /). */
+export function getFontFaceCss(baseUrl: string, faces: FontName[]): string {
+  loadManifests();
   const seen = new Set<string>();
   const rules: string[] = [];
 
@@ -111,7 +154,7 @@ export function getFontFaceCss(baseUrl: string, faces: FontName[]): string {
     if (!face) return;
     seen.add(key);
     const familyEsc = face.family.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const url = `${normalizedBase}${encodeURIComponent(face.file)}`;
+    const url = fontFileUrl(baseUrl, face.slug, face.file);
     rules.push(
       `@font-face{font-family:"${familyEsc}";font-style:${face.italic ? 'italic' : 'normal'};font-weight:${String(face.fontWeight)};font-display:swap;src:url("${url}") format("woff2");}`
     );
@@ -128,14 +171,33 @@ export function getFontFaceCss(baseUrl: string, faces: FontName[]): string {
 export function resolveFontFilePath(fontName: FontName): string | undefined {
   const face = getFontFaceEntry(fontName);
   if (!face) return undefined;
-  return join(fontsDir, 'inter', face.file);
+  return join(fontsDir, face.slug, face.file);
 }
 
-/** file:// URL base for Playwright offline screenshots. */
-export function getLocalFontsFileBaseUrl(): string {
-  const interDir = join(fontsDir, 'inter').replace(/\\/g, '/');
-  if (/^[A-Za-z]:\//.test(interDir)) {
-    return `file:///${interDir}/`;
+function fontsRootFileUrl(): string {
+  const root = fontsDir.replace(/\\/g, '/');
+  if (/^[A-Za-z]:\//.test(root)) {
+    return `file:///${root}/`;
   }
-  return `file://${interDir}/`;
+  return `file://${root}/`;
+}
+
+/** file:// URL base for Playwright offline screenshots (fonts root). */
+export function getLocalFontsFileBaseUrl(): string {
+  return fontsRootFileUrl();
+}
+
+/** Slug for a bundled family name, if installed. */
+export function getFamilySlug(family: string): string | undefined {
+  loadManifests();
+  return familySlugForName(family);
+}
+
+/** List bundled family slugs present under fontsDir. */
+export function listBundledFamilySlugs(): string[] {
+  if (!existsSync(fontsDir)) return [];
+  return readdirSync(fontsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .filter((name) => existsSync(join(fontsDir, name, 'manifest.json')));
 }

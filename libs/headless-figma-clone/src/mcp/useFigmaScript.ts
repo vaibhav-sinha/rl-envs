@@ -15,15 +15,13 @@ import {
   type NewNodeSpec,
 } from '../engine/DocumentEngine.js';
 import {
-  applyIndexAfterDeleteOp,
-  applyIndexForEngineOp,
-  collectDeleteUnindexIdsForOp,
   indexSceneNode,
   unindexNodeById,
 } from '../engine/nodeIndexMutations.js';
 import {
   resolveComponentOrSetInEnvelope,
   resolveNodeInEnvelope,
+  resolveVariantComponentIdInSet,
 } from '../engine/componentResolve.js';
 import { cloneTimingEnabled, elapsedMs, logCloneTiming } from '../engine/cloneTiming.js';
 import { applyEnvelopeOperation, isEnvelopeOperation } from '../engine/envelopeOps.js';
@@ -363,15 +361,7 @@ function applyScriptEngineOp(ctx: ScriptContext, op: EngineOperation): string | 
   const ensureMs = timing ? elapsedMs(t0) : 0;
   const t1 = timing ? performance.now() : 0;
   const engineCtx: EngineOpContext = { signal: ctx.signal, indexes: getGraphIndexes(ctx) };
-  let result: string | undefined;
-  if (isSceneGraphOperation(op) && op.op === 'deleteNode') {
-    const deleteIds = collectDeleteUnindexIdsForOp(ctx.working, op);
-    result = applyEngineOp(ctx.working, op, engineCtx);
-    applyIndexAfterDeleteOp(ctx.graphIndexes, deleteIds);
-  } else {
-    result = applyEngineOp(ctx.working, op, engineCtx);
-    applyIndexForEngineOp(ctx.graphIndexes, ctx.working, op, result);
-  }
+  const result = applyEngineOp(ctx.working, op, engineCtx);
   const engineMs = timing ? elapsedMs(t1) : 0;
   recordTouchedFromOp(ctx, op, result);
   syncLocalIdCounterFromEnvelope(ctx);
@@ -395,7 +385,6 @@ function applyScriptCreateNodeOp(
   syncLocalIdCounterToEnvelope(ctx);
   const engineCtx: EngineOpContext = { signal: ctx.signal, indexes: getGraphIndexes(ctx) };
   const result = applyCreateNodeOp(ctx.working, op, engineCtx);
-  applyIndexForEngineOp(ctx.graphIndexes, ctx.working, op, result);
   ctx.touchedIds.add(result);
   syncLocalIdCounterFromEnvelope(ctx);
   return result;
@@ -2682,17 +2671,20 @@ class RuntimeComponentInstance extends RuntimeSceneNode {
   strokesIncludedInLayout?: boolean;
 
   private getSelectedComponentIdFromSet(set: import('../model/types.js').ComponentSetNode): string {
-    const key = set.variantPropertyKey ?? 'variant';
-    const raw = this.componentProperties?.[key]?.value ?? set.variantOptions?.[0];
-    const options = set.variantOptions ?? set.componentIds;
-    const idx = options.indexOf(String(raw));
-    return set.componentIds[idx] ?? set.componentIds[0];
+    return resolveVariantComponentIdInSet(this.ctx.working, set, this.componentProperties);
   }
 
   get mainComponent(): unknown {
     const main = scriptLookup(this.ctx, this.mainComponentId);
     if (!main) return null;
-    if (main.type === 'COMPONENT') return createHandleProxy(this.ctx, main.id);
+    if (main.type === 'COMPONENT') {
+      const set = findComponentSetForComponent(getGraphIndexes(this.ctx), main.id);
+      if (set) {
+        const selectedId = this.getSelectedComponentIdFromSet(set);
+        return createHandleProxy(this.ctx, selectedId);
+      }
+      return createHandleProxy(this.ctx, main.id);
+    }
     if (main.type === 'COMPONENT_SET') {
       const selectedId = this.getSelectedComponentIdFromSet(main as import('../model/types.js').ComponentSetNode);
       return createHandleProxy(this.ctx, selectedId);
@@ -3075,6 +3067,13 @@ function definitionKeysForInstance(
 ): string[] {
   const main = resolveComponentOrSetInEnvelope(ctx.working, inst.mainComponentId);
   if (!main || (main.type !== 'COMPONENT' && main.type !== 'COMPONENT_SET')) return [];
+  if (main.type === 'COMPONENT_SET') {
+    return componentPropertyDefinitionKeys(main.componentPropertyDefinitions);
+  }
+  const set = findComponentSetForComponent(getGraphIndexes(ctx), main.id);
+  if (set) {
+    return componentPropertyDefinitionKeys(set.componentPropertyDefinitions);
+  }
   return componentPropertyDefinitionKeys(main.componentPropertyDefinitions);
 }
 

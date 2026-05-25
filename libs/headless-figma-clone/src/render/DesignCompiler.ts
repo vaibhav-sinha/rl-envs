@@ -1,6 +1,9 @@
-import { findNodeInDocument } from '../engine/componentResolve.js';
+import {
+  findNodeInDocument,
+  resolveComponentSetForInstance,
+  resolveSelectedComponentIdInEnvelope,
+} from '../engine/componentResolve.js';
 import { buildGraphIndexes } from '../engine/nodeIndex.js';
-import { resolveVariantPropertyValue } from '../instances/componentProperties.js';
 import {
   applyAutoLayoutIntrinsicSizingDeep,
   effectiveVerticalItemSpacingPx,
@@ -73,7 +76,6 @@ import type {
   BooleanOperationNode,
   ComponentInstanceNode,
   ComponentNode,
-  ComponentSetNode,
   InstanceNode,
   Effect,
   EllipseNode,
@@ -2668,36 +2670,24 @@ function emitInstance(
   let root: FrameNode;
   let appliedOverrides: InstanceNode['overrides'] = inst.overrides;
 
-  if (target.type === 'COMPONENT') {
-    const component = target as ComponentNode;
-    const rootNode = findNodeInDocument(env.document, component.rootFrameId, env);
-    if (!rootNode || rootNode.type !== 'FRAME') {
-      warnings.push(`missing_component_root:${component.rootFrameId}`);
-      return;
-    }
-    alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
-    root = cloneComponentRootForInstance(rootNode as FrameNode);
-  } else {
-    const set = target as ComponentSetNode;
-    const selectedValue = resolveVariantPropertyValue(inst.componentProperties, set);
-    const options = set.variantOptions ?? set.componentIds;
-    const idx = options.indexOf(String(selectedValue));
-    const selectedComponentId = set.componentIds[idx] ?? set.componentIds[0];
+  const selectedComponentId = resolveSelectedComponentIdInEnvelope(env, inst);
+  const set = resolveComponentSetForInstance(env, inst);
 
-    const selectedComponent = findNodeInDocument(env.document, selectedComponentId, env);
-    if (!selectedComponent || selectedComponent.type !== 'COMPONENT') {
-      warnings.push(`missing_component_variant:${selectedComponentId}`);
-      return;
-    }
-    const comp = selectedComponent as ComponentNode;
-    const rootNode = findNodeInDocument(env.document, comp.rootFrameId, env);
-    if (!rootNode || rootNode.type !== 'FRAME') {
-      warnings.push(`missing_component_root:${comp.rootFrameId}`);
-      return;
-    }
-    alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
-    root = cloneComponentRootForInstance(rootNode as FrameNode);
+  const selectedComponent = findNodeInDocument(env.document, selectedComponentId, env);
+  if (!selectedComponent || selectedComponent.type !== 'COMPONENT') {
+    warnings.push(`missing_component_variant:${selectedComponentId}`);
+    return;
+  }
+  const comp = selectedComponent as ComponentNode;
+  const rootNode = findNodeInDocument(env.document, comp.rootFrameId, env);
+  if (!rootNode || rootNode.type !== 'FRAME') {
+    warnings.push(`missing_component_root:${comp.rootFrameId}`);
+    return;
+  }
+  alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
+  root = cloneComponentRootForInstance(rootNode as FrameNode);
 
+  if (set) {
     const nodeIdMap = set.nodeIdMapByComponentId?.[selectedComponentId];
     appliedOverrides = remapOverridesForVariant(inst.overrides, nodeIdMap);
   }

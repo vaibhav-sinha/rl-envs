@@ -168,7 +168,7 @@ export async function createHttpServer(params: {
     const base = req
       ? httpRequestBaseUrl(req, config.httpHost, config.httpPort)
       : `http://${config.httpHost}:${String(config.httpPort)}`;
-    return `${base}/fonts/inter/`;
+    return `${base}/fonts/`;
   };
 
   const previewStore = {

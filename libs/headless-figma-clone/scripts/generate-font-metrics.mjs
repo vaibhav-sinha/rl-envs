@@ -46,24 +46,25 @@ function parseArgs(argv) {
   return args;
 }
 
+const WEIGHT_SLUG_MAP = {
+  Thin: { style: 'Thin', weight: 100 },
+  ExtraLight: { style: 'Extra Light', weight: 200 },
+  Light: { style: 'Light', weight: 300 },
+  Regular: { style: 'Regular', weight: 400 },
+  Medium: { style: 'Medium', weight: 500 },
+  SemiBold: { style: 'Semi Bold', weight: 600 },
+  Bold: { style: 'Bold', weight: 700 },
+  ExtraBold: { style: 'Extra Bold', weight: 800 },
+  Black: { style: 'Black', weight: 900 },
+};
+
 function inferFromFileName(filePath) {
   const base = basename(filePath).replace(/\.(woff2?|ttf|otf)$/i, '');
-  const m = base.match(/^Inter-(.+)$/i);
+  const m = base.match(/^(Inter|Barlow)-(.+)$/i);
   if (!m) return { family: 'Inter', style: 'Regular', weight: 400 };
-  const slug = m[1];
-  const map = {
-    Thin: { style: 'Thin', weight: 100 },
-    ExtraLight: { style: 'Extra Light', weight: 200 },
-    Light: { style: 'Light', weight: 300 },
-    Regular: { style: 'Regular', weight: 400 },
-    Medium: { style: 'Medium', weight: 500 },
-    SemiBold: { style: 'Semi Bold', weight: 600 },
-    Bold: { style: 'Bold', weight: 700 },
-    ExtraBold: { style: 'Extra Bold', weight: 800 },
-    Black: { style: 'Black', weight: 900 },
-  };
-  const hit = map[slug] ?? { style: 'Regular', weight: 400 };
-  return { family: 'Inter', style: hit.style, weight: hit.weight };
+  const family = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+  const hit = WEIGHT_SLUG_MAP[m[2]] ?? { style: 'Regular', weight: 400 };
+  return { family, style: hit.style, weight: hit.weight };
 }
 
 export async function generateFontMetrics(inputPath, outputPath, overrides = {}) {

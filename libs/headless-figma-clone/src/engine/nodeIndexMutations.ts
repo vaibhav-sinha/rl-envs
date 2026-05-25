@@ -1,6 +1,6 @@
 import type { AnyTreeNode, EngineOperation, SceneGraphOperation } from './DocumentEngine.js';
 import { findEnvelopeNode, isSceneGraphOperation } from './DocumentEngine.js';
-import type { GraphIndexes } from './nodeIndex.js';
+import { findComponentSetForComponent, type GraphIndexes } from './nodeIndex.js';
 import type {
   ComponentNode,
   ComponentSetNode,
@@ -143,6 +143,52 @@ export function unindexSceneSubtree(graph: GraphIndexes, root: SceneNode): void 
   unindexSceneNode(graph, root);
 }
 
+function unindexDescendantsOnly(graph: GraphIndexes, node: SceneNode): void {
+  if (
+    node.type === 'FRAME' ||
+    node.type === 'TRANSFORM_GROUP' ||
+    node.type === 'GROUP' ||
+    node.type === 'SECTION'
+  ) {
+    for (const ch of node.children) unindexSceneNode(graph, ch);
+  } else if (node.type === 'BOOLEAN_OPERATION') {
+    for (const ch of node.children as unknown as SceneNode[]) unindexSceneNode(graph, ch);
+  } else if (node.type === 'INSTANCE' && node.children?.length) {
+    for (const ch of node.children) unindexSceneNode(graph, ch);
+  } else if (node.type === 'COMPONENT') {
+    const comp = node as ComponentNode;
+    const root = graph.nodes.get(comp.rootFrameId);
+    if (root && root.type === 'FRAME') {
+      unindexSceneNode(graph, root);
+    }
+  }
+}
+
+/** Re-index descendants after in-place subtree replacement (e.g. instance rematerialization). */
+export function reindexSceneNodeDescendants(
+  graph: GraphIndexes,
+  working: FileEnvelope,
+  nodeId: string
+): void {
+  const node = findEnvelopeNode(working, nodeId, graph.nodes);
+  if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') return;
+  unindexDescendantsOnly(graph, node as SceneNode);
+  if (
+    node.type === 'FRAME' ||
+    node.type === 'TRANSFORM_GROUP' ||
+    node.type === 'GROUP' ||
+    node.type === 'SECTION'
+  ) {
+    indexSceneSubtree(graph, node.children, node.id, working);
+  } else if (node.type === 'BOOLEAN_OPERATION') {
+    indexSceneSubtree(graph, node.children as unknown as SceneNode[], node.id, working);
+  } else if (node.type === 'INSTANCE' && node.children?.length) {
+    indexSceneSubtree(graph, node.children, node.id, working);
+  } else if (node.type === 'COMPONENT') {
+    indexComponentRootFrame(node as ComponentNode, asMutable(graph), working);
+  }
+}
+
 export function unindexNodeById(graph: GraphIndexes, nodeId: string): void {
   const node = graph.nodes.get(nodeId);
   if (!node || node.type === 'DOCUMENT') return;
@@ -157,8 +203,12 @@ export function unindexNodeById(graph: GraphIndexes, nodeId: string): void {
 }
 
 /** Collect node ids that deleteNode will remove (target + cascade instances + component root frame). */
-export function collectDeleteUnindexIds(working: FileEnvelope, nodeId: string): string[] {
-  const target = findEnvelopeNode(working, nodeId);
+export function collectDeleteUnindexIds(
+  working: FileEnvelope,
+  nodeId: string,
+  graph?: GraphIndexes
+): string[] {
+  const target = findEnvelopeNode(working, nodeId, graph?.nodes);
   if (!target || target.type === 'DOCUMENT' || target.type === 'PAGE') {
     return [nodeId];
   }
@@ -196,9 +246,14 @@ export function collectDeleteUnindexIds(working: FileEnvelope, nodeId: string): 
             if (mid === targetNode.id) {
               instanceIdsToDelete.add(n.id);
             } else {
-              const maybeSet = findEnvelopeNode(working, mid);
+              const maybeSet = findEnvelopeNode(working, mid, graph?.nodes);
               if (maybeSet?.type === 'COMPONENT_SET') {
                 if ((maybeSet as ComponentSetNode).componentIds.includes(targetNode.id)) {
+                  instanceIdsToDelete.add(n.id);
+                }
+              } else if (graph) {
+                const parentSet = findComponentSetForComponent(graph, mid);
+                if (parentSet?.componentIds.includes(targetNode.id)) {
                   instanceIdsToDelete.add(n.id);
                 }
               }
@@ -223,7 +278,7 @@ export function collectDeleteUnindexIds(working: FileEnvelope, nodeId: string): 
     }
 
     for (const iid of instanceIdsToDelete) {
-      const inst = findEnvelopeNode(working, iid);
+      const inst = findEnvelopeNode(working, iid, graph?.nodes);
       if (inst && inst.type !== 'DOCUMENT' && inst.type !== 'PAGE') {
         walkSubtree(inst as SceneNode);
       }
@@ -281,6 +336,20 @@ export function applyIndexForEngineOp(
     if (!frame || frame.type !== 'FRAME') return;
     unindexNodeById(graph, op.nodeId);
     indexSceneNode(graph, frame, parentId, working);
+    return;
+  }
+
+  if (op.op === 'updateNode') {
+    const patch = op.patch;
+    if (
+      patch.componentProperties !== undefined ||
+      patch.mainComponentId !== undefined
+    ) {
+      const node = findEnvelopeNode(working, op.nodeId, graph.nodes);
+      if (node?.type === 'INSTANCE') {
+        reindexSceneNodeDescendants(graph, working, op.nodeId);
+      }
+    }
   }
 }
 
@@ -292,7 +361,8 @@ export function applyIndexAfterDeleteOp(graph: GraphIndexes, ids: string[]): voi
 /** Collect ids to unindex before applying deleteNode. */
 export function collectDeleteUnindexIdsForOp(
   working: FileEnvelope,
-  op: Extract<SceneGraphOperation, { op: 'deleteNode' }>
+  op: Extract<SceneGraphOperation, { op: 'deleteNode' }>,
+  graph?: GraphIndexes
 ): string[] {
-  return collectDeleteUnindexIds(working, op.nodeId);
+  return collectDeleteUnindexIds(working, op.nodeId, graph);
 }

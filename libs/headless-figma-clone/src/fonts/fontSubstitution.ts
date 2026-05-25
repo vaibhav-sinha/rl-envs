@@ -1,7 +1,7 @@
 import type { FontName } from '../model/types.js';
 import type { FontAvailabilityEntry } from './fontTypes.js';
 import { DEFAULT_FONT } from './fontTypes.js';
-import { closestInterStyleForWeight, isFontAvailable } from './localFontRegistry.js';
+import { closestStyleForWeight, isBundledFamily, isFontAvailable } from './localFontRegistry.js';
 import { collectDocumentFonts } from './collectDocumentFonts.js';
 import type { FileEnvelope } from '../model/types.js';
 
@@ -31,10 +31,11 @@ function weightHintFromStyle(style: string): number {
 export function resolveRenderingFontName(requested: FontName | undefined): FontName {
   const fn = requested ?? DEFAULT_FONT;
   if (isFontAvailable(fn)) return fn;
-  if (fn.family === 'Inter') {
-    return closestInterStyleForWeight(weightHintFromStyle(fn.style));
+  const weight = weightHintFromStyle(fn.style);
+  if (isBundledFamily(fn.family)) {
+    return closestStyleForWeight(fn.family, weight);
   }
-  return closestInterStyleForWeight(weightHintFromStyle(fn.style));
+  return closestStyleForWeight('Inter', weight);
 }
 
 export function getFontAvailability(envelope: FileEnvelope): FontAvailabilityEntry[] {

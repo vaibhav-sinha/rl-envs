@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "family": "Barlow",
+  "defaultStyle": "Regular",
+  "faces": [
+    {
+      "family": "Barlow",
+      "style": "Thin",
+      "fontWeight": 100,
+      "italic": false,
+      "file": "Barlow-Thin.woff2",
+      "metrics": "Barlow-Thin.metrics.json"
+    },
+    {
+      "family": "Barlow",
+      "style": "Extra Light",
+      "fontWeight": 200,
+      "italic": false,
+      "file": "Barlow-ExtraLight.woff2",
+      "metrics": "Barlow-ExtraLight.metrics.json"
+    },
+    {
+      "family": "Barlow",
+      "style": "Light",
+      "fontWeight": 300,
+      "italic": false,
+      "file": "Barlow-Light.woff2",
+      "metrics": "Barlow-Light.metrics.json"
+    },
+    {
+      "family": "Barlow",
+      "style": "Regular",
+      "fontWeight": 400,
+      "italic": false,
+      "file": "Barlow-Regular.woff2",
+      "metrics": "Barlow-Regular.metrics.json"
+    },
+    {
+      "family": "Barlow",
+      "style": "Medium",
+      "fontWeight": 500,
+      "italic": false,
+      "file": "Barlow-Medium.woff2",
+      "metrics": "Barlow-Medium.metrics.json"
+    },
+    {
+      "family": "Barlow",
+      "style": "Semi Bold",
+      "fontWeight": 600,
+      "italic": false,
+      "file": "Barlow-SemiBold.woff2",
+      "metrics": "Barlow-SemiBold.metrics.json"
+    },
+    {
+      "family": "Barlow",
+      "style": "Bold",
+      "fontWeight": 700,
+      "italic": false,
+      "file": "Barlow-Bold.woff2",
+      "metrics": "Barlow-Bold.metrics.json"
+    },
+    {
+      "family": "Barlow",
+      "style": "Extra Bold",
+      "fontWeight": 800,
+      "italic": false,
+      "file": "Barlow-ExtraBold.woff2",
+      "metrics": "Barlow-ExtraBold.metrics.json"
+    },
+    {
+      "family": "Barlow",
+      "style": "Black",
+      "fontWeight": 900,
+      "italic": false,
+      "file": "Barlow-Black.woff2",
+      "metrics": "Barlow-Black.metrics.json"
+    }
+  ]
+}

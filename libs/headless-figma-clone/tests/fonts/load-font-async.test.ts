@@ -17,6 +17,7 @@ describe('loadFontAsync', () => {
     const b = listAvailableFonts();
     expect(a).toEqual(b);
     expect(a.some((f) => f.family === 'Inter')).toBe(true);
+    expect(a.some((f) => f.family === 'Barlow')).toBe(true);
   });
 
   it('Inter is preloaded: hasMissingFont false without loadFontAsync', () => {
