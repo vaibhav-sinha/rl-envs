@@ -29,3 +29,15 @@ digest = "sha256:664ff8c1d22e17027f768e359bf482e187425ae3969a0bc49f34f329549ed00
 name = "metaphi/figma-design-oker-create-order-details-screen"
 digest = "sha256:872edf634477a4e5ae5c1d769b2f3e870a142d8342f56898ff572a52b199356a"
 
+[[tasks]]
+name = "metaphi/figma-design-oker-create-my-orders-screen"
+digest = "sha256:708b46d953fec122cce532ccc45575f690e73127cff7b54d45245111c37e440d"
+
+[[tasks]]
+name = "metaphi/figma-design-oker-edit-pdp-screen"
+digest = "sha256:e12c9e0b571a1813d996e88e35335d4a63ac738c578c006bca65a6af5954e116"
+
+[[tasks]]
+name = "metaphi/figma-design-oker-create-apply-styles"
+digest = "sha256:bfa68069ced745f49433505768be9a14097ecc8ecc2ce692253be57a47a50bc7"
+
