@@ -16,10 +16,6 @@
   "checks": [],
   "visual": [
     {
-      "id": "good_design_1",
-      "type": "good_design"
-    },
-    {
       "id": "task_completeness_1",
       "type": "task_completeness"
     },
