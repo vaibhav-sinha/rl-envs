@@ -3,7 +3,7 @@ import {
   resolveComponentSetForInstance,
   resolveSelectedComponentIdInEnvelope,
 } from '../engine/componentResolve.js';
-import { buildGraphIndexes } from '../engine/nodeIndex.js';
+import { getEnvelopeGraphIndexes } from '../engine/nodeIndex.js';
 import {
   applyAutoLayoutIntrinsicSizingDeep,
   effectiveVerticalItemSpacingPx,
@@ -204,7 +204,7 @@ function findPageForSceneNode(envelope: FileEnvelope, sceneNodeId: string): Page
 
 /** Scene nodes stored under `instance.children` (detached export) are indexed but not on the page tree. */
 function findIndexedSceneNode(envelope: FileEnvelope, id: string): SceneNode | null {
-  const node = buildGraphIndexes(envelope).nodes.get(id);
+  const node = getEnvelopeGraphIndexes(envelope).nodes.get(id);
   if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') return null;
   return node as SceneNode;
 }
@@ -216,7 +216,7 @@ function findCompileRootNode(envelope: FileEnvelope, id: string): SceneNode | nu
 function findPageForNode(envelope: FileEnvelope, nodeId: string): PageNode | null {
   const fromScene = findPageForSceneNode(envelope, nodeId);
   if (fromScene) return fromScene;
-  const { parentById, nodes } = buildGraphIndexes(envelope);
+  const { parentById, nodes } = getEnvelopeGraphIndexes(envelope);
   let cur: string | null | undefined = nodeId;
   const seen = new Set<string>();
   while (cur && !seen.has(cur)) {

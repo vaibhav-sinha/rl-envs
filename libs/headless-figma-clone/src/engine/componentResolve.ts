@@ -3,6 +3,7 @@
  * and legacy `working.components[]` sidecar (matches DesignCompiler lookup).
  */
 import type {
+  ComponentDefinition,
   ComponentNode,
   ComponentPropertyDefinition,
   ComponentPropertyValue,
@@ -21,7 +22,7 @@ import {
 import { ValidationErr } from '../util/errors.js';
 import {
   findComponentSetForComponent,
-  getEnvelopeGraphIndexes,
+  tryGetEnvelopeGraphIndexes,
   type GraphIndexes,
 } from './nodeIndex.js';
 
@@ -59,18 +60,103 @@ function findInPageChildren(nodes: SceneNode[], needle: string): SceneNode | nul
   return null;
 }
 
-// function componentStubFromDefinition(def: ComponentDefinition): ComponentNode {
-//   return {
-//     id: def.id,
-//     type: 'COMPONENT',
-//     name: def.name,
-//     x: 0,
-//     y: 0,
-//     width: def.root.width,
-//     height: def.root.height,
-//     rootFrameId: def.root.id,
-//   };
-// }
+function componentStubFromDefinition(def: ComponentDefinition): ComponentNode {
+  return {
+    id: def.id,
+    type: 'COMPONENT',
+    name: def.name,
+    x: 0,
+    y: 0,
+    width: def.root.width,
+    height: def.root.height,
+    rootFrameId: def.root.id,
+  };
+}
+
+/** Live document walk + `components[]` sidecar (no graph build). */
+function resolveNodeInEnvelopeWalk(
+  working: FileEnvelope,
+  id: string
+): SceneNode | PageNode | null {
+  for (const p of working.document.children) {
+    if (p.id === id) return p;
+    const hit = findInPageChildren(p.children, id);
+    if (hit) return hit;
+  }
+  if (working.components) {
+    for (const c of working.components) {
+      if (c.id === id) {
+        return componentStubFromDefinition(c);
+      }
+      if (c.root.id === id) return c.root;
+    }
+  }
+  return null;
+}
+
+const walkResolveCache = new WeakMap<FileEnvelope, Map<string, SceneNode | PageNode | null>>();
+
+function resolveNodeInEnvelopeWalkCached(
+  working: FileEnvelope,
+  id: string
+): SceneNode | PageNode | null {
+  let cache = walkResolveCache.get(working);
+  if (!cache) {
+    cache = new Map();
+    walkResolveCache.set(working, cache);
+  }
+  if (cache.has(id)) return cache.get(id)!;
+  const found = resolveNodeInEnvelopeWalk(working, id);
+  cache.set(id, found);
+  return found;
+}
+
+const lazyComponentSetByComponentId = new WeakMap<FileEnvelope, Map<string, string>>();
+
+function scanComponentSetByComponentId(working: FileEnvelope): Map<string, string> {
+  let map = lazyComponentSetByComponentId.get(working);
+  if (map) return map;
+  map = new Map();
+  function scan(nodes: SceneNode[]): void {
+    for (const n of nodes) {
+      if (n.type === 'COMPONENT_SET') {
+        for (const cid of n.componentIds) map!.set(cid, n.id);
+      }
+      if (
+        n.type === 'FRAME' ||
+        n.type === 'TRANSFORM_GROUP' ||
+        n.type === 'GROUP' ||
+        n.type === 'SECTION'
+      ) {
+        scan(n.children);
+      } else if (n.type === 'BOOLEAN_OPERATION') {
+        scan(n.children as unknown as SceneNode[]);
+      } else if (n.type === 'INSTANCE' && n.children?.length) {
+        scan(n.children);
+      }
+    }
+  }
+  for (const page of working.document.children) {
+    scan(page.children);
+  }
+  lazyComponentSetByComponentId.set(working, map);
+  return map;
+}
+
+function findComponentSetForComponentWalk(
+  working: FileEnvelope,
+  componentId: string,
+  graph?: GraphIndexes
+): ComponentSetNode | null {
+  const setId = scanComponentSetByComponentId(working).get(componentId);
+  if (!setId) return null;
+  const set = resolveNodeInEnvelope(working, setId, graph);
+  return set?.type === 'COMPONENT_SET' ? set : null;
+}
+
+function graphForResolve(working: FileEnvelope, graph?: GraphIndexes): GraphIndexes | undefined {
+  return graph ?? tryGetEnvelopeGraphIndexes(working);
+}
 
 /** Parse Figma variant component names like `Property 1=Selected, Has filter applied?=No`. */
 export function parseVariantComponentName(name: string): Map<string, string> {
@@ -116,13 +202,15 @@ function variantNameMatchesDesired(name: string, desired: Map<string, string>): 
   return true;
 }
 
-/** Indexed lookup for the COMPONENT_SET that lists `componentId` as a variant. */
+/** Lookup the COMPONENT_SET containing `componentId` (indexed when graph exists, else one scan). */
 export function findComponentSetForComponentInEnvelope(
   working: FileEnvelope,
   componentId: string,
   graph?: GraphIndexes
 ): ComponentSetNode | null {
-  return findComponentSetForComponent(graph ?? getEnvelopeGraphIndexes(working), componentId);
+  const g = graphForResolve(working, graph);
+  if (g) return findComponentSetForComponent(g, componentId);
+  return findComponentSetForComponentWalk(working, componentId, graph);
 }
 
 /**
@@ -185,36 +273,41 @@ export function instanceHasExplicitVariantProperties(
 
 function resolveComponentSetForInstanceMain(
   working: FileEnvelope,
-  mainComponentId: string
+  mainComponentId: string,
+  graph?: GraphIndexes
 ): ComponentSetNode | null {
-  const target = resolveComponentOrSetInEnvelope(working, mainComponentId);
+  const target = resolveComponentOrSetInEnvelope(working, mainComponentId, graph);
   if (!target) return null;
   if (target.type === 'COMPONENT_SET') return target;
   if (target.type === 'COMPONENT') {
-    return findComponentSetForComponentInEnvelope(working, target.id);
+    return findComponentSetForComponentInEnvelope(working, target.id, graph);
   }
   return null;
 }
 
-/** Indexed id → node lookup (pages, scene graph, component sidecar). */
+/** Resolve id → node using the engine graph when present, else cached tree walk. */
 export function resolveNodeInEnvelope(
   working: FileEnvelope,
   id: string,
   graph?: GraphIndexes
 ): SceneNode | PageNode | null {
-  const hit = (graph ?? getEnvelopeGraphIndexes(working)).nodes.get(id);
-  if (hit && hit.type !== 'DOCUMENT') {
-    return hit as SceneNode | PageNode;
+  const g = graphForResolve(working, graph);
+  if (g) {
+    const hit = g.nodes.get(id);
+    if (hit && hit.type !== 'DOCUMENT') {
+      return hit as SceneNode | PageNode;
+    }
   }
-  return null;
+  return resolveNodeInEnvelopeWalkCached(working, id);
 }
 
 /** Resolve a COMPONENT or COMPONENT_SET master (graph node or sidecar stub). */
 export function resolveComponentOrSetInEnvelope(
   working: FileEnvelope,
-  id: string
+  id: string,
+  graph?: GraphIndexes
 ): ComponentNode | ComponentSetNode | null {
-  const hit = resolveNodeInEnvelope(working, id);
+  const hit = resolveNodeInEnvelope(working, id, graph);
   if (hit?.type === 'COMPONENT' || hit?.type === 'COMPONENT_SET') {
     return hit;
   }
@@ -224,13 +317,14 @@ export function resolveComponentOrSetInEnvelope(
 /** Root frame for a COMPONENT id (after variant resolution). */
 export function resolveComponentRootFrameInEnvelope(
   working: FileEnvelope,
-  componentId: string
+  componentId: string,
+  graph?: GraphIndexes
 ): FrameNode {
-  const component = resolveComponentOrSetInEnvelope(working, componentId);
+  const component = resolveComponentOrSetInEnvelope(working, componentId, graph);
   if (!component || component.type !== 'COMPONENT') {
     throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE main component not found');
   }
-  const root = resolveNodeInEnvelope(working, component.rootFrameId);
+  const root = resolveNodeInEnvelope(working, component.rootFrameId, graph);
   if (!root || root.type !== 'FRAME') {
     throw new ValidationErr('VALIDATION_ERROR', 'COMPONENT root frame missing');
   }
@@ -240,14 +334,15 @@ export function resolveComponentRootFrameInEnvelope(
 /** Selected COMPONENT id for an instance (COMPONENT_SET variant resolution). */
 export function resolveSelectedComponentIdInEnvelope(
   working: FileEnvelope,
-  inst: InstanceNode
+  inst: InstanceNode,
+  graph?: GraphIndexes
 ): string {
-  const target = resolveComponentOrSetInEnvelope(working, inst.mainComponentId);
+  const target = resolveComponentOrSetInEnvelope(working, inst.mainComponentId, graph);
   if (!target) {
     throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId missing');
   }
   if (target.type === 'COMPONENT') {
-    const set = findComponentSetForComponentInEnvelope(working, target.id);
+    const set = findComponentSetForComponentInEnvelope(working, target.id, graph);
     if (!set || !instanceHasExplicitVariantProperties(inst.componentProperties)) {
       return target.id;
     }
@@ -259,19 +354,21 @@ export function resolveSelectedComponentIdInEnvelope(
 /** Owning COMPONENT_SET when the instance main is a set or a variant component; else null. */
 export function resolveComponentSetForInstance(
   working: FileEnvelope,
-  inst: InstanceNode
+  inst: InstanceNode,
+  graph?: GraphIndexes
 ): ComponentSetNode | null {
-  return resolveComponentSetForInstanceMain(working, inst.mainComponentId);
+  return resolveComponentSetForInstanceMain(working, inst.mainComponentId, graph);
 }
 
 /** Resolved variant root frame for an INSTANCE; returns null when master is missing. */
 export function resolveInstanceRootFrameOptional(
   working: FileEnvelope,
-  inst: InstanceNode
+  inst: InstanceNode,
+  graph?: GraphIndexes
 ): FrameNode | null {
   try {
-    const componentId = resolveSelectedComponentIdInEnvelope(working, inst);
-    return resolveComponentRootFrameInEnvelope(working, componentId);
+    const componentId = resolveSelectedComponentIdInEnvelope(working, inst, graph);
+    return resolveComponentRootFrameInEnvelope(working, componentId, graph);
   } catch {
     return null;
   }
@@ -280,9 +377,10 @@ export function resolveInstanceRootFrameOptional(
 /** Resolved variant root frame for an INSTANCE (for detach / refresh). */
 export function resolveInstanceRootFrameInEnvelope(
   working: FileEnvelope,
-  inst: InstanceNode
+  inst: InstanceNode,
+  graph?: GraphIndexes
 ): FrameNode {
-  const root = resolveInstanceRootFrameOptional(working, inst);
+  const root = resolveInstanceRootFrameOptional(working, inst, graph);
   if (!root) {
     throw new ValidationErr('VALIDATION_ERROR', 'INSTANCE.mainComponentId missing');
   }

@@ -163,6 +163,11 @@ export function findComponentSetForComponent(
 
 const envelopeGraphByEnvelope = new WeakMap<FileEnvelope, GraphIndexes>();
 
+/** Returns the envelope graph only when it has already been built (engine / batched ops). */
+export function tryGetEnvelopeGraphIndexes(working: FileEnvelope): GraphIndexes | undefined {
+  return envelopeGraphByEnvelope.get(working);
+}
+
 /** Lazily-built graph indexes for an envelope; kept current via incremental op updates. */
 export function getEnvelopeGraphIndexes(working: FileEnvelope): GraphIndexes {
   let graph = envelopeGraphByEnvelope.get(working);
