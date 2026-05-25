@@ -575,10 +575,64 @@ function queueUpdate(ctx: ScriptContext, nodeId: string, patch: Record<string, u
   applyScriptEngineOp(ctx, op);
 }
 
+type PendingChildEntry = { child: RuntimeSceneNode | { id: string }; index?: number };
+
+function pendingChildIdentity(child: RuntimeSceneNode | { id: string }): string {
+  if (isRuntimeSceneNode(child)) {
+    return child.id;
+  }
+  return child.id;
+}
+
+function findPendingChildIndex(pending: PendingChildEntry[], child: RuntimeSceneNode | { id: string }): number {
+  const key = pendingChildIdentity(child);
+  for (let i = 0; i < pending.length; i++) {
+    const entry = pending[i]!;
+    if (entry.child === child) return i;
+    if (pendingChildIdentity(entry.child) === key) return i;
+  }
+  return -1;
+}
+
+/**
+ * Queue a detached child under a not-yet-attached parent.
+ * Reorders an existing pending entry (Figma insertChild) instead of duplicating it.
+ */
+function queuePendingChild(
+  pending: PendingChildEntry[],
+  child: RuntimeSceneNode | { id: string },
+  index?: number
+): void {
+  const existing = findPendingChildIndex(pending, child);
+  const targetIndex = index === undefined ? pending.length : Math.max(0, Math.min(index, pending.length));
+
+  if (existing >= 0) {
+    const [entry] = pending.splice(existing, 1);
+    const insertAt = existing < targetIndex ? targetIndex - 1 : targetIndex;
+    pending.splice(insertAt, 0, entry);
+    return;
+  }
+
+  pending.splice(targetIndex, 0, { child, index });
+}
+
+/** Drop duplicate pending entries (same runtime object or reserved id). */
+function dedupePendingChildEntries(pending: PendingChildEntry[]): PendingChildEntry[] {
+  const seen = new Set<string>();
+  const out: PendingChildEntry[] = [];
+  for (const entry of pending) {
+    const key = pendingChildIdentity(entry.child);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
+}
+
 /** Collect subtrees for Figma-style attach: detach document children, defer detached runtime nodes. */
 function materializePendingForCreate(
   ctx: ScriptContext,
-  pending: Array<{ child: RuntimeSceneNode | { id: string }; index?: number }>
+  pending: PendingChildEntry[]
 ): {
   embedded: SceneNode[];
   pendingRuntime: Array<{ child: RuntimeSceneNode; index?: number }>;
@@ -588,7 +642,7 @@ function materializePendingForCreate(
   const pendingRuntime: Array<{ child: RuntimeSceneNode; index?: number }> = [];
   const journalDeleteIds: string[] = [];
 
-  for (const entry of pending) {
+  for (const entry of dedupePendingChildEntries(pending)) {
     const { child } = entry;
     if (isRuntimeSceneNode(child) && !child.attached) {
       pendingRuntime.push({ child, index: entry.index });
@@ -1525,18 +1579,18 @@ abstract class RuntimeSceneNode {
   protected appendChildInternal(child: RuntimeSceneNode | { id: string }, index?: number): void {
     if (!this.attached || this._id === null) {
       if (isRuntimeSceneNode(child) && !child.attached) {
-        this.pendingChildren.push({ child, index });
+        queuePendingChild(this.pendingChildren, child, index);
         return;
       }
       if (isRuntimeSceneNode(child) && child.attached) {
         const attachedId = child.getAttachedIdOrNull();
         if (attachedId) {
-          this.pendingChildren.push({ child: { id: attachedId }, index });
+          queuePendingChild(this.pendingChildren, { id: attachedId }, index);
           return;
         }
       }
       if (!isRuntimeSceneNode(child) && typeof child.id === 'string') {
-        this.pendingChildren.push({ child, index });
+        queuePendingChild(this.pendingChildren, child, index);
         return;
       }
       throw new Error('appendChild requires the parent to be appended to the document (or use a detached child)');

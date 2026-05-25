@@ -6,7 +6,7 @@ from typing import Any
 from ..edit_graph import EditGraph, format_diff_summary
 from ..judge import parse_numeric_score, run_llm_judge
 from ..log import log
-from ..types import SubCheckResult, subcheck_weight_from_spec
+from ..types import Envelope, SubCheckResult, subcheck_weight_from_spec
 from .prompts import build_diff_prompt
 
 SKIP_LLM_SCORE = 0.75
@@ -29,6 +29,8 @@ def _run_diff_check(
     *,
     spec: dict[str, Any],
     graph: EditGraph,
+    before: Envelope,
+    after: Envelope,
     task_instruction: str,
     skip_llm: bool,
     model: str,
@@ -36,7 +38,7 @@ def _run_diff_check(
     if skip_llm:
         return _metadata_result(spec, SKIP_LLM_SCORE, {"check": "diff", "llm": "skipped"})
 
-    diff_summary = format_diff_summary(graph)
+    diff_summary = format_diff_summary(graph, before=before, after=after)
     prompt = build_diff_prompt(task_instruction=task_instruction, diff_summary=diff_summary)
     llm = run_llm_judge(
         prompt=prompt,
@@ -56,6 +58,8 @@ def run_metadata_check(
     *,
     spec: dict[str, Any],
     graph: EditGraph,
+    before: Envelope,
+    after: Envelope,
     task_instruction: str,
     skip_llm: bool = False,
     model: str,
@@ -68,6 +72,8 @@ def run_metadata_check(
         result = _run_diff_check(
             spec=spec,
             graph=graph,
+            before=before,
+            after=after,
             task_instruction=task_instruction,
             skip_llm=skip_llm,
             model=model,
@@ -83,6 +89,8 @@ def run_all_metadata_checks(
     *,
     specs: list[dict[str, Any]] | None,
     graph: EditGraph,
+    before: Envelope,
+    after: Envelope,
     task_instruction: str,
     skip_llm: bool = False,
     model: str,
@@ -97,6 +105,8 @@ def run_all_metadata_checks(
             run_metadata_check(
                 spec=spec,
                 graph=graph,
+                before=before,
+                after=after,
                 task_instruction=task_instruction,
                 skip_llm=skip_llm,
                 model=model,

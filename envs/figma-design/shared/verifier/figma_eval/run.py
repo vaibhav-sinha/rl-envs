@@ -101,6 +101,8 @@ def run_eval(
     metadata_results = run_all_metadata_checks(
         specs=spec.get("metadata_checks"),
         graph=graph,
+        before=before,
+        after=after,
         task_instruction=task_instruction,
         skip_llm=skip_llm,
         model=model,
