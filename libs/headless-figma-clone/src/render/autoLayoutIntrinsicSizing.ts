@@ -7,7 +7,6 @@ import type {
   AxisSizingMode,
   FileEnvelope,
   FrameNode,
-  LayoutSizing,
   SceneNode,
   TableNode,
   TextNode,
