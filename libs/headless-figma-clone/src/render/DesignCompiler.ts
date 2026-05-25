@@ -1796,6 +1796,22 @@ function emitScene(
     const s = n;
     const fill = s.fills?.[0];
     const fillCss = fillBackgroundStyles(fill, imgMap, patternTiles, warnings, `section_fill:${s.id}`, env);
+    const strokeResult = computeStrokeBorder(
+      {
+        width: s.width,
+        height: s.height,
+        strokes: s.strokes,
+        strokeWeight: s.strokeWeight,
+        strokeAlign: s.strokeAlign,
+        strokeCap: s.strokeCap,
+        strokeJoin: s.strokeJoin,
+        dashPattern: s.dashPattern,
+      },
+      s.id,
+      escapeAttr
+    );
+    warnings.push(...strokeResult.warnings);
+    const border = borderCssDeclaration(strokeResult.borderCss);
     const sectionOuterCss = insideFlex
       ? sceneChildPos(s as unknown as FrameNode, insideFlex, absX, absY, parentFrame)
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(s.width)}px;height:${String(s.height)}px;`;
@@ -1803,7 +1819,7 @@ function emitScene(
     const sectionAbsY = pageY;
     htmlParts.push(`<div class="hfc-node-${s.id}" data-hfc-id="${s.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `${hfcNodeCssSel(s.id)}{${sectionOuterCss}box-sizing:border-box;${fillCss}${opRot}}`
+      `${hfcNodeCssSel(s.id)}{${sectionOuterCss}box-sizing:border-box;${fillCss}${border}${opRot}}`
     );
     emitFrameChildren(
       s as unknown as FrameNode,

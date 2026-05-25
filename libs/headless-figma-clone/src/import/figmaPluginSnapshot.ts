@@ -26,6 +26,7 @@ import {
   boundsFromProps,
   type ParentPageOrigin,
   mapBlendOpacity,
+  mapDevStatus,
   syncRelativeTransformTranslation,
   mapCornerRadii,
   mapEffects,
@@ -38,6 +39,7 @@ import {
   mapStyleId,
   prop,
   str,
+  bool,
 } from './propertyMappers.js';
 import { buildNodeIdMapByComponentId } from './componentNodeIdMap.js';
 import {
@@ -813,6 +815,7 @@ function importSceneNode(
       } as SceneNode;
     }
     case 'SECTION': {
+      const sectionContentsHidden = bool(prop(p, 'sectionContentsHidden'));
       return {
         ...base,
         type: 'SECTION',
@@ -823,6 +826,9 @@ function importSceneNode(
         children: importChildren(),
         fills,
         strokes,
+        ...strokeExtras,
+        ...mapDevStatus(p),
+        ...(sectionContentsHidden !== undefined ? { sectionContentsHidden } : {}),
       } as SceneNode;
     }
     case 'SLICE': {

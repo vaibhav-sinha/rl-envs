@@ -131,7 +131,9 @@ Aligned with Plugin API [`nodes.md`](../figma-plugin-api/docs/plugins/api/nodes.
 | `boundVariables` | 5 | Including nested keys for fills/strokes/effects/grids/text ranges. |
 | `explicitVariableModes` | 5 | Collection → mode id. |
 
-**Omitted by design:** `pluginData`, `sharedPluginData`, `relaunchData`, `devStatus`, `annotations` (Dev workflow), `reactions`, remote library fields.
+**Omitted by design:** `pluginData`, `sharedPluginData`, `relaunchData`, `annotations` (Dev workflow), `reactions`, remote library fields.
+
+**Stub-persisted (no workflow):** `devStatus`, `locked`, `sectionContentsHidden` — readable/writable on script handles and stored in the envelope; no Dev Mode or canvas lock behavior.
 
 Exact field names should **mirror the Plugin API** where practical so `use_figma` patches stay intuitive.
 

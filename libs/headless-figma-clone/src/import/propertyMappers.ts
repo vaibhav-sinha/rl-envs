@@ -206,6 +206,23 @@ export function mapCornerRadii(props: Record<string, unknown>): Record<string, u
   return out;
 }
 
+export function mapDevStatus(props: Record<string, unknown>): Record<string, unknown> {
+  const raw = prop(props, 'devStatus');
+  if (raw === null) return { devStatus: null };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const rec = raw as Record<string, unknown>;
+  const type = rec.type;
+  if (type !== 'READY_FOR_DEV' && type !== 'COMPLETED') return {};
+  const description = rec.description;
+  if (description !== undefined && typeof description !== 'string') return {};
+  return {
+    devStatus:
+      description !== undefined
+        ? { type, description }
+        : { type },
+  };
+}
+
 export function mapBlendOpacity(props: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const rot = optNum(prop(props, 'rotation'));

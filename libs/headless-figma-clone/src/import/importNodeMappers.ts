@@ -47,6 +47,8 @@ export const HANDLED_SNAPSHOT_KEYS = new Set([
   'absoluteRenderBounds',
   'visible',
   'locked',
+  'devStatus',
+  'sectionContentsHidden',
   'opacity',
   'blendMode',
   'rotation',

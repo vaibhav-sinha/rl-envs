@@ -66,4 +66,35 @@ describe('section render', () => {
     expect(bundle).toContain(`hfc-node-${textId}`);
     expect(bundle).toContain('Order details');
   });
+
+  it('renders section stroke border in compiled CSS', async () => {
+    const env = emptyEnvelope();
+    const pid = pageId(env);
+
+    const sectionId = applyCreateNodeOp(env, {
+      op: 'createNode',
+      parentId: pid,
+      node: {
+        type: 'SECTION',
+        name: 'Bordered',
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 150,
+        fills: [{ type: 'SOLID', color: { r: 0.96, g: 0.96, b: 0.96 } }],
+        strokes: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }],
+        strokeWeight: 3,
+        children: [],
+      },
+    });
+
+    const compiled = designCompiler.compileSubtree({
+      envelope: env,
+      rootNodeId: sectionId,
+      options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
+    });
+
+    expect(compiled.html + compiled.css).toMatch(/border:\s*3px\s+solid/i);
+    expect(compiled.html + compiled.css).toContain(`hfc-node-${sectionId}`);
+  });
 });

@@ -504,7 +504,7 @@ node.x = 100
 node.y = 200
 ```
 
-For sections and component sets, use `resizeWithoutConstraints()` instead of `resize()` (see the sections gotcha above).
+For sections and component sets in Figma, `resize()` and `resizeWithoutConstraints()` are equivalent. In HFC both methods work on `SECTION` and `COMPONENT_SET` handles (they patch `width`/`height` only). Either is fine; skills often use `resizeWithoutConstraints()` for variant grids.
 
 ## `resize()` resets `primaryAxisSizingMode` and `counterAxisSizingMode` to FIXED
 

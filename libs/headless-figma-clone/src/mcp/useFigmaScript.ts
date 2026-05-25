@@ -687,6 +687,41 @@ const HANDLE_METHOD_KEYS = new Set([
   'setExplicitVariableModeForCollection',
 ]);
 
+function nodeSupportsResizeWithoutConstraints(type: string): boolean {
+  return type === 'SECTION' || type === 'COMPONENT_SET';
+}
+
+function queueResizeNode(ctx: ScriptContext, id: string, w: number, h: number): void {
+  const live = scriptLookup(ctx, id);
+  let height = h;
+  if (live?.type === 'TEXT' && height <= 0) {
+    const intrinsic = live.height ?? 0;
+    if (intrinsic > 0) height = intrinsic;
+  }
+  const patch =
+    live?.type === 'TEXT'
+      ? {
+          width: w,
+          height,
+          layoutSizingHorizontal: 'FIXED' as const,
+          layoutSizingVertical: 'FIXED' as const,
+        }
+      : { width: w, height };
+  queueUpdate(ctx, id, patch);
+}
+
+function readHandlePropertyValue(
+  live: import('../model/types.js').AnyTreeNode,
+  prop: string
+): unknown {
+  if (prop === 'locked') return live.locked ?? false;
+  if (prop === 'devStatus') return live.devStatus ?? null;
+  if (prop === 'sectionContentsHidden' && live.type === 'SECTION') {
+    return (live as import('../model/types.js').SectionNode).sectionContentsHidden ?? false;
+  }
+  return (live as unknown as Record<string, unknown>)[prop];
+}
+
 function nodeExposesChildren(live: import('../model/types.js').AnyTreeNode): boolean {
   return (
     live.type === 'PAGE' ||
@@ -735,6 +770,9 @@ function enumerateHandleKeys(live: import('../model/types.js').AnyTreeNode): str
   if (live.type === 'COMPONENT_SET') {
     keys.add('defaultVariant');
     keys.add('createInstance');
+  }
+  if (nodeSupportsResizeWithoutConstraints(live.type)) {
+    keys.add('resizeWithoutConstraints');
   }
   for (const m of HANDLE_METHOD_KEYS) keys.add(m);
   if (live.type === 'TEXT') {
@@ -1021,24 +1059,13 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
           queueUpdate(ctx, id, { textStyleId: styleId });
         };
       }
-      if (prop === 'resize') {
-        return (w: number, h: number): void => {
+      if (prop === 'resize' || prop === 'resizeWithoutConstraints') {
+        if (prop === 'resizeWithoutConstraints') {
           const live = scriptLookup(ctx, id);
-          let height = h;
-          if (live?.type === 'TEXT' && height <= 0) {
-            const intrinsic = live.height ?? 0;
-            if (intrinsic > 0) height = intrinsic;
-          }
-          const patch =
-            live?.type === 'TEXT'
-              ? {
-                  width: w,
-                  height,
-                  layoutSizingHorizontal: 'FIXED' as const,
-                  layoutSizingVertical: 'FIXED' as const,
-                }
-              : { width: w, height };
-          queueUpdate(ctx, id, patch);
+          if (!live || !nodeSupportsResizeWithoutConstraints(live.type)) return undefined;
+        }
+        return (w: number, h: number): void => {
+          queueResizeNode(ctx, id, w, h);
         };
       }
       if (prop === 'children') {
@@ -1053,7 +1080,7 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (AXIS_SIZING_PROPS.has(prop as string)) {
         return exposeAxisSizingMode((live as unknown as Record<string, unknown>)[prop as string]);
       }
-      const v = (live as unknown as Record<string, unknown>)[prop as string];
+      const v = readHandlePropertyValue(live, prop as string);
       return typeof v === 'function' ? v : v;
     },
     set(_t, prop, value) {
@@ -1086,8 +1113,11 @@ function createHandleProxy(ctx: ScriptContext, id: string): unknown {
       if (prop === 'placeholder') return true;
       if (typeof prop === 'symbol') return false;
       const p = prop as string;
-      if (TRAVERSAL_METHODS.has(p) || NODE_SELECTOR_METHODS.has(p) || HANDLE_METHOD_KEYS.has(p)) return true;
       const live = scriptLookup(ctx, id);
+      if (p === 'resizeWithoutConstraints') {
+        return live !== null && !ctx.deletedIds.has(id) && nodeSupportsResizeWithoutConstraints(live.type);
+      }
+      if (TRAVERSAL_METHODS.has(p) || NODE_SELECTOR_METHODS.has(p) || HANDLE_METHOD_KEYS.has(p)) return true;
       if (!live || ctx.deletedIds.has(id)) return false;
       if (live.type === 'TEXT' && TEXT_HANDLE_METHOD_KEYS.has(p)) return true;
       if (p === 'children') return nodeExposesChildren(live);

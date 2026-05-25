@@ -28,6 +28,7 @@ import type {
   ComponentSetNode,
   InstanceNode,
   ComponentPropertyValue,
+  DevStatus,
   LayoutSelfFields,
   TransformModifier,
 } from '../model/types.js';
@@ -562,6 +563,36 @@ function validateStrokeGeometry(
 function validateBlendMode(v: unknown, label: string): void {
   if (v === undefined) return;
   if (typeof v !== 'string') throw new ValidationErr('VALIDATION_ERROR', `${label}: blendMode must be string`);
+}
+
+function validateDevStatus(v: unknown, label: string): DevStatus {
+  if (v === null || v === undefined) return null;
+  if (!isRecord(v)) throw new ValidationErr('VALIDATION_ERROR', `${label}: devStatus must be object or null`);
+  const type = v.type;
+  if (type !== 'READY_FOR_DEV' && type !== 'COMPLETED') {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: devStatus.type must be READY_FOR_DEV or COMPLETED`);
+  }
+  const description = v.description;
+  if (description !== undefined && typeof description !== 'string') {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: devStatus.description must be string`);
+  }
+  return description !== undefined ? { type, description } : { type };
+}
+
+function applySceneStubPatch(
+  target: { locked?: boolean; devStatus?: DevStatus },
+  patch: Record<string, unknown>,
+  label: string
+): void {
+  if ('locked' in patch) {
+    if (typeof patch.locked !== 'boolean') {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}: locked must be boolean`);
+    }
+    target.locked = patch.locked;
+  }
+  if ('devStatus' in patch) {
+    target.devStatus = validateDevStatus(patch.devStatus, label);
+  }
 }
 
 function normalizeNewFrame(spec: Extract<NewNodeSpec, { type: 'FRAME' }>, id: string, env: FileEnvelope): FrameNode {
@@ -1753,6 +1784,16 @@ function normalizeNewSection(
     height: typeof spec.height === 'number' ? spec.height : 300,
     children: [],
     fills: spec.fills,
+    strokes: spec.strokes,
+    strokeWeight: spec.strokeWeight,
+    strokeAlign: spec.strokeAlign,
+    strokeCap: spec.strokeCap,
+    strokeJoin: spec.strokeJoin,
+    miterLimit: spec.miterLimit,
+    dashPattern: spec.dashPattern,
+    locked: spec.locked,
+    devStatus: spec.devStatus,
+    sectionContentsHidden: spec.sectionContentsHidden,
     visible: spec.visible,
     opacity: spec.opacity,
     rotation: spec.rotation,
@@ -1760,6 +1801,11 @@ function normalizeNewSection(
   };
   validateShapeBox(n);
   if (n.fills) n.fills = validatePaintArray(n.fills, 'fills', env) ?? [];
+  if (n.strokes) n.strokes = validatePaintArray(n.strokes, 'strokes', env) ?? [];
+  if (n.strokeWeight !== undefined && (typeof n.strokeWeight !== 'number' || n.strokeWeight < 0)) {
+    throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
+  }
+  validateStrokeGeometry('SECTION', n);
   validateBlendMode(spec.blendMode, 'SECTION.blendMode');
   applyLayoutSelfFromSpec(n, spec as Record<string, unknown>);
   return n;
@@ -3466,6 +3512,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       if (bv === undefined) delete f.boundVariables;
       else f.boundVariables = filterFrameBoundVariablesForMode(bv, f.layoutMode);
     }
+    applySceneStubPatch(f, patch, 'FRAME');
     return;
   }
   if (node.type === 'TEXT') {
@@ -4070,8 +4117,32 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       translateGroupDescendants(node, cn.x - prevX, cn.y - prevY);
       syncGroupBounds(node);
     }
-    if (node.type === 'SECTION' && 'fills' in patch) {
-      (node as SectionNode).fills = validatePaintArray(patch.fills, 'fills', env);
+    if (node.type === 'SECTION') {
+      const s = node as SectionNode;
+      if ('fills' in patch) {
+        s.fills = validatePaintArray(patch.fills, 'fills', env);
+      }
+      if ('strokes' in patch) {
+        s.strokes = validatePaintArray(patch.strokes, 'strokes', env);
+      }
+      if ('strokeWeight' in patch) {
+        const sw = patch.strokeWeight;
+        if (typeof sw !== 'number' || sw < 0) {
+          throw new ValidationErr('VALIDATION_ERROR', 'strokeWeight must be number >= 0');
+        }
+        s.strokeWeight = sw;
+      }
+      applyStrokeFieldsFromPatch(s as unknown as Record<string, unknown>, patch);
+      validateStrokeGeometry('SECTION', s);
+      if ('sectionContentsHidden' in patch) {
+        if (typeof patch.sectionContentsHidden !== 'boolean') {
+          throw new ValidationErr('VALIDATION_ERROR', 'sectionContentsHidden must be boolean');
+        }
+        s.sectionContentsHidden = patch.sectionContentsHidden;
+      }
+      applySceneStubPatch(s, patch, 'SECTION');
+    } else {
+      applySceneStubPatch(cn, patch, node.type);
     }
     if ('visible' in patch) {
       if (typeof patch.visible !== 'boolean') throw new ValidationErr('VALIDATION_ERROR', 'visible must be boolean');
@@ -4299,6 +4370,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       }
     }
     validateShapeBox(cn as unknown as import('../model/types.js').FrameNode);
+    applySceneStubPatch(cn, patch, 'COMPONENT');
     return;
   }
   if (node.type === 'COMPONENT_SET') {
@@ -4341,6 +4413,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       }
     }
     validateShapeBox(cs as unknown as import('../model/types.js').FrameNode);
+    applySceneStubPatch(cs, patch, 'COMPONENT_SET');
     return;
   }
   if (node.type === 'INSTANCE') {
@@ -4523,6 +4596,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       }
       inst.strokesIncludedInLayout = patch.strokesIncludedInLayout;
     }
+    applySceneStubPatch(inst, patch, 'INSTANCE');
     return;
   }
   if (node.type === 'PAGE') {

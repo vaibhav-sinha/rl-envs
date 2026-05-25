@@ -300,11 +300,20 @@ export type Effect =
   | NoiseEffect
   | TextureEffect;
 
+/** Figma Plugin API DevStatus — stub-persisted; no Dev Mode workflow in HFC. */
+export type DevStatus =
+  | { type: 'READY_FOR_DEV' | 'COMPLETED'; description?: string }
+  | null;
+
 export interface NodeBase {
   id: string;
   type: string;
   name: string;
   visible?: boolean;
+  /** Figma layer lock — stub-persisted; does not block script edits. */
+  locked?: boolean;
+  /** Figma Dev Mode handoff status — stub-persisted. */
+  devStatus?: DevStatus;
   /** Original Figma node id from import (e.g. "123:456"). Used for copy-export exclusions. */
   sourceFigmaId?: string;
   /** Figma Plugin API relativeTransform when present in import snapshot. */
@@ -795,6 +804,15 @@ export interface SectionNode extends NodeBase, LayoutSelfFields {
   opacity?: number;
   blendMode?: BlendMode;
   fills?: Paint[];
+  strokes?: Paint[];
+  strokeWeight?: number;
+  strokeAlign?: 'INSIDE' | 'OUTSIDE' | 'CENTER';
+  strokeCap?: StrokeCap;
+  strokeJoin?: StrokeJoin;
+  miterLimit?: number;
+  dashPattern?: number[];
+  /** FigJam section hide-contents flag — stub-persisted; children always render. */
+  sectionContentsHidden?: boolean;
   children: SceneNode[];
 }
 

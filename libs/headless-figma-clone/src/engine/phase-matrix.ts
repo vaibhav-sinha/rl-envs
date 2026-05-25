@@ -58,6 +58,21 @@ const shapePatchKeys = [
   ...layoutSelfPatchKeys,
 ] as const;
 
+/** Stub scene fields merged into shape-backed patch sets. */
+const shapePatchKeysWithLocked = [...shapePatchKeys, 'locked'] as const;
+
+const devStatusPatchKeys = ['devStatus'] as const;
+
+const sectionStrokePatchKeys = [
+  'strokes',
+  'strokeWeight',
+  'strokeAlign',
+  'strokeCap',
+  'strokeJoin',
+  'miterLimit',
+  'dashPattern',
+] as const;
+
 /** Auto-layout frame fields (Figma: FrameNode + InstanceNode). */
 const autoLayoutPatchKeys = [
   'layoutMode',
@@ -102,7 +117,8 @@ export const ENGINE_MATRIX = {
   },
   patchKeysByType: {
     FRAME: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
+      ...devStatusPatchKeys,
       'fills',
       'backgrounds',
       'strokes',
@@ -136,7 +152,7 @@ export const ENGINE_MATRIX = {
       'boundVariables',
     ]),
     TEXT: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
       'characters',
       'fontSize',
       'fontWeight',
@@ -174,7 +190,7 @@ export const ENGINE_MATRIX = {
       'boundVariables',
     ]),
     RECTANGLE: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
       'fills',
       'strokes',
       'strokeWeight',
@@ -199,7 +215,7 @@ export const ENGINE_MATRIX = {
       'effectStyleId',
     ]),
     ELLIPSE: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
       'fills',
       'strokes',
       'strokeWeight',
@@ -212,7 +228,7 @@ export const ENGINE_MATRIX = {
       'effects',
     ]),
     LINE: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
       'strokes',
       'strokeWeight',
       'strokeCap',
@@ -221,7 +237,7 @@ export const ENGINE_MATRIX = {
       'effects',
     ]),
     POLYGON: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
       'pointCount',
       'fills',
       'strokes',
@@ -234,7 +250,7 @@ export const ENGINE_MATRIX = {
       'effects',
     ]),
     STAR: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
       'pointCount',
       'innerRadius',
       'fills',
@@ -248,7 +264,7 @@ export const ENGINE_MATRIX = {
       'effects',
     ]),
     VECTOR: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
       'vectorPaths',
       'fills',
       'strokes',
@@ -261,27 +277,40 @@ export const ENGINE_MATRIX = {
       'effects',
     ]),
     BOOLEAN_OPERATION: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
       'booleanOperation',
       'fills',
       'effects',
     ]),
-    TRANSFORM_GROUP: new Set([...shapePatchKeys, 'transformModifiers']),
-    GROUP: new Set([...shapePatchKeys]),
-    SLICE: new Set([...shapePatchKeys]),
-    SECTION: new Set([...shapePatchKeys, 'fills']),
+    TRANSFORM_GROUP: new Set([...shapePatchKeysWithLocked, 'transformModifiers']),
+    GROUP: new Set([...shapePatchKeysWithLocked]),
+    SLICE: new Set([...shapePatchKeysWithLocked]),
+    SECTION: new Set([
+      ...shapePatchKeysWithLocked,
+      ...devStatusPatchKeys,
+      'fills',
+      ...sectionStrokePatchKeys,
+      'sectionContentsHidden',
+    ]),
     TABLE: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
       'columnCount',
       'rowCount',
       'columnWidths',
       'rowHeights',
       'cells',
     ]),
-    COMPONENT_INSTANCE: new Set([...shapePatchKeys, 'mainComponentId', 'overrides']),
-    COMPONENT: new Set([...shapePatchKeys, 'rootFrameId', 'componentKey', 'componentPropertyDefinitions']),
+    COMPONENT_INSTANCE: new Set([...shapePatchKeysWithLocked, 'mainComponentId', 'overrides']),
+    COMPONENT: new Set([
+      ...shapePatchKeysWithLocked,
+      ...devStatusPatchKeys,
+      'rootFrameId',
+      'componentKey',
+      'componentPropertyDefinitions',
+    ]),
     COMPONENT_SET: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
+      ...devStatusPatchKeys,
       'componentKey',
       'componentIds',
       'componentPropertyDefinitions',
@@ -291,7 +320,8 @@ export const ENGINE_MATRIX = {
       'baseComponentId',
     ]),
     INSTANCE: new Set([
-      ...shapePatchKeys,
+      ...shapePatchKeysWithLocked,
+      ...devStatusPatchKeys,
       'fills',
       'backgrounds',
       'strokes',
