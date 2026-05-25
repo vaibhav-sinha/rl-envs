@@ -41,3 +41,11 @@ digest = "sha256:e12c9e0b571a1813d996e88e35335d4a63ac738c578c006bca65a6af5954e11
 name = "metaphi/figma-design-oker-create-apply-styles"
 digest = "sha256:58147d5625b8d9e062590dc723c73618953d0ed1d4b04deb8ae2219d6b600d16"
 
+[[tasks]]
+name = "metaphi/figma-design-oker-create-support-screen"
+digest = "sha256:aea17c23589e8c847b6494c8a6c616bdd54f7870da71af8e94c389e53644721e"
+
+[[tasks]]
+name = "metaphi/figma-design-oker-browse-screen-variant"
+digest = "sha256:4d2571da095d5f2cb849fea2ad4e1b5a399c3e09919127702902a34143f707aa"
+

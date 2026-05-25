@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "screenshot": {
+    "strategy": "auto"
+  },
+  "gates": {
+    "require_change": true,
+    "no_detached_nodes": true,
+    "additions_only": true
+  },
+  "checks": [
+    {
+      "id": "must_contain_text_1",
+      "type": "must_contain_text",
+      "required": true,
+      "contains": "support",
+      "scope": "new_frames"
+    },
+    {
+      "id": "must_contain_image_2",
+      "type": "must_contain_image",
+      "required": true,
+      "scope": "new_frames"
+    }
+  ],
+  "visual": [
+    {
+      "id": "good_design_1",
+      "type": "good_design"
+    },
+    {
+      "id": "task_completeness_1",
+      "type": "task_completeness"
+    },
+    {
+      "id": "design_consistency_3",
+      "type": "design_consistency",
+      "reference_asset": "ref-design_consistency_3.png",
+      "criteria": [
+        "- The new design should have similar typography - text size, weight, etc",
+        "- It should use similar border, corner radius, etc",
+        "- It should use similar spacing, padding, etc",
+        "- It should display item details in a similar manner",
+        "- It should use similar sizing and styles for icons"
+      ]
+    }
+  ],
+  "design_system": {
+    "allow_novelty": {
+      "text": {
+        "color": false,
+        "font_size": false,
+        "font_family": false,
+        "font_weight": false
+      },
+      "frames": {
+        "fill": true,
+        "background": true,
+        "stroke_color": false,
+        "stroke_width": false,
+        "corner_radius": true,
+        "effects": false,
+        "item_spacing": true,
+        "counter_axis_spacing": true,
+        "padding": true,
+        "layout_grid": true
+      }
+    }
+  },
+  "category_importance": {
+    "commands": 0.15,
+    "checks": 0.35,
+    "design_system": 0.2,
+    "visual": 0.61,
+    "metadata": 0.1,
+    "heuristics": 0.1
+  }
+}
