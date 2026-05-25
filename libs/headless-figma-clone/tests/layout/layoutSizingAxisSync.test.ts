@@ -79,6 +79,21 @@ describe('layoutSizingAxisSync', () => {
     expect(f.layoutSizingVertical).toBe('FIXED');
   });
 
+  it('syncLayoutSizingFromAxisSizingModes preserves FILL on resize axis sync', () => {
+    const f = mkFrame({
+      layoutMode: 'VERTICAL',
+      layoutSizingHorizontal: 'FILL',
+      layoutSizingVertical: 'HUG',
+      primaryAxisSizingMode: 'AUTO',
+      counterAxisSizingMode: 'FIXED',
+    });
+    f.primaryAxisSizingMode = 'FIXED';
+    f.counterAxisSizingMode = 'FIXED';
+    syncLayoutSizingFromAxisSizingModes(f);
+    expect(f.layoutSizingHorizontal).toBe('FILL');
+    expect(f.layoutSizingVertical).toBe('FIXED');
+  });
+
   it('ignores GRID layoutMode', () => {
     const f = mkFrame({
       layoutMode: 'GRID',

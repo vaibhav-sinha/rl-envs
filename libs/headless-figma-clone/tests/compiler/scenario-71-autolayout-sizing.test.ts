@@ -74,28 +74,20 @@ describe('scenario 71 nested autolayout — compile-time sizing parity', () => {
     const env = structuredClone(envelopeAfterScriptRun(engine, run)) as FileEnvelope;
     const rootId = (run.result as { rootId: string }).rootId;
 
-    const colPre = findVerticalFrame(
-      env,
-      (f) =>
-        f.layoutMode === 'VERTICAL' &&
-        f.itemSpacing === 14 &&
-        (f.paddingTop ?? 0) === 14 &&
-        f.width === 100 &&
-        f.height === 100
-    );
-    expect(colPre).toBeTruthy();
-
-    const rootNode = findNodeById(env, rootId);
-    expect(rootNode).toBeTruthy();
-    if (!rootNode) return;
-    applyAutoLayoutIntrinsicSizingDeep(rootNode);
-
     const col = findVerticalFrame(
       env,
       (f) => f.layoutMode === 'VERTICAL' && f.itemSpacing === 14 && (f.paddingTop ?? 0) === 14
     );
     expect(col).toBeTruthy();
     if (!col) return;
+    /** Intrinsic sizing runs during appendChild (engine Fix C); column is already hugged. */
+    expect(col.width).toBe(100);
+    expect(col.height).toBe(214);
+
+    const rootNode = findNodeById(env, rootId);
+    expect(rootNode).toBeTruthy();
+    if (!rootNode) return;
+    applyAutoLayoutIntrinsicSizingDeep(rootNode);
     expect(col.width).toBe(100);
     expect(col.height).toBe(214);
 

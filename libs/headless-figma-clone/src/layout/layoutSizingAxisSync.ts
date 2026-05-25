@@ -66,6 +66,8 @@ export function syncLayoutSizingFromAxisSizingModes(f: LayoutSizingAxisSyncTarge
     sizing: 'layoutSizingHorizontal' | 'layoutSizingVertical'
   ) => {
     if (mode === undefined) return;
+    /** FILL is child-only flex-grow; axis FIXED must not downgrade it on resize(). */
+    if (f[sizing] === 'FILL') return;
     f[sizing] = axisSizingToLayoutSizing(mode);
   };
 

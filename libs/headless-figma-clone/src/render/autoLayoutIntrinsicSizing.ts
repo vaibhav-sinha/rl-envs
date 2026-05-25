@@ -413,11 +413,19 @@ export function syncFrameLayoutSizingForAutoLayoutParents(f: FrameNode): void {
     if (mainSizing === undefined && crossSizing === undefined) continue;
 
     if (c.layoutMode === 'HORIZONTAL') {
-      if (mainSizing !== undefined) c.layoutSizingHorizontal = axisSizingToLayoutSizing(mainSizing);
-      if (crossSizing !== undefined) c.layoutSizingVertical = axisSizingToLayoutSizing(crossSizing);
+      if (mainSizing !== undefined && c.layoutSizingHorizontal !== 'FILL') {
+        c.layoutSizingHorizontal = axisSizingToLayoutSizing(mainSizing);
+      }
+      if (crossSizing !== undefined && c.layoutSizingVertical !== 'FILL') {
+        c.layoutSizingVertical = axisSizingToLayoutSizing(crossSizing);
+      }
     } else {
-      if (mainSizing !== undefined) c.layoutSizingVertical = axisSizingToLayoutSizing(mainSizing);
-      if (crossSizing !== undefined) c.layoutSizingHorizontal = axisSizingToLayoutSizing(crossSizing);
+      if (mainSizing !== undefined && c.layoutSizingVertical !== 'FILL') {
+        c.layoutSizingVertical = axisSizingToLayoutSizing(mainSizing);
+      }
+      if (crossSizing !== undefined && c.layoutSizingHorizontal !== 'FILL') {
+        c.layoutSizingHorizontal = axisSizingToLayoutSizing(crossSizing);
+      }
     }
   }
 }

@@ -140,6 +140,47 @@ function lookupParentForOp(
   return findParent(working.document, nodeId);
 }
 
+function isAutoLayoutFrame(
+  n: ReturnType<typeof findParentNode> | SceneNode | null | undefined
+): n is FrameNode {
+  return (
+    n?.type === 'FRAME' &&
+    (n.layoutMode === 'HORIZONTAL' || n.layoutMode === 'VERTICAL')
+  );
+}
+
+/** Re-run hug/fill layout after structural or sizing edits under auto-layout parents. */
+function maybeApplyAutoLayoutIntrinsicSizingAfterChange(
+  working: FileEnvelope,
+  node: SceneNode,
+  patch: Record<string, unknown>,
+  ctx?: EngineOpContext
+): void {
+  const layoutAffecting =
+    'layoutSizingHorizontal' in patch ||
+    'layoutSizingVertical' in patch ||
+    (node.type === 'FRAME' &&
+      ('width' in patch ||
+        'height' in patch ||
+        'primaryAxisSizingMode' in patch ||
+        'counterAxisSizingMode' in patch ||
+        'layoutMode' in patch ||
+        'itemSpacing' in patch ||
+        'paddingTop' in patch ||
+        'paddingRight' in patch ||
+        'paddingBottom' in patch ||
+        'paddingLeft' in patch));
+  if (!layoutAffecting) return;
+
+  if (isAutoLayoutFrame(node)) {
+    applyAutoLayoutIntrinsicSizingDeep(node, working);
+  }
+  const parent = lookupParentForOp(working, node.id, ctx);
+  if (isAutoLayoutFrame(parent)) {
+    applyAutoLayoutIntrinsicSizingDeep(parent, working);
+  }
+}
+
 export type { EngineErrorCode } from '../util/errors.js';
 
 export interface TransactionResult {
@@ -2380,9 +2421,9 @@ export function applyCreateNodeOp(
   }
   if (node.type === 'TEXT') {
     syncTextNodeIntrinsicMetrics(node as TextNode, working);
-    if (parent.type === 'FRAME' && (parent.layoutMode === 'HORIZONTAL' || parent.layoutMode === 'VERTICAL')) {
-      applyAutoLayoutIntrinsicSizingDeep(parent, working);
-    }
+  }
+  if (isAutoLayoutFrame(parent)) {
+    applyAutoLayoutIntrinsicSizingDeep(parent, working);
   }
   return id;
 }
@@ -2503,6 +2544,9 @@ export function applyEngineOp(
       const fn = patch.fontName;
       if (fn === undefined || fn === null) delete t.fontName;
       else t.fontName = validateFontName(fn, 'fontName');
+    }
+    if ((sceneShapeTypes as readonly string[]).includes(node.type)) {
+      maybeApplyAutoLayoutIntrinsicSizingAfterChange(working, node as SceneNode, patch, ctx);
     }
     return undefined;
   }
