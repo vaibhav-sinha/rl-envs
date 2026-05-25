@@ -177,4 +177,35 @@ describe('imageDataUrls subtree scope', () => {
     const hashes = collectImageHashesFromSubtree(env, 'I1');
     expect(hashes.has('only-on-master-hash')).toBe(true);
   });
+
+  it('collectImageHashesFromSubtree includes master paints when root is a COMPONENT node', () => {
+    const env = JSON.parse(readFileSync(OTP_HFC, 'utf8')) as FileEnvelope;
+    const productHash =
+      'e259775d25f400ffbc21fda34b932980c292bd09b2264508d859a32e8003ad00';
+    const compHashes = collectImageHashesFromSubtree(env, 'I74429');
+    const frameHashes = collectImageHashesFromSubtree(env, 'I74430');
+    expect(compHashes.has(productHash)).toBe(true);
+    expect(frameHashes.has(productHash)).toBe(true);
+  });
+
+  it('get_design_context on Product COMPONENT does not warn missing_image_data_url', () => {
+    const env = JSON.parse(readFileSync(OTP_HFC, 'utf8')) as FileEnvelope;
+    const productHash =
+      'e259775d25f400ffbc21fda34b932980c292bd09b2264508d859a32e8003ad00';
+    const imgMap = buildImageDataUrlForSubtree(env, OTP_HFC, 'I74429');
+    expect(imgMap[productHash]).toBeDefined();
+    const out = designCompiler.compileSubtree({
+      envelope: env,
+      rootNodeId: 'I74429',
+      options: {
+        includeCss: true,
+        inlineCss: true,
+        imageDataUrlByHash: imgMap,
+      },
+    });
+    expect(out.warnings.some((w) => w.startsWith('missing_image_data_url:rect:I74431'))).toBe(
+      false
+    );
+    expect(out.html).toContain('data:image/png;base64,');
+  });
 });

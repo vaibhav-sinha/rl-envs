@@ -87,6 +87,10 @@ function walkSceneImageHashes(
     walkComponentMaster(envelope, node.mainComponentId, hashes, visitingComponents, inDocumentMasters);
     return;
   }
+  if (node.type === 'COMPONENT') {
+    walkComponentMaster(envelope, node.id, hashes, visitingComponents, inDocumentMasters);
+    return;
+  }
 
   const ch = sceneChildren(node);
   if (ch) {
