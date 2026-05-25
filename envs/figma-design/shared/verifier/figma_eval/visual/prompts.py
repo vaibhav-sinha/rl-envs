@@ -18,7 +18,14 @@ GOOD_DESIGN_QUALITY_CRITERIA = [
 
 GOOD_DESIGN_CRITERIA = GOOD_DESIGN_DEFECT_CRITERIA + GOOD_DESIGN_QUALITY_CRITERIA
 
-# Normalized score at or below this threshold (raw 1–5 score <= 2) triggers a hard cap.
+# Weighted blend: defect_mean * DEFECT_WEIGHT + quality_mean * (1 - DEFECT_WEIGHT).
+GOOD_DESIGN_DEFECT_WEIGHT = 0.4
+
+# Per-criterion severe cap: when any of these scores is at or below the threshold
+# (raw 1–5 score <= 2), the final score is capped (not zeroed).
+GOOD_DESIGN_SEVERE_DEFECT_CRITERIA = [
+    "no_placeholders_or_broken_media",
+]
 GOOD_DESIGN_DEFECT_SEVERE_THRESHOLD = 0.25
 GOOD_DESIGN_DEFECT_SEVERE_CAP = 0.4
 

@@ -44,30 +44,44 @@ def aggregate_good_design_score(
     *,
     defect_keys: list[str],
     quality_keys: list[str],
+    defect_weight: float = 0.4,
+    severe_defect_keys: list[str] | None = None,
     defect_severe_threshold: float = 0.25,
     defect_severe_cap: float = 0.4,
 ) -> dict[str, float]:
-    """Defect-first aggregation: low defect scores cap the overall result."""
+    """Weighted defect/quality blend with per-criterion severe caps."""
     defect = [scores[k] for k in defect_keys if k in scores]
     quality = [scores[k] for k in quality_keys if k in scores]
     if not defect and not quality:
         return {
             "mean_score": 0.0,
             "defect_min": 0.0,
+            "defect_mean": 0.0,
             "quality_mean": 0.0,
             "overall_mean": 0.0,
         }
 
     defect_min = min(defect) if defect else 1.0
+    defect_mean = mean_normalized(defect) if defect else 0.0
     quality_mean = mean_normalized(quality) if quality else 0.0
     overall_mean = mean_normalized(defect + quality)
-    aggregated = min(defect_min, overall_mean) if defect else overall_mean
-    if defect and defect_min <= defect_severe_threshold:
-        aggregated = min(aggregated, defect_severe_cap)
+    quality_weight = 1.0 - defect_weight
+
+    if not defect:
+        aggregated = quality_mean
+    elif not quality:
+        aggregated = defect_mean
+    else:
+        aggregated = defect_weight * defect_mean + quality_weight * quality_mean
+
+    for key in severe_defect_keys or []:
+        if key in scores and scores[key] <= defect_severe_threshold:
+            aggregated = min(aggregated, defect_severe_cap)
 
     return {
         "mean_score": aggregated,
         "defect_min": defect_min,
+        "defect_mean": defect_mean,
         "quality_mean": quality_mean,
         "overall_mean": overall_mean,
     }
@@ -144,7 +158,9 @@ def parse_good_design_scores(text: str) -> dict[str, Any]:
         GOOD_DESIGN_DEFECT_CRITERIA,
         GOOD_DESIGN_DEFECT_SEVERE_CAP,
         GOOD_DESIGN_DEFECT_SEVERE_THRESHOLD,
+        GOOD_DESIGN_DEFECT_WEIGHT,
         GOOD_DESIGN_QUALITY_CRITERIA,
+        GOOD_DESIGN_SEVERE_DEFECT_CRITERIA,
     )
 
     parsed = parse_criteria_scores(
@@ -158,11 +174,14 @@ def parse_good_design_scores(text: str) -> dict[str, Any]:
         scores,
         defect_keys=GOOD_DESIGN_DEFECT_CRITERIA,
         quality_keys=GOOD_DESIGN_QUALITY_CRITERIA,
+        defect_weight=GOOD_DESIGN_DEFECT_WEIGHT,
+        severe_defect_keys=GOOD_DESIGN_SEVERE_DEFECT_CRITERIA,
         defect_severe_threshold=GOOD_DESIGN_DEFECT_SEVERE_THRESHOLD,
         defect_severe_cap=GOOD_DESIGN_DEFECT_SEVERE_CAP,
     )
     parsed["mean_score"] = aggregated["mean_score"]
     parsed["defect_min"] = aggregated["defect_min"]
+    parsed["defect_mean"] = aggregated["defect_mean"]
     parsed["quality_mean"] = aggregated["quality_mean"]
     parsed["overall_mean"] = aggregated["overall_mean"]
     return parsed

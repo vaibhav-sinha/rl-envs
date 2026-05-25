@@ -201,6 +201,7 @@ def score_image(
             "scores": llm.get("consistency_scores"),
             "explanations": llm.get("explanations"),
             "defect_min": llm.get("defect_min"),
+            "defect_mean": llm.get("defect_mean"),
             "quality_mean": llm.get("quality_mean"),
             "overall_mean": llm.get("overall_mean"),
             "raw": llm,

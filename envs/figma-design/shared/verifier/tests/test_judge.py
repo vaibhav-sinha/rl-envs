@@ -95,7 +95,7 @@ def test_parse_task_completeness_splits_structure_and_quality():
     assert out["requirements"][0]["satisfied"] is False
 
 
-def test_aggregate_good_design_score_defect_first():
+def test_aggregate_good_design_score_caps_severe_placeholder_defect():
     scores = {
         "no_placeholders_or_broken_media": 0.0,
         "layout_proportions": 0.0,
@@ -122,13 +122,49 @@ def test_aggregate_good_design_score_defect_first():
             "alignment",
             "visual_hierarchy",
         ],
+        severe_defect_keys=["no_placeholders_or_broken_media"],
     )
     assert out["defect_min"] == 0.0
     assert out["quality_mean"] > 0.8
-    assert out["mean_score"] <= 0.4
+    assert out["mean_score"] == pytest.approx(0.4)
 
 
-def test_parse_good_design_scores_uses_defect_first_aggregation():
+def test_aggregate_good_design_score_partial_defect_not_zeroed():
+    """One severe placeholder defect with strong quality dims should cap at 0.4, not 0."""
+    scores = {
+        "no_placeholders_or_broken_media": 0.0,
+        "layout_proportions": 0.5,
+        "layout_completeness": 0.5,
+        "typography": 0.75,
+        "spacing": 0.75,
+        "color": 0.75,
+        "content_not_overflowing": 1.0,
+        "alignment": 1.0,
+        "visual_hierarchy": 0.75,
+    }
+    out = aggregate_good_design_score(
+        scores,
+        defect_keys=[
+            "no_placeholders_or_broken_media",
+            "layout_proportions",
+            "layout_completeness",
+        ],
+        quality_keys=[
+            "typography",
+            "spacing",
+            "color",
+            "content_not_overflowing",
+            "alignment",
+            "visual_hierarchy",
+        ],
+        severe_defect_keys=["no_placeholders_or_broken_media"],
+    )
+    assert out["defect_mean"] == pytest.approx(1 / 3)
+    assert out["quality_mean"] == pytest.approx(5 / 6)
+    assert out["mean_score"] == pytest.approx(0.4)
+
+
+def test_parse_good_design_scores_uses_weighted_blend_with_severe_cap():
     text = json.dumps(
         {
             "scores": {
