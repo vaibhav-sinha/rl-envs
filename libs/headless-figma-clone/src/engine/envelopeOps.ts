@@ -1,11 +1,16 @@
 import type {
   Effect,
+  EffectStyleDefinition,
   FileEnvelope,
+  FontName,
+  GridStyleDefinition,
   LayoutGridColumns,
   Paint,
+  PaintStyleDefinition,
   FrameNode,
   SceneNode,
   TextStyleDefinition,
+  TextVariableBindings,
   VariableCollection,
   VariableDefinition,
   VariableResolvedValue,
@@ -35,10 +40,14 @@ export type EnvelopeOperation =
   | { op: 'moveTextStyleAfter'; targetId: string; afterId: string | null }
   | { op: 'moveEffectStyleAfter'; targetId: string; afterId: string | null }
   | { op: 'moveGridStyleAfter'; targetId: string; afterId: string | null }
-  | { op: 'updatePaintStyle'; id: string; patch: { name?: string; paints?: Paint[] } }
-  | { op: 'updateTextStyle'; id: string; patch: { name?: string; fontSize?: number; fontWeight?: number; fills?: Paint[] } }
-  | { op: 'updateEffectStyle'; id: string; patch: { name?: string; effects?: Effect[] } }
-  | { op: 'updateGridStyle'; id: string; patch: { name?: string; layoutGrids?: LayoutGridColumns[] } };
+  | { op: 'deletePaintStyle'; id: string }
+  | { op: 'deleteTextStyle'; id: string }
+  | { op: 'deleteEffectStyle'; id: string }
+  | { op: 'deleteGridStyle'; id: string }
+  | { op: 'updatePaintStyle'; id: string; patch: Partial<Pick<PaintStyleDefinition, 'name' | 'paints' | 'boundVariables' | 'pluginData' | 'sharedPluginData' | 'description' | 'descriptionMarkdown' | 'key'>> }
+  | { op: 'updateTextStyle'; id: string; patch: Partial<Omit<TextStyleDefinition, 'id'>> }
+  | { op: 'updateEffectStyle'; id: string; patch: Partial<Pick<EffectStyleDefinition, 'name' | 'effects' | 'pluginData' | 'sharedPluginData' | 'description' | 'descriptionMarkdown' | 'key'>> }
+  | { op: 'updateGridStyle'; id: string; patch: Partial<Pick<GridStyleDefinition, 'name' | 'layoutGrids' | 'pluginData' | 'sharedPluginData' | 'description' | 'descriptionMarkdown' | 'key'>> };
 
 const ENVELOPE_OP_SET = new Set<EnvelopeOperation['op']>([
   'createVariableCollection',
@@ -58,11 +67,58 @@ const ENVELOPE_OP_SET = new Set<EnvelopeOperation['op']>([
   'moveTextStyleAfter',
   'moveEffectStyleAfter',
   'moveGridStyleAfter',
+  'deletePaintStyle',
+  'deleteTextStyle',
+  'deleteEffectStyle',
+  'deleteGridStyle',
   'updatePaintStyle',
   'updateTextStyle',
   'updateEffectStyle',
   'updateGridStyle',
 ]);
+
+function validateFontName(value: unknown, label: string): FontName {
+  if (!value || typeof value !== 'object') {
+    throw new ValidationErr('VALIDATION_ERROR', `${label} must be an object with family and style`);
+  }
+  const o = value as { family?: unknown; style?: unknown };
+  if (typeof o.family !== 'string' || typeof o.style !== 'string') {
+    throw new ValidationErr('VALIDATION_ERROR', `${label} must be an object with family and style`);
+  }
+  return { family: o.family, style: o.style };
+}
+
+function applyTextStylePatch(s: TextStyleDefinition, patch: Partial<Omit<TextStyleDefinition, 'id'>>, working: FileEnvelope): void {
+  if (patch.name !== undefined) s.name = patch.name;
+  if (patch.fontName !== undefined) {
+    s.fontName = validateFontName(patch.fontName, 'textStyle.fontName');
+  }
+  if (patch.fontSize !== undefined) s.fontSize = patch.fontSize;
+  if (patch.fontWeight !== undefined) s.fontWeight = patch.fontWeight;
+  if (patch.fills !== undefined) s.fills = validatePaintArray(patch.fills, 'textStyle.fills', working);
+  if (patch.textDecoration !== undefined) s.textDecoration = patch.textDecoration;
+  if (patch.letterSpacing !== undefined) s.letterSpacing = patch.letterSpacing;
+  if (patch.lineHeight !== undefined) s.lineHeight = patch.lineHeight;
+  if (patch.leadingTrim !== undefined) s.leadingTrim = patch.leadingTrim;
+  if (patch.paragraphIndent !== undefined) s.paragraphIndent = patch.paragraphIndent;
+  if (patch.paragraphSpacing !== undefined) s.paragraphSpacing = patch.paragraphSpacing;
+  if (patch.listSpacing !== undefined) s.listSpacing = patch.listSpacing;
+  if (patch.hangingPunctuation !== undefined) s.hangingPunctuation = patch.hangingPunctuation;
+  if (patch.hangingList !== undefined) s.hangingList = patch.hangingList;
+  if (patch.textCase !== undefined) s.textCase = patch.textCase;
+  if (patch.boundVariables !== undefined) {
+    if (patch.boundVariables === null || Object.keys(patch.boundVariables).length === 0) {
+      delete s.boundVariables;
+    } else {
+      s.boundVariables = patch.boundVariables as TextVariableBindings;
+    }
+  }
+  if (patch.pluginData !== undefined) s.pluginData = patch.pluginData;
+  if (patch.sharedPluginData !== undefined) s.sharedPluginData = patch.sharedPluginData;
+  if (patch.description !== undefined) s.description = patch.description;
+  if (patch.descriptionMarkdown !== undefined) s.descriptionMarkdown = patch.descriptionMarkdown;
+  if (patch.key !== undefined) s.key = patch.key;
+}
 
 export function isEnvelopeOperation(op: { op: string }): op is EnvelopeOperation {
   return ENVELOPE_OP_SET.has(op.op as EnvelopeOperation['op']);
@@ -322,11 +378,12 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
     if (working.textStyles.some((s) => s.id === op.id)) return;
     const spec = op.spec ?? {};
     working.textStyles.push({
+      ...spec,
       id: op.id,
       name: op.name,
+      fontName: spec.fontName ?? { family: 'Inter', style: 'Regular' },
       fontSize: spec.fontSize ?? 12,
       fontWeight: spec.fontWeight ?? 400,
-      fills: spec.fills,
     });
     return;
   }
@@ -363,6 +420,26 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
     moveIdAfter(working.gridStyles, op.targetId, op.afterId);
     return;
   }
+  if (op.op === 'deletePaintStyle') {
+    if (!working.paintStyles) return;
+    working.paintStyles = working.paintStyles.filter((s) => s.id !== op.id);
+    return;
+  }
+  if (op.op === 'deleteTextStyle') {
+    if (!working.textStyles) return;
+    working.textStyles = working.textStyles.filter((s) => s.id !== op.id);
+    return;
+  }
+  if (op.op === 'deleteEffectStyle') {
+    if (!working.effectStyles) return;
+    working.effectStyles = working.effectStyles.filter((s) => s.id !== op.id);
+    return;
+  }
+  if (op.op === 'deleteGridStyle') {
+    if (!working.gridStyles) return;
+    working.gridStyles = working.gridStyles.filter((s) => s.id !== op.id);
+    return;
+  }
   if (op.op === 'updatePaintStyle') {
     const s = working.paintStyles?.find((x) => x.id === op.id);
     if (!s) throw new ValidationErr('VALIDATION_ERROR', `Unknown paint style ${op.id}`);
@@ -370,15 +447,18 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
     if (op.patch.paints !== undefined) {
       s.paints = validatePaintArray(op.patch.paints, 'paintStyle.paints', working) ?? [];
     }
+    if (op.patch.boundVariables !== undefined) s.boundVariables = op.patch.boundVariables;
+    if (op.patch.pluginData !== undefined) s.pluginData = op.patch.pluginData;
+    if (op.patch.sharedPluginData !== undefined) s.sharedPluginData = op.patch.sharedPluginData;
+    if (op.patch.description !== undefined) s.description = op.patch.description;
+    if (op.patch.descriptionMarkdown !== undefined) s.descriptionMarkdown = op.patch.descriptionMarkdown;
+    if (op.patch.key !== undefined) s.key = op.patch.key;
     return;
   }
   if (op.op === 'updateTextStyle') {
     const s = working.textStyles?.find((x) => x.id === op.id);
     if (!s) throw new ValidationErr('VALIDATION_ERROR', `Unknown text style ${op.id}`);
-    if (op.patch.name !== undefined) s.name = op.patch.name;
-    if (op.patch.fontSize !== undefined) s.fontSize = op.patch.fontSize;
-    if (op.patch.fontWeight !== undefined) s.fontWeight = op.patch.fontWeight;
-    if (op.patch.fills !== undefined) s.fills = validatePaintArray(op.patch.fills, 'textStyle.fills', working);
+    applyTextStylePatch(s, op.patch, working);
     return;
   }
   if (op.op === 'updateEffectStyle') {
@@ -388,6 +468,11 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
     if (op.patch.effects !== undefined) {
       s.effects = validateEffects(op.patch.effects, 'effectStyle.effects') ?? [];
     }
+    if (op.patch.pluginData !== undefined) s.pluginData = op.patch.pluginData;
+    if (op.patch.sharedPluginData !== undefined) s.sharedPluginData = op.patch.sharedPluginData;
+    if (op.patch.description !== undefined) s.description = op.patch.description;
+    if (op.patch.descriptionMarkdown !== undefined) s.descriptionMarkdown = op.patch.descriptionMarkdown;
+    if (op.patch.key !== undefined) s.key = op.patch.key;
     return;
   }
   if (op.op === 'updateGridStyle') {
@@ -395,6 +480,11 @@ export function applyEnvelopeOperation(working: FileEnvelope, op: EnvelopeOperat
     if (!s) throw new ValidationErr('VALIDATION_ERROR', `Unknown grid style ${op.id}`);
     if (op.patch.name !== undefined) s.name = op.patch.name;
     if (op.patch.layoutGrids !== undefined) s.layoutGrids = op.patch.layoutGrids;
+    if (op.patch.pluginData !== undefined) s.pluginData = op.patch.pluginData;
+    if (op.patch.sharedPluginData !== undefined) s.sharedPluginData = op.patch.sharedPluginData;
+    if (op.patch.description !== undefined) s.description = op.patch.description;
+    if (op.patch.descriptionMarkdown !== undefined) s.descriptionMarkdown = op.patch.descriptionMarkdown;
+    if (op.patch.key !== undefined) s.key = op.patch.key;
     return;
   }
 }

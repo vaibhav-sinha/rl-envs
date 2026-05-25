@@ -1,0 +1,51 @@
+{
+  "snapshotVersion": 1,
+  "exportedAt": "2026-05-16T12:00:00.000Z",
+  "figmaFileKey": "text-style-parity",
+  "figmaFileName": "Text Style Parity",
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "properties": {},
+    "children": [
+      {
+        "id": "0:1",
+        "type": "PAGE",
+        "name": "Page 1",
+        "properties": {
+          "absoluteBoundingBox": { "x": 0, "y": 0, "width": 400, "height": 300 }
+        },
+        "children": [
+          {
+            "id": "0:2",
+            "type": "TEXT",
+            "name": "Label",
+            "properties": {
+              "characters": "Hello",
+              "fontSize": 16,
+              "textStyleId": "S:body",
+              "absoluteBoundingBox": { "x": 0, "y": 0, "width": 80, "height": 20 }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "textStyles": [
+    {
+      "id": "S:body",
+      "type": "TEXT",
+      "name": "Body/Regular",
+      "fontName": { "family": "Inter", "style": "Regular" },
+      "fontSize": 14,
+      "lineHeight": { "unit": "PIXELS", "value": 20 },
+      "letterSpacing": { "unit": "PIXELS", "value": 0 }
+    }
+  ],
+  "paintStyles": [],
+  "effectStyles": [],
+  "gridStyles": [],
+  "variableCollections": [],
+  "assets": []
+}

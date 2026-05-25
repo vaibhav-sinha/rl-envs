@@ -3,6 +3,8 @@ import { findEnvelopeNode } from '../engine/DocumentEngine.js';
 import { buildGraphIndexes, resolveParentNode, type GraphIndexes } from '../engine/nodeIndex.js';
 import type { AnyTreeNode, FileEnvelope } from '../model/types.js';
 import { getImmediateSceneChildren } from '../traversal/findNodes.js';
+import { FIGMA_STYLE_TYPE, type StyleRoute } from '../styles/styleTypes.js';
+import type { TextStyleDefinition } from '../model/types.js';
 
 export const HFC_HANDLE_MARKER = Symbol.for('hfc.nodeHandle');
 export const HFC_STYLE_MARKER = Symbol.for('hfc.styleHandle');
@@ -67,12 +69,11 @@ export function isHandleTarget(v: unknown): v is { id: string } {
   );
 }
 
-export function isStyleTarget(v: unknown): v is { id: string; kind: string } {
+export function isStyleTarget(v: unknown): v is { id: string; styleRoute: StyleRoute } {
   if (typeof v !== 'object' || v === null) return false;
   const rec = v as Record<string, unknown>;
   return (
     typeof rec.id === 'string' &&
-    typeof rec.kind === 'string' &&
     (rec[HFC_STYLE_FLAG] === true || Reflect.get(v, HFC_STYLE_MARKER) === true)
   );
 }
@@ -188,33 +189,45 @@ function snapshotPage(pageId: string, ctx: SnapshotContext, state: SnapshotState
   return snapshotNodeById(pageId, ctx, state);
 }
 
+function textStyleSnapshotFields(s: TextStyleDefinition): Record<string, unknown> {
+  const out: Record<string, unknown> = { name: s.name };
+  if (s.fontName !== undefined) out.fontName = s.fontName;
+  if (s.fontSize !== undefined) out.fontSize = s.fontSize;
+  if (s.fontWeight !== undefined) out.fontWeight = s.fontWeight;
+  if (s.fills !== undefined) out.fills = s.fills;
+  if (s.textDecoration !== undefined) out.textDecoration = s.textDecoration;
+  if (s.letterSpacing !== undefined) out.letterSpacing = s.letterSpacing;
+  if (s.lineHeight !== undefined) out.lineHeight = s.lineHeight;
+  if (s.leadingTrim !== undefined) out.leadingTrim = s.leadingTrim;
+  if (s.paragraphIndent !== undefined) out.paragraphIndent = s.paragraphIndent;
+  if (s.paragraphSpacing !== undefined) out.paragraphSpacing = s.paragraphSpacing;
+  if (s.listSpacing !== undefined) out.listSpacing = s.listSpacing;
+  if (s.hangingPunctuation !== undefined) out.hangingPunctuation = s.hangingPunctuation;
+  if (s.hangingList !== undefined) out.hangingList = s.hangingList;
+  if (s.textCase !== undefined) out.textCase = s.textCase;
+  if (s.boundVariables !== undefined) out.boundVariables = s.boundVariables;
+  return out;
+}
+
 function snapshotStyle(
-  target: { id: string; kind: string },
+  target: { id: string; styleRoute: StyleRoute },
   ctx: SnapshotContext
 ): Record<string, unknown> {
   const { working } = ctx;
-  const base: Record<string, unknown> = { id: target.id, kind: target.kind };
-  if (target.kind === 'paint') {
+  const base: Record<string, unknown> = { id: target.id, type: FIGMA_STYLE_TYPE[target.styleRoute] };
+  if (target.styleRoute === 'paint') {
     const s = working.paintStyles?.find((x) => x.id === target.id);
     if (s) return { ...base, name: s.name, paints: s.paints };
   }
-  if (target.kind === 'text') {
+  if (target.styleRoute === 'text') {
     const s = working.textStyles?.find((x) => x.id === target.id);
-    if (s) {
-      return {
-        ...base,
-        name: s.name,
-        ...(s.fontSize !== undefined ? { fontSize: s.fontSize } : {}),
-        ...(s.fontWeight !== undefined ? { fontWeight: s.fontWeight } : {}),
-        ...(s.fills !== undefined ? { fills: s.fills } : {}),
-      };
-    }
+    if (s) return { ...base, ...textStyleSnapshotFields(s) };
   }
-  if (target.kind === 'effect') {
+  if (target.styleRoute === 'effect') {
     const s = working.effectStyles?.find((x) => x.id === target.id);
     if (s) return { ...base, name: s.name, effects: s.effects };
   }
-  if (target.kind === 'grid') {
+  if (target.styleRoute === 'grid') {
     const s = working.gridStyles?.find((x) => x.id === target.id);
     if (s) return { ...base, name: s.name, layoutGrids: s.layoutGrids };
   }

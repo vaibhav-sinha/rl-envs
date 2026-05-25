@@ -33,6 +33,7 @@ import {
 } from './figmaTransform.js';
 import { allEffectsCss, type EffectResolveContext } from './effectsCss.js';
 import {
+  effectiveTextBaseFontName,
   effectiveTextBaseFontSizePx,
   effectiveTextMaxFontSizePx,
   fontFamilyCssFromName,
@@ -456,10 +457,11 @@ function fontSizeForSvgText(env: FileEnvelope, t: TextNode, fallbackPx: number):
   return `var(${cssVarNameForVariable(vid)},${String(fb)})`;
 }
 
-function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; fontWeight: number; fills: Paint[] | undefined; fontSizeCss: string } {
+function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; fontWeight: number; fills: Paint[] | undefined; fontSizeCss: string; fontName?: import('../model/types.js').FontName } {
   let fontSize = effectiveTextBaseFontSizePx(t, env);
   let fontWeight = t.fontWeight ?? 400;
   let fills = t.fills;
+  const fontName = effectiveTextBaseFontName(t, env);
   if (t.textStyleId) {
     const st = env.textStyles?.find((s) => s.id === t.textStyleId);
     if (st) {
@@ -468,7 +470,7 @@ function effectiveTextBase(t: TextNode, env: FileEnvelope): { fontSize: number; 
     }
   }
   const fontSizeCss = boundFloatCss(env, t.boundVariables?.fontSize, fontSize);
-  return { fontSize, fontWeight, fills, fontSizeCss };
+  return { fontSize, fontWeight, fills, fontSizeCss, fontName };
 }
 
 /** Map Figma `textAlignVertical` / `textAlignHorizontal` to a column flex box (defaults TOP + LEFT match Figma). */
@@ -1766,12 +1768,16 @@ function emitScene(
       t.textAlignVertical === 'CENTER' && !textChars.includes('\n') && !t.textOnPath;
     const flexOuterAlign = textFlexContainerCss(t, singleLine);
     const baseTypo = effectiveTextBase(t, env);
-    const lhPx = hugTextLineHeightPxFromTypography(effectiveTextMaxFontSizePx(t, env), t.lineHeight, t.fontName);
+    const lhPx = hugTextLineHeightPxFromTypography(
+      effectiveTextMaxFontSizePx(t, env),
+      t.lineHeight,
+      effectiveTextBaseFontName(t, env)
+    );
     const textColor = paintColorCss(baseTypo.fills?.[0], env, 'rgba(0,0,0,1)', warnings, `text:${t.id}`);
     const flexTextMetrics =
       singleLine || compactCentered
         ? `line-height:${String(lhPx)}px;${leadingTrimCss(t.leadingTrim)}`
-        : paragraphTypographyCss(mergeTypographyFromText(t), baseTypo.fontSize, env, {
+        : paragraphTypographyCss(mergeTypographyFromText(t, undefined, env), baseTypo.fontSize, env, {
             omitParagraphSpacing,
           });
     const innerRule = `${textInnerHorizontalCss(t)}${
@@ -1785,7 +1791,7 @@ function emitScene(
         : '';
     htmlParts.push(`<div class="hfc-node-${t.id}" data-hfc-id="${t.id}" style="z-index:${String(zIndex)}">`);
     cssParts.push(
-      `${hfcNodeCssSel(t.id)}{${pos}box-sizing:border-box;color:${textColor};${flexOuterAlign}${textFlowCss(t, env)}${flexTextMetrics}${fontFamilyCssFromName(t.fontName, t.boundVariables?.fontFamily, env)}${textStrokeCss}${opRot}${shadow}}`
+      `${hfcNodeCssSel(t.id)}{${pos}box-sizing:border-box;color:${textColor};${flexOuterAlign}${textFlowCss(t, env)}${flexTextMetrics}${fontFamilyCssFromName(baseTypo.fontName, t.boundVariables?.fontFamily, env)}${textStrokeCss}${opRot}${shadow}}`
     );
     cssParts.push(`${hfcNodeCssSel(t.id)} .hfc-text-inner{${innerRule}}`);
     htmlParts.push(`<div class="hfc-text-inner">${emitTextInnerHtml(t, env, warnings, singleLine)}</div></div>`);

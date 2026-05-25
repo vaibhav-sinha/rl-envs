@@ -176,20 +176,21 @@ export function paragraphTypographyCss(
   return s;
 }
 
-export function mergeTypographyFromText(t: TextNode, style?: TextRangeStyle): TypographyInput {
+export function mergeTypographyFromText(t: TextNode, style?: TextRangeStyle, env?: FileEnvelope): TypographyInput {
+  const fromStyle = resolveTextStyleTypography(t, env);
   return {
-    fontName: style?.fontName ?? t.fontName,
-    fontSize: style?.fontSize ?? t.fontSize,
-    lineHeight: style?.lineHeight ?? t.lineHeight,
-    leadingTrim: t.leadingTrim,
-    letterSpacing: style?.letterSpacing ?? t.letterSpacing,
-    textCase: style?.textCase ?? t.textCase,
-    textDecoration: style?.textDecoration ?? t.textDecoration,
-    paragraphIndent: t.paragraphIndent,
-    paragraphSpacing: t.paragraphSpacing,
-    listSpacing: t.listSpacing,
-    hangingPunctuation: t.hangingPunctuation,
-    hangingList: t.hangingList,
+    fontName: style?.fontName ?? fromStyle.fontName ?? t.fontName,
+    fontSize: style?.fontSize ?? fromStyle.fontSize ?? t.fontSize,
+    lineHeight: style?.lineHeight ?? fromStyle.lineHeight ?? t.lineHeight,
+    leadingTrim: fromStyle.leadingTrim ?? t.leadingTrim,
+    letterSpacing: style?.letterSpacing ?? fromStyle.letterSpacing ?? t.letterSpacing,
+    textCase: style?.textCase ?? fromStyle.textCase ?? t.textCase,
+    textDecoration: style?.textDecoration ?? fromStyle.textDecoration ?? t.textDecoration,
+    paragraphIndent: fromStyle.paragraphIndent ?? t.paragraphIndent,
+    paragraphSpacing: fromStyle.paragraphSpacing ?? t.paragraphSpacing,
+    listSpacing: fromStyle.listSpacing ?? t.listSpacing,
+    hangingPunctuation: fromStyle.hangingPunctuation ?? t.hangingPunctuation,
+    hangingList: fromStyle.hangingList ?? t.hangingList,
     listOptions: style?.listOptions ?? t.listOptions,
     boundVariables: {
       ...(t.boundVariables
@@ -226,6 +227,38 @@ export function hugTextLineHeightPxFromTypography(
   return Math.ceil(hugLayoutLineHeightPx(lineHeight, fontSize, fontName));
 }
 
+function linkedTextStyle(t: TextNode, env?: FileEnvelope) {
+  if (!env || !t.textStyleId) return undefined;
+  return env.textStyles?.find((s) => s.id === t.textStyleId);
+}
+
+/** Node-level font name (text style override), ignoring per-range overrides. */
+export function effectiveTextBaseFontName(t: TextNode, env?: FileEnvelope): FontName | undefined {
+  const st = linkedTextStyle(t, env);
+  if (st?.fontName) return st.fontName;
+  return t.fontName;
+}
+
+/** Typography fields from linked text style (when textStyleId is set). */
+export function resolveTextStyleTypography(t: TextNode, env?: FileEnvelope): Partial<TypographyInput> {
+  const st = linkedTextStyle(t, env);
+  if (!st) return {};
+  return {
+    fontName: st.fontName,
+    fontSize: st.fontSize,
+    lineHeight: st.lineHeight,
+    leadingTrim: st.leadingTrim,
+    letterSpacing: st.letterSpacing,
+    textCase: st.textCase,
+    textDecoration: st.textDecoration,
+    paragraphIndent: st.paragraphIndent,
+    paragraphSpacing: st.paragraphSpacing,
+    listSpacing: st.listSpacing,
+    hangingPunctuation: st.hangingPunctuation,
+    hangingList: st.hangingList,
+  };
+}
+
 /** Node-level font size (variables + text style), ignoring per-range overrides. */
 export function effectiveTextBaseFontSizePx(t: TextNode, env?: FileEnvelope): number {
   let fontSize = t.fontSize ?? 12;
@@ -233,10 +266,8 @@ export function effectiveTextBaseFontSizePx(t: TextNode, env?: FileEnvelope): nu
     const v = resolveVariableToFloat(env, t.boundVariables.fontSize);
     if (v !== null) fontSize = v;
   }
-  if (env && t.textStyleId) {
-    const st = env.textStyles?.find((s) => s.id === t.textStyleId);
-    if (st?.fontSize !== undefined) fontSize = st.fontSize;
-  }
+  const st = linkedTextStyle(t, env);
+  if (st?.fontSize !== undefined) fontSize = st.fontSize;
   return fontSize;
 }
 

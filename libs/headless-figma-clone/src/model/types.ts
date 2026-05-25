@@ -115,27 +115,52 @@ export interface VariableCollection {
   variables: VariableDefinition[];
 }
 
-export interface TextStyleDefinition {
-  id: string;
-  name: string;
-  fontSize?: number;
-  fontWeight?: number;
-  fills?: Paint[];
+/** Shared optional metadata on local style definitions (plugin + publishable subset). */
+export interface StyleDefinitionMeta {
+  pluginData?: Record<string, string>;
+  sharedPluginData?: Record<string, Record<string, string>>;
+  description?: string;
+  descriptionMarkdown?: string;
+  key?: string;
 }
 
-export interface PaintStyleDefinition {
+export interface TextStyleDefinition extends StyleDefinitionMeta {
+  id: string;
+  name: string;
+  fontName?: FontName;
+  fontSize?: number;
+  /** HFC legacy; Figma derives weight from fontName. */
+  fontWeight?: number;
+  fills?: Paint[];
+  textDecoration?: TextDecoration;
+  letterSpacing?: LetterSpacing;
+  lineHeight?: LineHeight;
+  leadingTrim?: LeadingTrim;
+  paragraphIndent?: number;
+  paragraphSpacing?: number;
+  listSpacing?: number;
+  hangingPunctuation?: boolean;
+  hangingList?: boolean;
+  textCase?: TextCase;
+  boundVariables?: TextVariableBindings;
+}
+
+export type PaintStyleBoundVariables = { color?: string[] };
+
+export interface PaintStyleDefinition extends StyleDefinitionMeta {
   id: string;
   name: string;
   paints: Paint[];
+  boundVariables?: PaintStyleBoundVariables;
 }
 
-export interface EffectStyleDefinition {
+export interface EffectStyleDefinition extends StyleDefinitionMeta {
   id: string;
   name: string;
   effects: Effect[];
 }
 
-export interface GridStyleDefinition {
+export interface GridStyleDefinition extends StyleDefinitionMeta {
   id: string;
   name: string;
   layoutGrids: LayoutGridColumns[];

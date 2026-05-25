@@ -3059,7 +3059,13 @@ export async function runUseFigmaScript(
   const networkPolicy = loadNetworkPolicyFromEnv();
   ctx.onMutate = (): void => beginInPlaceMutation(ctx);
   const variablesApi = createVariablesApi(ctx);
-  const stylesApi = createStylesApi(ctx);
+  const stylesApi = createStylesApi({
+    working: ctx.working,
+    ops: ctx.ops,
+    onMutate: ctx.onMutate,
+    graphIndexes: getGraphIndexes(ctx),
+    getNodeHandle: (nodeId) => createHandleProxy(ctx, nodeId),
+  });
 
   const documentTraversal = () =>
     createDocumentTraversalMethods(() => ({

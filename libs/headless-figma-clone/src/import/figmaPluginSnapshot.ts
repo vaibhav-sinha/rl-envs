@@ -13,11 +13,14 @@ import type {
   SceneNode,
   VariableCollection,
   VariableDefinition,
+  FontName,
   TextStyleDefinition,
+  TextVariableBindings,
   PaintStyleDefinition,
   EffectStyleDefinition,
   GridStyleDefinition,
 } from '../model/types.js';
+import { normalizeLayoutGrids } from '../engine/figmaInterop.js';
 import type { FigmaPluginSnapshot, SerializedAsset, SerializedNode } from './snapshotSchema.js';
 import { FigmaIdMap } from './idMap.js';
 import { createImportReport, importDebug, importStrict, importVerbose, type ImportReport } from './importReport.js';
@@ -1035,14 +1038,30 @@ function mapVariableCollections(snapshot: FigmaPluginSnapshot, idMap: FigmaIdMap
   return out;
 }
 
+function mapFontNameFromRaw(raw: Record<string, unknown>): FontName | undefined {
+  const fontName = raw.fontName as { family?: string; style?: string } | undefined;
+  if (fontName && typeof fontName.family === 'string' && typeof fontName.style === 'string') {
+    return { family: fontName.family, style: fontName.style };
+  }
+  return undefined;
+}
+
 function mapTextStyles(snapshot: FigmaPluginSnapshot, idMap: FigmaIdMap): TextStyleDefinition[] {
-  return snapshot.textStyles.map((raw) => ({
-    id: idMap.allocate(str(raw.id)),
-    name: str(raw.name),
-    fontSize: optNum(raw.fontSize),
-    fontWeight: optNum(raw.fontWeight),
-    fills: mapPaints(raw.fills, () => undefined),
-  }));
+  return snapshot.textStyles.map((raw) => {
+    const r = raw as Record<string, unknown>;
+    const typo = mapTypography(r);
+    const bv = mapBoundVariables(r, idMap);
+    return {
+      id: idMap.allocate(str(r.id)),
+      name: str(r.name),
+      ...typo,
+      fontName: mapFontNameFromRaw(r),
+      fontSize: optNum(r.fontSize),
+      fontWeight: optNum(r.fontWeight),
+      fills: mapPaints(r.fills, () => undefined),
+      ...(bv ? { boundVariables: bv as TextVariableBindings } : {}),
+    };
+  });
 }
 
 function mapPaintStyles(
@@ -1050,11 +1069,27 @@ function mapPaintStyles(
   idMap: FigmaIdMap,
   imageRemap: (h: string) => string | undefined
 ): PaintStyleDefinition[] {
-  return snapshot.paintStyles.map((raw) => ({
-    id: idMap.allocate(str(raw.id)),
-    name: str(raw.name),
-    paints: mapPaints(raw.paints, imageRemap) ?? [],
-  }));
+  return snapshot.paintStyles.map((raw) => {
+    const r = raw as Record<string, unknown>;
+    let boundVariables: PaintStyleDefinition['boundVariables'];
+    const rawBv = r.boundVariables as { color?: unknown } | undefined;
+    if (rawBv?.color && Array.isArray(rawBv.color)) {
+      const color: string[] = [];
+      for (const item of rawBv.color) {
+        if (item && typeof item === 'object' && (item as { type?: string; id?: string }).type === 'VARIABLE_ALIAS') {
+          const vid = (item as { id?: string }).id;
+          if (typeof vid === 'string') color.push(idMap.allocate(vid));
+        }
+      }
+      if (color.length) boundVariables = { color };
+    }
+    return {
+      id: idMap.allocate(str(r.id)),
+      name: str(r.name),
+      paints: mapPaints(r.paints, imageRemap) ?? [],
+      ...(boundVariables ? { boundVariables } : {}),
+    };
+  });
 }
 
 function mapEffectStyles(snapshot: FigmaPluginSnapshot, idMap: FigmaIdMap): EffectStyleDefinition[] {
@@ -1066,9 +1101,13 @@ function mapEffectStyles(snapshot: FigmaPluginSnapshot, idMap: FigmaIdMap): Effe
 }
 
 function mapGridStyles(snapshot: FigmaPluginSnapshot, idMap: FigmaIdMap): GridStyleDefinition[] {
-  return snapshot.gridStyles.map((raw) => ({
-    id: idMap.allocate(str(raw.id)),
-    name: str(raw.name),
-    layoutGrids: Array.isArray(raw.layoutGrids) ? (raw.layoutGrids as GridStyleDefinition['layoutGrids']) : [],
-  }));
+  return snapshot.gridStyles.map((raw) => {
+    const r = raw as Record<string, unknown>;
+    const layoutGrids = normalizeLayoutGrids(r.layoutGrids, 360, 'gridStyle.layoutGrids') ?? [];
+    return {
+      id: idMap.allocate(str(r.id)),
+      name: str(r.name),
+      layoutGrids,
+    };
+  });
 }
