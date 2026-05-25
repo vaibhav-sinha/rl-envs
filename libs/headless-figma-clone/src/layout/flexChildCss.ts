@@ -1,4 +1,10 @@
 import type { FrameNode, LayoutSelfFields, SceneNode, TextNode } from '../model/types.js';
+import {
+  getActiveCompileStack,
+  renderHeight,
+  renderLayoutSizingHorizontal,
+  renderLayoutSizingVertical,
+} from '../render/compileRenderContext.js';
 import { gridChildPlacementCss } from './gridLayout.js';
 
 /** Auto-layout frames use an out-of-flow absolutely positioned flex shell; `width/height:auto` cross-axis would collapse. */
@@ -75,36 +81,39 @@ function flexMinMaxCss(node: LayoutSelfFields, isRow: boolean): string {
 export function constraintPositionCss(
   node: LayoutSelfFields & { x: number; y: number; width: number; height: number },
   parentW: number,
-  parentH: number
+  parentH: number,
+  nodeSize?: { width: number; height: number }
 ): string {
+  const nw = nodeSize?.width ?? node.width;
+  const nh = nodeSize?.height ?? node.height;
   const c = node.constraints;
   if (!c) {
-    return `left:${String(node.x)}px;top:${String(node.y)}px;width:${String(node.width)}px;height:${String(node.height)}px;`;
+    return `left:${String(node.x)}px;top:${String(node.y)}px;width:${String(nw)}px;height:${String(nh)}px;`;
   }
   const parts: string[] = ['position:absolute', 'box-sizing:border-box'];
   const h = c.horizontal;
   const v = c.vertical;
   if (h === 'STRETCH' || h === 'SCALE') {
-    parts.push(`left:${String(node.x)}px`, `right:${String(Math.max(0, parentW - node.x - node.width))}px`);
-    if (h !== 'STRETCH') parts.push(`width:${String(node.width)}px`);
+    parts.push(`left:${String(node.x)}px`, `right:${String(Math.max(0, parentW - node.x - nw))}px`);
+    if (h !== 'STRETCH') parts.push(`width:${String(nw)}px`);
   } else if (h === 'CENTER') {
     // `left:50%` places the child's left edge at the parent's horizontal midpoint; offset by Figma x from that point.
-    parts.push(`left:50%`, `margin-left:${String(node.x - parentW / 2)}px`, `width:${String(node.width)}px`);
+    parts.push(`left:50%`, `margin-left:${String(node.x - parentW / 2)}px`, `width:${String(nw)}px`);
   } else if (h === 'MAX') {
-    parts.push(`right:${String(Math.max(0, parentW - node.x - node.width))}px`, `width:${String(node.width)}px`);
+    parts.push(`right:${String(Math.max(0, parentW - node.x - nw))}px`, `width:${String(nw)}px`);
   } else {
-    parts.push(`left:${String(node.x)}px`, `width:${String(node.width)}px`);
+    parts.push(`left:${String(node.x)}px`, `width:${String(nw)}px`);
   }
   if (v === 'STRETCH' || v === 'SCALE') {
-    parts.push(`top:${String(node.y)}px`, `bottom:${String(Math.max(0, parentH - node.y - node.height))}px`);
-    if (v !== 'STRETCH') parts.push(`height:${String(node.height)}px`);
+    parts.push(`top:${String(node.y)}px`, `bottom:${String(Math.max(0, parentH - node.y - nh))}px`);
+    if (v !== 'STRETCH') parts.push(`height:${String(nh)}px`);
   } else if (v === 'CENTER') {
     // `top:50%` places the child's top edge at the parent's vertical midpoint; offset by Figma y from that point.
-    parts.push(`top:50%`, `margin-top:${String(node.y - parentH / 2)}px`, `height:${String(node.height)}px`);
+    parts.push(`top:50%`, `margin-top:${String(node.y - parentH / 2)}px`, `height:${String(nh)}px`);
   } else if (v === 'MAX') {
-    parts.push(`bottom:${String(Math.max(0, parentH - node.y - node.height))}px`, `height:${String(node.height)}px`);
+    parts.push(`bottom:${String(Math.max(0, parentH - node.y - nh))}px`, `height:${String(nh)}px`);
   } else {
-    parts.push(`top:${String(node.y)}px`, `height:${String(node.height)}px`);
+    parts.push(`top:${String(node.y)}px`, `height:${String(nh)}px`);
   }
   return `${parts.join(';')};`;
 }
@@ -126,9 +135,14 @@ export function flexChildLayoutCss(
   if (parentFrame?.layoutMode === 'GRID') {
     return `position:relative;left:0;top:0;width:${String(box.width)}px;height:${String(box.height)}px;${gridChildPlacementCss(node, parentFrame)}`;
   }
+  const stack = getActiveCompileStack();
   const isRow = parentFrame?.layoutMode !== 'VERTICAL';
-  const mainSizing = isRow ? n.layoutSizingHorizontal : n.layoutSizingVertical;
-  const crossSizing = isRow ? n.layoutSizingVertical : n.layoutSizingHorizontal;
+  const mainSizing = isRow
+    ? renderLayoutSizingHorizontal(stack, n as FrameNode)
+    : renderLayoutSizingVertical(stack, n as FrameNode);
+  const crossSizing = isRow
+    ? renderLayoutSizingVertical(stack, n as FrameNode)
+    : renderLayoutSizingHorizontal(stack, n as FrameNode);
   const mainSize = isRow ? box.width : box.height;
   const crossSize = isRow ? box.height : box.width;
   const grow = sizingToFlexGrow(mainSizing, n.layoutGrow);
@@ -156,8 +170,8 @@ export function flexChildLayoutCss(
     parentFrame?.layoutMode === 'HORIZONTAL' &&
     (node as TextNode).textAlignHorizontal === 'CENTER'
   ) {
-    const parentH = parentFrame.height ?? 0;
-    const textH = node.height ?? 0;
+    const parentH = renderHeight(stack, parentFrame);
+    const textH = renderHeight(stack, node);
     const insetY = Math.round(node.y ?? 0);
     const centeredY = Math.round((parentH - textH) / 2);
     if (parentH > 0 && textH > 0 && Math.abs(insetY - centeredY) <= 2) {
@@ -170,10 +184,10 @@ export function flexChildLayoutCss(
     parentFrame?.layoutMode === 'HORIZONTAL' &&
     (node as TextNode).textAlignVertical === 'CENTER'
   ) {
-    const crossSizingVertical = n.layoutSizingVertical;
+    const crossSizingVertical = renderLayoutSizingVertical(stack, n as FrameNode);
     if (crossSizingVertical !== 'FILL' && n.layoutAlign !== 'STRETCH') {
-      const parentCross = parentFrame.height ?? 0;
-      const textCross = node.height ?? 0;
+      const parentCross = renderHeight(stack, parentFrame);
+      const textCross = renderHeight(stack, node);
       if (parentCross > 0 && textCross > 0 && parentCross >= textCross) {
         alignSelf = 'align-self:center;';
       }

@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import type { DocumentEngine } from '../engine/DocumentEngine.js';
 import { compileSubtreeForScreenshot } from '../render/compileForScreenshot.js';
 import { getLocalFontsFileBaseUrl } from '../fonts/localFontRegistry.js';
+import { createCompileRenderContext } from '../render/compileRenderContext.js';
 import { designCompiler } from '../render/DesignCompiler.js';
 import { buildImageDataUrlForSubtree, buildImageFileUrlForSubtree } from '../render/imageDataUrls.js';
 import { playwrightScreenshotService } from '../screenshot/PlaywrightScreenshotService.js';
@@ -299,6 +300,8 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
         const compiled = designCompiler.compileSubtree({
           envelope: file,
           rootNodeId: args.nodeId,
+          graph: engine.getGraphIndexes(),
+          renderContext: createCompileRenderContext(),
           options: {
             viewportPaddingPx: args.viewportPaddingPx,
             includeCss: args.includeCss,
@@ -349,6 +352,9 @@ export function registerHeadlessFigmaTools(server: McpServer, deps: RegisterTool
         const compiled = await compileSubtreeForScreenshot({
           envelope: file,
           rootNodeId: args.nodeId,
+          graph: engine.getGraphIndexes(),
+          renderContext: createCompileRenderContext(),
+          filePath: fp,
           options: {
             viewportPaddingPx: 0,
             includeCss: true,

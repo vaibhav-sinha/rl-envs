@@ -9,9 +9,36 @@ import type {
   TextNode,
   TransformGroupNode,
 } from '../model/types.js';
+import {
+  getActiveCompileStack,
+  renderHeight,
+  renderWidth,
+  setInstancePatch,
+  setPatch,
+  type RenderPatch,
+} from './compileRenderContext.js';
 
 function axisSizingToLayoutSizing(mode: AxisSizingMode): LayoutSizing {
   return mode === 'AUTO' ? 'HUG' : 'FIXED';
+}
+
+function nodeW(n: { id: string; width: number }): number {
+  return renderWidth(getActiveCompileStack(), n);
+}
+
+function nodeH(n: { id: string; height: number }): number {
+  return renderHeight(getActiveCompileStack(), n);
+}
+
+function writeRenderPatch(nodeId: string, patch: RenderPatch): boolean {
+  const stack = getActiveCompileStack();
+  if (!stack) return false;
+  if (stack.instance) {
+    setInstancePatch(stack.instance, nodeId, patch);
+  } else {
+    setPatch(stack.global, nodeId, patch);
+  }
+  return true;
 }
 import { effectiveTextMaxFontSizePx } from './typographyCss.js';
 import { measureTextWidthPx, metricsLineHeightPx, averageCharWidthPx } from '../fonts/textMetrics.js';
@@ -169,13 +196,13 @@ function padY(f: FrameNode): number {
 /** Inner width available to children of a vertical auto-layout frame. */
 function parentInnerCrossWidthPx(parent: FrameNode): number {
   if (parent.layoutMode !== 'VERTICAL') return 0;
-  return Math.max(0, parent.width - padX(parent));
+  return Math.max(0, nodeW(parent) - padX(parent));
 }
 
 /** Inner height available to children of a horizontal auto-layout frame. */
 function parentInnerCrossHeightPx(parent: FrameNode): number {
   if (parent.layoutMode !== 'HORIZONTAL') return 0;
-  return Math.max(0, parent.height - padY(parent));
+  return Math.max(0, nodeH(parent) - padY(parent));
 }
 
 /** Whether this frame behaves as auto-layout container in our renderer. */
@@ -209,16 +236,16 @@ function maxCrossWidthVertStack(n: SceneNode, env: FileEnvelope | undefined): nu
     case 'STAR':
     case 'SLICE':
     case 'SECTION':
-      return Math.max(0, n.width);
+      return Math.max(0, nodeW(n));
     case 'TEXT': {
       const t = n as TextNode;
       return textIntrinsicWidthForAutoLayout(t, env);
     }
     case 'VECTOR': {
-      return Math.max(0, n.width);
+      return Math.max(0, nodeW(n));
     }
     case 'BOOLEAN_OPERATION':
-      return Math.max(0, n.width);
+      return Math.max(0, nodeW(n));
     case 'TABLE': {
       const t = n as TableNode;
       const sum = t.columnWidths.reduce((a, b) => a + b, 0);
@@ -226,7 +253,7 @@ function maxCrossWidthVertStack(n: SceneNode, env: FileEnvelope | undefined): nu
     }
     case 'TRANSFORM_GROUP': {
       const tg = n as TransformGroupNode;
-      if (!tg.children?.length) return Math.max(0, tg.width);
+      if (!tg.children?.length) return Math.max(0, nodeW(tg));
       let mx = 0;
       for (const c of tg.children) {
         mx = Math.max(mx, Math.max(0, c.x) + maxCrossWidthVertStack(c as SceneNode, env));
@@ -234,15 +261,15 @@ function maxCrossWidthVertStack(n: SceneNode, env: FileEnvelope | undefined): nu
       return mx;
     }
     case 'GROUP': {
-      if (!n.children?.length) return Math.max(0, n.width);
+      if (!n.children?.length) return Math.max(0, nodeW(n));
       let mx = 0;
       for (const c of n.children) mx = Math.max(mx, Math.max(0, c.x) + maxCrossWidthVertStack(c, env));
       return mx;
     }
     case 'FRAME': {
       const f = n as FrameNode;
-      if (isFlexFrame(f)) return Math.max(0, f.width);
-      if (!f.children?.length) return Math.max(0, f.width);
+      if (isFlexFrame(f)) return Math.max(0, nodeW(f));
+      if (!f.children?.length) return Math.max(0, nodeW(f));
       let mx = 0;
       for (const c of f.children) mx = Math.max(mx, Math.max(0, c.x) + maxCrossWidthVertStack(c, env));
       return mx;
@@ -262,14 +289,14 @@ function maxCrossHeightHorizRow(n: SceneNode, env: FileEnvelope | undefined): nu
     case 'STAR':
     case 'SLICE':
     case 'SECTION':
-      return Math.max(0, n.height);
+      return Math.max(0, nodeH(n));
     case 'TEXT': {
       const t = n as TextNode;
       return textIntrinsicHeightForAutoLayout(t, env);
     }
     case 'VECTOR':
     case 'BOOLEAN_OPERATION':
-      return Math.max(0, n.height);
+      return Math.max(0, nodeH(n));
     case 'TABLE': {
       const t = n as TableNode;
       const sum = t.rowHeights.reduce((a, b) => a + b, 0);
@@ -277,21 +304,21 @@ function maxCrossHeightHorizRow(n: SceneNode, env: FileEnvelope | undefined): nu
     }
     case 'TRANSFORM_GROUP': {
       const tg = n as TransformGroupNode;
-      if (!tg.children?.length) return Math.max(0, tg.height);
+      if (!tg.children?.length) return Math.max(0, nodeH(tg));
       let mx = 0;
       for (const c of tg.children) mx = Math.max(mx, Math.max(0, c.y) + maxCrossHeightHorizRow(c as SceneNode, env));
       return mx;
     }
     case 'GROUP': {
-      if (!n.children?.length) return Math.max(0, n.height);
+      if (!n.children?.length) return Math.max(0, nodeH(n));
       let mx = 0;
       for (const c of n.children) mx = Math.max(mx, Math.max(0, c.y) + maxCrossHeightHorizRow(c, env));
       return mx;
     }
     case 'FRAME': {
       const f = n as FrameNode;
-      if (isFlexFrame(f)) return Math.max(0, f.height);
-      if (!f.children?.length) return Math.max(0, f.height);
+      if (isFlexFrame(f)) return Math.max(0, nodeH(f));
+      if (!f.children?.length) return Math.max(0, nodeH(f));
       let mx = 0;
       for (const c of f.children) mx = Math.max(mx, Math.max(0, c.y) + maxCrossHeightHorizRow(c, env));
       return mx;
@@ -333,7 +360,7 @@ function sumPrimaryHeightsVert(f: FrameNode, env: FileEnvelope | undefined): num
 
 /** Main-axis size contributed by child when parent is VERTICAL AL. */
 function intrinsicMainSizeAsFlexChildVert(n: SceneNode, env: FileEnvelope | undefined): number {
-  return isFlexFrame(n as FrameNode) ? (n as FrameNode).height : maxCrossHeightHorizRow(n, env);
+  return isFlexFrame(n as FrameNode) ? nodeH(n as FrameNode) : maxCrossHeightHorizRow(n, env);
 }
 
 function sumPrimaryWidthsHoriz(f: FrameNode, env: FileEnvelope | undefined): number {
@@ -350,7 +377,7 @@ function sumPrimaryWidthsHoriz(f: FrameNode, env: FileEnvelope | undefined): num
 }
 
 function intrinsicMainSizeAsFlexChildHoriz(n: SceneNode, env: FileEnvelope | undefined): number {
-  return isFlexFrame(n as FrameNode) ? (n as FrameNode).width : maxCrossWidthVertStack(n, env);
+  return isFlexFrame(n as FrameNode) ? nodeW(n as FrameNode) : maxCrossWidthVertStack(n, env);
 }
 
 /**
@@ -363,7 +390,7 @@ function sumWrappedCrossHeightsHoriz(f: FrameNode, env: FileEnvelope | undefined
 
   const colGap = f.itemSpacing ?? 0;
   const rowGap = f.counterAxisSpacing ?? colGap;
-  const availableWidth = Math.max(0, f.width - padX(f));
+  const availableWidth = Math.max(0, nodeW(f) - padX(f));
 
   let totalHeight = 0;
   let rowWidth = 0;
@@ -413,6 +440,15 @@ export function syncFrameLayoutSizingForAutoLayoutParents(f: FrameNode): void {
     const crossSizing = normalizeAxisSizingModeStored(c.counterAxisSizingMode);
     if (mainSizing === undefined && crossSizing === undefined) continue;
 
+    const patch: RenderPatch = {};
+    if (c.layoutMode === 'HORIZONTAL') {
+      if (mainSizing !== undefined) patch.layoutSizingHorizontal = axisSizingToLayoutSizing(mainSizing);
+      if (crossSizing !== undefined) patch.layoutSizingVertical = axisSizingToLayoutSizing(crossSizing);
+    } else {
+      if (mainSizing !== undefined) patch.layoutSizingVertical = axisSizingToLayoutSizing(mainSizing);
+      if (crossSizing !== undefined) patch.layoutSizingHorizontal = axisSizingToLayoutSizing(crossSizing);
+    }
+    if (writeRenderPatch(c.id, patch)) continue;
     if (c.layoutMode === 'HORIZONTAL') {
       if (mainSizing !== undefined) c.layoutSizingHorizontal = axisSizingToLayoutSizing(mainSizing);
       if (crossSizing !== undefined) c.layoutSizingVertical = axisSizingToLayoutSizing(crossSizing);
@@ -451,12 +487,14 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
       !(t.textAutoResize === 'HEIGHT' && (t.height ?? 0) > 0)) ||
     (t.layoutSizingVertical === 'FILL' && (t.height ?? 0) <= 0) ||
     (t.layoutSizingVertical !== 'FIXED' && (t.height ?? 0) <= 0);
-  if (needsIntrinsicW) {
-    t.width = hugTextIntrinsicWidthPx(t, env);
-  }
-  if (needsIntrinsicH) {
-    t.height = hugTextIntrinsicHeightPx(t, env);
-  }
+  const tw = hugTextIntrinsicWidthPx(t, env);
+  const th = hugTextIntrinsicHeightPx(t, env);
+  const patch: RenderPatch = {};
+  if (needsIntrinsicW) patch.width = tw;
+  if (needsIntrinsicH) patch.height = th;
+  if (writeRenderPatch(t.id, patch)) return;
+  if (needsIntrinsicW) t.width = tw;
+  if (needsIntrinsicH) t.height = th;
 }
 
 /**
@@ -520,24 +558,24 @@ export function applyAutoLayoutIntrinsicSizingDeep(
   const primaryIntrinsic = primaryAxisNeedsIntrinsic(primaryMode);
   const counterIntrinsic = counterAxisNeedsIntrinsic(counterMode);
 
-  let newW = f.width;
-  let newH = f.height;
+  let newW = nodeW(f);
+  let newH = nodeH(f);
 
   if (f.layoutMode === 'VERTICAL') {
     if (counterIntrinsic) {
       let cross = 0;
       for (const c of f.children) cross = Math.max(cross, maxCrossWidthVertStack(c, env));
       const target = cross + padX(f);
-      newW = counterMode === 'AUTO' ? target : Math.max(f.width, target);
+      newW = counterMode === 'AUTO' ? target : Math.max(nodeW(f), target);
     }
     if (primaryIntrinsic) {
       const target = sumPrimaryHeightsVert(f, env) + padY(f);
-      newH = primaryMode === 'AUTO' ? target : Math.max(f.height, target);
+      newH = primaryMode === 'AUTO' ? target : Math.max(nodeH(f), target);
     }
   } else {
     if (primaryIntrinsic) {
       const target = sumPrimaryWidthsHoriz(f, env) + padX(f);
-      newW = primaryMode === 'AUTO' ? target : Math.max(f.width, target);
+      newW = primaryMode === 'AUTO' ? target : Math.max(nodeW(f), target);
     }
     if (counterIntrinsic) {
       const cross =
@@ -549,7 +587,7 @@ export function applyAutoLayoutIntrinsicSizingDeep(
               return mx;
             })();
       const target = cross + padY(f);
-      newH = counterMode === 'AUTO' ? target : Math.max(f.height, target);
+      newH = counterMode === 'AUTO' ? target : Math.max(nodeH(f), target);
     }
   }
 
@@ -558,7 +596,7 @@ export function applyAutoLayoutIntrinsicSizingDeep(
     const cap = parentInnerCrossWidthPx(parent);
     if (cap > 0 && newW > cap) {
       const cross = f.layoutSizingHorizontal;
-      if (cross === 'HUG' || cross === 'FILL' || f.width <= cap) {
+      if (cross === 'HUG' || cross === 'FILL' || nodeW(f) <= cap) {
         newW = cap;
       }
     }
@@ -568,7 +606,7 @@ export function applyAutoLayoutIntrinsicSizingDeep(
     const cap = parentInnerCrossHeightPx(parent);
     if (cap > 0 && newH > cap) {
       const cross = f.layoutSizingVertical;
-      if (cross === 'HUG' || cross === 'FILL' || f.height <= cap) {
+      if (cross === 'HUG' || cross === 'FILL' || nodeH(f) <= cap) {
         newH = cap;
       }
     }
@@ -576,12 +614,12 @@ export function applyAutoLayoutIntrinsicSizingDeep(
 
   /** Do not shrink below declared fixed axis sizes. */
   if (!primaryIntrinsic) {
-    if (f.layoutMode === 'VERTICAL') newH = f.height;
-    else newW = f.width;
+    if (f.layoutMode === 'VERTICAL') newH = nodeH(f);
+    else newW = nodeW(f);
   }
   if (!counterIntrinsic) {
-    if (f.layoutMode === 'VERTICAL') newW = f.width;
-    else newH = f.height;
+    if (f.layoutMode === 'VERTICAL') newW = nodeW(f);
+    else newH = nodeH(f);
   }
 
   /**
@@ -608,8 +646,10 @@ export function applyAutoLayoutIntrinsicSizingDeep(
     }
   }
 
-  f.width = newW;
-  f.height = newH;
+  if (!writeRenderPatch(f.id, { width: newW, height: newH })) {
+    f.width = newW;
+    f.height = newH;
+  }
 
   syncFrameLayoutSizingForAutoLayoutParents(f);
 }

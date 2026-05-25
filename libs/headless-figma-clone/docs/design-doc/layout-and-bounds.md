@@ -15,15 +15,19 @@
 ## Compile pipeline (Phase 4+, pseudocode)
 
 ```text
-function prepareForCompile(envelope, subtreeRootId):
-  env = structuredClone(envelope)   // compile-only copy; persisted JSON unchanged
-  root = findNode(env.document, subtreeRootId)
-  if contains masks/booleans:
-    flattenOrMarkSvgLayers(root)    // SVG branches in HTML output
-  return compileTree(env, root)     // auto-layout: display:flex + flexChildLayoutCss on clone
+function prepareForCompile(envelope, subtreeRootId, graph, renderContext):
+  // MCP readonly path: no envelope clone; intrinsic sizing writes CompileRenderContext patches
+  root = findNode(envelope.document, subtreeRootId, graph)
+  applyAutoLayoutIntrinsicSizingDeep(root, envelope)  // patches when renderContext active
+  syncHugTextLayoutMetricsDeep(root, envelope)
+  return compileTree(envelope, root, renderContext)   // emit reads layoutW/layoutH + flex CSS
+
+function prepareForCompileLegacy(envelope, subtreeRootId):
+  env = structuredClone(envelope)   // non-MCP callers without renderContext
+  ...
 ```
 
-**Binding:** `get_design_context` / `get_screenshot` **must not** mutate the persisted `FileEnvelope`; `DesignCompiler` clones the envelope before emitting HTML/CSS. Child positions inside auto-layout frames are resolved by the **browser layout engine** (flex), not by rewriting `x`/`y` on the document tree.
+**Binding:** `get_design_context` / `get_screenshot` **must not** mutate the persisted `FileEnvelope`. MCP passes `renderContext` so compile uses overlay patches instead of cloning the envelope. Per-instance component masters may still be cloned until instance overlay parity is complete. Child positions inside auto-layout frames are resolved by the **browser layout engine** (flex), not by rewriting `x`/`y` on the document tree.
 
 ## Screenshot clip rectangle
 

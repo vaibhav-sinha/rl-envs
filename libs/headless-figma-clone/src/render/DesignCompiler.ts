@@ -1,5 +1,21 @@
 import { findNodeInDocument } from '../engine/componentResolve.js';
-import { buildGraphIndexes } from '../engine/nodeIndex.js';
+import { buildGraphIndexes, type GraphIndexes } from '../engine/nodeIndex.js';
+import {
+  createCompileStack,
+  getActiveCompileStack,
+  renderHeight,
+  renderWidth,
+  sceneChildrenForCompile,
+  withCompileStack,
+  withInstanceOverlay,
+  type CompileRenderContext,
+  type InstanceRenderOverlay,
+} from './compileRenderContext.js';
+import {
+  buildInstanceRenderOverlay,
+  instanceCompileNeedsClone,
+  prepareInstanceCloneForEmit,
+} from './instanceRenderOverlay.js';
 import { resolveVariantPropertyValue } from '../instances/componentProperties.js';
 import {
   applyAutoLayoutIntrinsicSizingDeep,
@@ -47,13 +63,13 @@ import {
 import { injectFontFacesIntoHtml } from '../fonts/injectFonts.js';
 import { normalizeFigmaText, rawTextCharacters, splitFigmaParagraphRanges } from './figmaTextParagraphs.js';
 import { applyComponentOverridesToTree } from './instanceOverrideApply.js';
+import { type InstanceAppearanceFields } from './instanceAppearance.js';
 import {
   alignInstanceShellToVariantRoot,
   applyInstanceShellAppearanceToRoot,
   cloneComponentRootForInstance,
   instanceDetachedChildren,
   prepareClonedComponentSubtreeForEmit,
-  prepareInstanceComponentRoot,
 } from './instancePrepare.js';
 import {
   computeStrokeBorder,
@@ -170,13 +186,37 @@ export interface DesignCompiler {
     envelope: FileEnvelope;
     rootNodeId: string;
     options: CompileHtmlOptions;
+    /** When set, compile reads/writes overlay patches and does not clone the envelope. */
+    renderContext?: CompileRenderContext;
+    /** Reuse engine graph index (same envelope reference as indexed). */
+    graph?: GraphIndexes;
   }): CompiledDesign;
   /** All top-level scene nodes on a page (defaults to first page when `pageId` omitted). */
   compileFirstPage(params: {
     envelope: FileEnvelope;
     options: CompileHtmlOptions;
     pageId?: string;
+    renderContext?: CompileRenderContext;
+    graph?: GraphIndexes;
   }): CompiledDesign;
+}
+
+let compileGraphCache: { envelope: FileEnvelope; graph: GraphIndexes } | undefined;
+
+function getCompileGraphIndexes(envelope: FileEnvelope, supplied?: GraphIndexes): GraphIndexes {
+  if (supplied) return supplied;
+  if (compileGraphCache?.envelope === envelope) return compileGraphCache.graph;
+  const graph = buildGraphIndexes(envelope);
+  compileGraphCache = { envelope, graph };
+  return graph;
+}
+
+function layoutW(n: SceneNode): number {
+  return 'width' in n ? renderWidth(getActiveCompileStack(), n as SceneNode & { width: number }) : 0;
+}
+
+function layoutH(n: SceneNode): number {
+  return 'height' in n ? renderHeight(getActiveCompileStack(), n as SceneNode & { height: number }) : 0;
 }
 
 function findSceneNode(envelope: FileEnvelope, id: string): SceneNode | null {
@@ -201,20 +241,20 @@ function findPageForSceneNode(envelope: FileEnvelope, sceneNodeId: string): Page
 }
 
 /** Scene nodes stored under `instance.children` (detached export) are indexed but not on the page tree. */
-function findIndexedSceneNode(envelope: FileEnvelope, id: string): SceneNode | null {
-  const node = buildGraphIndexes(envelope).nodes.get(id);
+function findIndexedSceneNode(envelope: FileEnvelope, id: string, graph?: GraphIndexes): SceneNode | null {
+  const node = getCompileGraphIndexes(envelope, graph).nodes.get(id);
   if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') return null;
   return node as SceneNode;
 }
 
-function findCompileRootNode(envelope: FileEnvelope, id: string): SceneNode | null {
-  return findSceneNode(envelope, id) ?? findIndexedSceneNode(envelope, id);
+function findCompileRootNode(envelope: FileEnvelope, id: string, graph?: GraphIndexes): SceneNode | null {
+  return findSceneNode(envelope, id) ?? findIndexedSceneNode(envelope, id, graph);
 }
 
-function findPageForNode(envelope: FileEnvelope, nodeId: string): PageNode | null {
+function findPageForNode(envelope: FileEnvelope, nodeId: string, graph?: GraphIndexes): PageNode | null {
   const fromScene = findPageForSceneNode(envelope, nodeId);
   if (fromScene) return fromScene;
-  const { parentById, nodes } = buildGraphIndexes(envelope);
+  const { parentById, nodes } = getCompileGraphIndexes(envelope, graph);
   let cur: string | null | undefined = nodeId;
   const seen = new Set<string>();
   while (cur && !seen.has(cur)) {
@@ -325,6 +365,8 @@ function filterPageCompileRoots(roots: SceneNode[], env: FileEnvelope): SceneNod
 }
 
 function sceneChildList(n: SceneNode): SceneNode[] | null {
+  const fromOverlay = sceneChildrenForCompile(getActiveCompileStack(), n);
+  if (fromOverlay) return fromOverlay;
   if (n.type === 'FRAME' || n.type === 'TRANSFORM_GROUP' || n.type === 'GROUP' || n.type === 'SECTION') return n.children;
   if (n.type === 'BOOLEAN_OPERATION') return n.children;
   return null;
@@ -361,7 +403,7 @@ function sceneChildPos(
   absY: number,
   parentFrame?: FrameNode
 ): string {
-  return flexChildLayoutCss(n, insideFlex, { absX, absY, width: n.width, height: n.height }, parentFrame);
+  return flexChildLayoutCss(n, insideFlex, { absX, absY, width: layoutW(n), height: layoutH(n) }, parentFrame);
 }
 
 function instanceOuterPosCss(
@@ -727,9 +769,9 @@ function sceneNodeBounds(n: SceneNode, originX: number, originY: number): Bounds
   if (rot !== 0) {
     const corners = [
       { px: 0, py: 0 },
-      { px: n.width, py: 0 },
-      { px: n.width, py: n.height },
-      { px: 0, py: n.height },
+      { px: layoutW(n), py: 0 },
+      { px: layoutW(n), py: layoutH(n) },
+      { px: 0, py: layoutH(n) },
     ];
     let minX = Infinity;
     let minY = Infinity;
@@ -747,8 +789,8 @@ function sceneNodeBounds(n: SceneNode, originX: number, originY: number): Bounds
   return {
     minX: absX,
     minY: absY,
-    maxX: absX + n.width,
-    maxY: absY + n.height,
+    maxX: absX + layoutW(n),
+    maxY: absY + layoutH(n),
   };
 }
 
@@ -1026,8 +1068,8 @@ function frameEffectiveClipsContent(f: FrameNode): boolean {
 }
 
 function frameCornerRadiusCss(f: FrameNode): string {
-  const w = f.width;
-  const h = f.height;
+  const w = layoutW(f);
+  const h = layoutH(f);
   const [tl0, tr0, br0, bl0] = rectCornerRadii(f as unknown as RectangleNode);
   const [tl, tr, br, bl] = clampRectCornerRadiiToBox(w, h, tl0, tr0, br0, bl0);
   if (tl <= 0 && tr <= 0 && br <= 0 && bl <= 0) return '';
@@ -1114,18 +1156,18 @@ function frameFlexInnerStyle(f: FrameNode, env: FileEnvelope): string {
 }
 
 function rectPathLocal(r: RectangleNode): string {
-  const w = r.width;
-  const h = r.height;
+  const w = layoutW(r);
+  const h = layoutH(r);
   return `M0,0 H${String(w)} V${String(h)} H0 Z`;
 }
 
 function operandPathD(op: SceneNode): string {
   if (op.type === 'RECTANGLE') return rectPathLocal(op);
   if (op.type === 'VECTOR' && op.vectorPaths?.[0]?.data) return op.vectorPaths[0].data;
-  if (op.type === 'POLYGON') return polygonPointsD(op.pointCount, op.width, op.height);
-  if (op.type === 'STAR') return starPathD(op.pointCount, op.innerRadius, op.width, op.height);
+  if (op.type === 'POLYGON') return polygonPointsD(op.pointCount, layoutW(op), layoutH(op));
+  if (op.type === 'STAR') return starPathD(op.pointCount, op.innerRadius, layoutW(op), layoutH(op));
   if (op.type === 'ELLIPSE') {
-    return ellipsePathD(op.width, op.height, op.arcData);
+    return ellipsePathD(layoutW(op), layoutH(op), op.arcData);
   }
   return 'M0,0';
 }
@@ -1156,8 +1198,8 @@ function emitBooleanOperation(
   insideFlex: boolean,
   env: FileEnvelope
 ): void {
-  const w = b.width;
-  const h = b.height;
+  const w = layoutW(b);
+  const h = layoutH(b);
   const fills = booleanOperationFills(b);
   const shadow = nodeEffectsCss(b.effects, env, b, warnings, 'boolean');
   const pos = insideFlex
@@ -1225,8 +1267,8 @@ function emitVector(
   env: FileEnvelope
 ): void {
   const vp = v.vectorPaths.length > 0 ? svgViewportForVectorPaths(v.vectorPaths) : null;
-  const w = Math.max(v.width, vp?.width ?? 0);
-  const h = Math.max(v.height, vp?.height ?? 0);
+  const w = Math.max(layoutW(v), vp?.width ?? 0);
+  const h = Math.max(layoutH(v), vp?.height ?? 0);
   const viewBox = vp?.viewBox ?? `0 0 ${String(w)} ${String(h)}`;
   const shadow = nodeEffectsCss(v.effects, env, v, warnings, 'vector');
   const pos = insideFlex
@@ -1299,7 +1341,10 @@ function tryEmitExportedSvgIcon(
   const pos = insideFlex
     ? `position:relative;left:0;top:0;flex:${String(n.layoutGrow ?? 0)} 1 auto;min-width:0;`
     : n.constraints && parentFrame
-      ? constraintPositionCss(n as FrameNode, parentFrame.width, parentFrame.height)
+      ? constraintPositionCss(n as FrameNode, layoutW(parentFrame), layoutH(parentFrame), {
+          width: n.width,
+          height: n.height,
+        })
       : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
 
   htmlParts.push(`<div class="hfc-node-${n.id} hfc-svg-icon" data-hfc-id="${n.id}" style="z-index:${String(zIndex)}">`);
@@ -1350,8 +1395,8 @@ function emitGroup(
     return;
   }
   const outerCss = insideFlex
-    ? flexChildLayoutCss(g, true, { absX: localPos.x, absY: localPos.y, width: g.width, height: g.height }, parentFrame)
-    : `position:absolute;left:${String(localPos.x)}px;top:${String(localPos.y)}px;width:${String(g.width)}px;height:${String(g.height)}px;`;
+    ? flexChildLayoutCss(g, true, { absX: localPos.x, absY: localPos.y, width: layoutW(g), height: layoutH(g) }, parentFrame)
+    : `position:absolute;left:${String(localPos.x)}px;top:${String(localPos.y)}px;width:${String(layoutW(g))}px;height:${String(layoutH(g))}px;`;
   const groupClass = insideFlex ? `hfc-node-${g.id} hfc-group-flex` : `hfc-node-${g.id} hfc-group`;
   htmlParts.push(`<div class="${groupClass}" data-hfc-id="${g.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(g.id)}{${outerCss}box-sizing:border-box;${opRot}}`);
@@ -1495,7 +1540,7 @@ function emitTransformGroup(
     : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;`;
   htmlParts.push(`<div class="hfc-node-${tg.id}" data-hfc-id="${tg.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(
-    `${hfcNodeCssSel(tg.id)}{${pos}width:${String(tg.width)}px;height:${String(tg.height)}px;box-sizing:border-box;${opRot}}`
+    `${hfcNodeCssSel(tg.id)}{${pos}width:${String(layoutW(tg))}px;height:${String(layoutH(tg))}px;box-sizing:border-box;${opRot}}`
   );
   emitChildrenWithMasks(tg, undefined, absX, absY, originX, originY, shiftX, shiftY, htmlParts, cssParts, z, imgMap, patternTiles, warnings, false, env);
   htmlParts.push('</div>');
@@ -1735,8 +1780,8 @@ function emitScene(
       if (vp?.data) {
         const shadow = nodeEffectsCss(effectiveTextEffects(t, env), env, t, warnings, 'text');
         const vpBox = svgViewportForPathData(vp.data);
-        const w = Math.max(t.width, vpBox.width);
-        const h = Math.max(t.height, vpBox.height);
+        const w = Math.max(layoutW(t), vpBox.width);
+        const h = Math.max(layoutH(t), vpBox.height);
         const startOff = t.textOnPath.startOffset ?? 0;
         const pos = insideFlex
           ? `position:relative;left:0;top:0;width:${String(w)}px;height:${String(h)}px;flex:${String(t.layoutGrow ?? 0)} 1 auto;min-width:0;overflow:visible;`
@@ -1760,7 +1805,7 @@ function emitScene(
     const shadow = nodeEffectsCss(effectiveTextEffects(t, env), env, t, warnings, 'text');
     const pos = insideFlex
       ? sceneChildPos(t, insideFlex, absX, absY, parentFrame)
-      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(t.width)}px;height:${String(t.height)}px;`;
+      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(layoutW(t))}px;height:${String(layoutH(t))}px;`;
     const singleLine = textIsSingleLineBox(t, env);
     const textChars = effectiveTextCharacters(t, env);
     const omitParagraphSpacing = shouldOmitBlockParagraphSpacing();
@@ -1804,8 +1849,8 @@ function emitScene(
     const fillCss = fillBackgroundStyles(fill, imgMap, patternTiles, warnings, `section_fill:${s.id}`, env);
     const strokeResult = computeStrokeBorder(
       {
-        width: s.width,
-        height: s.height,
+        width: layoutW(s),
+        height: layoutH(s),
         strokes: s.strokes,
         strokeWeight: s.strokeWeight,
         strokeAlign: s.strokeAlign,
@@ -1820,7 +1865,7 @@ function emitScene(
     const border = borderCssDeclaration(strokeResult.borderCss);
     const sectionOuterCss = insideFlex
       ? sceneChildPos(s as unknown as FrameNode, insideFlex, absX, absY, parentFrame)
-      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(s.width)}px;height:${String(s.height)}px;`;
+      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(layoutW(s))}px;height:${String(layoutH(s))}px;`;
     const sectionAbsX = pageX;
     const sectionAbsY = pageY;
     htmlParts.push(`<div class="hfc-node-${s.id}" data-hfc-id="${s.id}" style="z-index:${String(zIndex)}">`);
@@ -1897,8 +1942,11 @@ function emitScene(
     const frameOuterCss = insideFlex
       ? sceneChildPos(f, insideFlex, absX, absY, parentFrame)
       : f.constraints && parentFrame
-        ? constraintPositionCss(f, parentFrame.width, parentFrame.height)
-        : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(f.width)}px;height:${String(f.height)}px;`;
+        ? constraintPositionCss(f, layoutW(parentFrame), layoutH(parentFrame), {
+            width: layoutW(f),
+            height: layoutH(f),
+          })
+        : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(layoutW(f))}px;height:${String(layoutH(f))}px;`;
 
     if (!layered) {
       htmlParts.push(`<div class="hfc-node-${f.id}" data-hfc-id="${f.id}" style="z-index:${String(zIndex)}">`);
@@ -2164,8 +2212,8 @@ function emitTable(
   env: FileEnvelope
 ): void {
   const pos = insideFlex
-    ? `position:relative;left:0;top:0;width:${String(tb.width)}px;height:${String(tb.height)}px;flex:${String(tb.layoutGrow ?? 0)} 1 auto;min-width:0;`
-    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(tb.width)}px;height:${String(tb.height)}px;`;
+    ? `position:relative;left:0;top:0;width:${String(layoutW(tb))}px;height:${String(layoutH(tb))}px;flex:${String(tb.layoutGrow ?? 0)} 1 auto;min-width:0;`
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(layoutW(tb))}px;height:${String(layoutH(tb))}px;`;
   htmlParts.push(`<div class="hfc-node-${tb.id}" data-hfc-id="${tb.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(`${hfcNodeCssSel(tb.id)}{${pos}box-sizing:border-box;${opRot}}`);
   const rows: string[] = [];
@@ -2336,6 +2384,79 @@ function emitPlacedComponent(
   );
 }
 
+function resolveInstanceEmitRoot(
+  master: FrameNode,
+  inst: InstanceAppearanceFields &
+    Pick<InstanceNode, 'width' | 'height' | 'children' | 'componentProperties' | 'id'>,
+  env: FileEnvelope,
+  overrides: ComponentInstanceNode['overrides'] | undefined
+): { root: FrameNode; overlay?: InstanceRenderOverlay } {
+  if (instanceCompileNeedsClone(inst, overrides)) {
+    const root = cloneComponentRootForInstance(master);
+    prepareInstanceCloneForEmit(root, inst, env, overrides);
+    return { root };
+  }
+  const overlay = buildInstanceRenderOverlay(master, inst, env, overrides);
+  return { root: master, overlay };
+}
+
+function emitPreparedInstanceRoot(
+  inst: InstanceNode | ComponentInstanceNode,
+  root: FrameNode,
+  overlay: InstanceRenderOverlay | undefined,
+  absX: number,
+  absY: number,
+  zIndex: number,
+  opRot: string,
+  htmlParts: string[],
+  cssParts: string[],
+  z: { value: number },
+  imgMap: Record<string, string>,
+  patternTiles: Record<string, string>,
+  warnings: string[],
+  insideFlex: boolean,
+  env: FileEnvelope,
+  originX: number,
+  originY: number,
+  shiftX: number,
+  shiftY: number,
+  parentFrame?: FrameNode
+): void {
+  const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
+  const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
+  htmlParts.push(
+    `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
+  );
+  cssParts.push(
+    `.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceWrapperOverflowCss(inst, instEffects)}${opRot}}`
+  );
+  withInstanceCssScope(inst.id, () => {
+    const run = () => {
+      emitScene(
+        root,
+        originX + inst.x,
+        originY + inst.y,
+        shiftX,
+        shiftY,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        patternTiles,
+        warnings,
+        false,
+        env,
+        root.children,
+        undefined,
+        true
+      );
+    };
+    if (overlay) withInstanceOverlay(overlay, run);
+    else run();
+  });
+  htmlParts.push('</div>');
+}
+
 function emitComponentInstance(
   inst: ComponentInstanceNode,
   absX: number,
@@ -2376,38 +2497,32 @@ function emitComponentInstance(
     warnings.push(`missing_component:${inst.mainComponentId}`);
     return;
   }
-  const root = cloneComponentRootForInstance(main.root);
-  if (root.x !== 0 || root.y !== 0) {
+  if (main.root.x !== 0 || main.root.y !== 0) {
     warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
   }
-  prepareInstanceComponentRoot(root, inst, env, inst.overrides, { warnings, overrides: inst.overrides });
-  const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
-  const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
-  htmlParts.push(`<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`);
-  cssParts.push(
-    `.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceWrapperOverflowCss(inst, instEffects)}${opRot}}`
+  const { root, overlay } = resolveInstanceEmitRoot(main.root, inst, env, inst.overrides);
+  emitPreparedInstanceRoot(
+    inst,
+    root,
+    overlay,
+    absX,
+    absY,
+    zIndex,
+    opRot,
+    htmlParts,
+    cssParts,
+    z,
+    imgMap,
+    patternTiles,
+    warnings,
+    insideFlex,
+    env,
+    originX,
+    originY,
+    shiftX,
+    shiftY,
+    parentFrame
   );
-  withInstanceCssScope(inst.id, () => {
-    emitScene(
-      root,
-      originX + inst.x,
-      originY + inst.y,
-      shiftX,
-      shiftY,
-      htmlParts,
-      cssParts,
-      z,
-      imgMap,
-      patternTiles,
-      warnings,
-      false,
-      env,
-      root.children,
-      undefined,
-      true
-    );
-  });
-  htmlParts.push('</div>');
 }
 
 function remapOverridesForVariant(
@@ -2553,40 +2668,34 @@ function emitInstance(
   if (!target && env.components) {
     const main = env.components?.find((c) => c.id === inst.mainComponentId);
     if (main) {
-      const root = cloneComponentRootForInstance(main.root);
-      prepareInstanceComponentRoot(root, inst, env, inst.overrides as ComponentInstanceNode['overrides'], {
+      const { root, overlay } = resolveInstanceEmitRoot(
+        main.root,
+        inst,
+        env,
+        inst.overrides as ComponentInstanceNode['overrides']
+      );
+      emitPreparedInstanceRoot(
+        inst,
+        root,
+        overlay,
+        absX,
+        absY,
+        zIndex,
+        opRot,
+        htmlParts,
+        cssParts,
+        z,
+        imgMap,
+        patternTiles,
         warnings,
-        overrides: inst.overrides as ComponentInstanceNode['overrides'],
-      });
-      const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
-      const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
-      htmlParts.push(
-        `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
+        insideFlex,
+        env,
+        originX,
+        originY,
+        shiftX,
+        shiftY,
+        parentFrame
       );
-      cssParts.push(
-        `.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceWrapperOverflowCss(inst, instEffects)}${opRot}}`
-      );
-      withInstanceCssScope(inst.id, () => {
-        emitScene(
-          root,
-          originX + inst.x,
-          originY + inst.y,
-          shiftX,
-          shiftY,
-          htmlParts,
-          cssParts,
-          z,
-          imgMap,
-          patternTiles,
-          warnings,
-          false,
-          env,
-          root.children,
-          undefined,
-          true
-        );
-      });
-      htmlParts.push('</div>');
       return;
     }
   }
@@ -2638,7 +2747,7 @@ function emitInstance(
     return;
   }
 
-  let root: FrameNode;
+  let master: FrameNode;
   let appliedOverrides: InstanceNode['overrides'] = inst.overrides;
 
   if (target.type === 'COMPONENT') {
@@ -2649,7 +2758,7 @@ function emitInstance(
       return;
     }
     alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
-    root = cloneComponentRootForInstance(rootNode as FrameNode);
+    master = rootNode as FrameNode;
   } else {
     const set = target as ComponentSetNode;
     const selectedValue = resolveVariantPropertyValue(inst.componentProperties, set);
@@ -2669,47 +2778,42 @@ function emitInstance(
       return;
     }
     alignInstanceShellToVariantRoot(inst, rootNode as FrameNode);
-    root = cloneComponentRootForInstance(rootNode as FrameNode);
+    master = rootNode as FrameNode;
 
     const nodeIdMap = set.nodeIdMapByComponentId?.[selectedComponentId];
     appliedOverrides = remapOverridesForVariant(inst.overrides, nodeIdMap);
   }
 
-  if (root.x !== 0 || root.y !== 0) warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
+  if (master.x !== 0 || master.y !== 0) warnings.push(`component_root_nonzero:${inst.mainComponentId}`);
 
-  prepareInstanceComponentRoot(root, inst, env, appliedOverrides as ComponentInstanceNode['overrides'], {
-    warnings,
-    overrides: appliedOverrides as ComponentInstanceNode['overrides'],
-  });
-
-  const pos = instanceOuterPosCss(inst, insideFlex, absX, absY, parentFrame);
-
-  const instEffects = effectiveFrameEffects(inst as unknown as FrameNode, env);
-  htmlParts.push(
-    `<div class="hfc-node-${inst.id} hfc-component-instance" data-hfc-id="${inst.id}" style="z-index:${String(zIndex)}">`
+  const { root, overlay } = resolveInstanceEmitRoot(
+    master,
+    inst,
+    env,
+    appliedOverrides as ComponentInstanceNode['overrides']
   );
-  cssParts.push(`.hfc-node-${inst.id}{${pos}box-sizing:border-box;${instanceWrapperOverflowCss(inst, instEffects)}${opRot}}`);
-  withInstanceCssScope(inst.id, () => {
-    emitScene(
-      root,
-      originX + inst.x,
-      originY + inst.y,
-      shiftX,
-      shiftY,
-      htmlParts,
-      cssParts,
-      z,
-      imgMap,
-      patternTiles,
-      warnings,
-      false,
-      env,
-      root.children,
-      undefined,
-      true
-    );
-  });
-  htmlParts.push('</div>');
+  emitPreparedInstanceRoot(
+    inst,
+    root,
+    overlay,
+    absX,
+    absY,
+    zIndex,
+    opRot,
+    htmlParts,
+    cssParts,
+    z,
+    imgMap,
+    patternTiles,
+    warnings,
+    insideFlex,
+    env,
+    originX,
+    originY,
+    shiftX,
+    shiftY,
+    parentFrame
+  );
 }
 
 function emitRectangle(
@@ -2734,7 +2838,7 @@ function emitRectangle(
   warnings.push(...strokeResult.warnings);
   const border = borderCssDeclaration(strokeResult.borderCss);
   const [tl0, tr0, br0, bl0] = rectCornerRadii(r);
-  const [tl, tr, br, bl] = clampRectCornerRadiiToBox(r.width, r.height, tl0, tr0, br0, bl0);
+  const [tl, tr, br, bl] = clampRectCornerRadiiToBox(layoutW(r), layoutH(r), tl0, tr0, br0, bl0);
   const radius =
     tl > 0 || tr > 0 || br > 0 || bl > 0
       ? tl === tr && tr === br && br === bl
@@ -2744,8 +2848,11 @@ function emitRectangle(
   const pos = insideFlex
     ? sceneChildPos(r, insideFlex, absX, absY, parentFrame)
     : r.constraints && parentFrame
-      ? constraintPositionCss(r, parentFrame.width, parentFrame.height)
-      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(r.width)}px;height:${String(r.height)}px;`;
+      ? constraintPositionCss(r, layoutW(parentFrame), layoutH(parentFrame), {
+          width: layoutW(r),
+          height: layoutH(r),
+        })
+      : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(layoutW(r))}px;height:${String(layoutH(r))}px;`;
   htmlParts.push(`<div class="hfc-node-${r.id}" data-hfc-id="${r.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(
     `${hfcNodeCssSel(r.id)}{${pos}box-sizing:border-box;${fillCss}${border}${radius}${opRot}${shadow}}`
@@ -2791,7 +2898,7 @@ function emitEllipse(
   const fillCss = stackedFillsCss(e.fills ?? [], imgMap, patternTiles, warnings, `ellipse:${e.id}`, env);
   const pos = insideFlex
     ? sceneChildPos(e, insideFlex, absX, absY, parentFrame)
-    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(e.width)}px;height:${String(e.height)}px;`;
+    : `position:absolute;left:${String(absX)}px;top:${String(absY)}px;width:${String(layoutW(e))}px;height:${String(layoutH(e))}px;`;
   htmlParts.push(`<div class="hfc-node-${e.id}" data-hfc-id="${e.id}" style="z-index:${String(zIndex)}">`);
   cssParts.push(
     `${hfcNodeCssSel(e.id)}{${pos}box-sizing:border-box;border-radius:50%;${fillCss}${opRot}${shadow}}`
@@ -2821,8 +2928,8 @@ function emitEllipseArcSvg(
   env: FileEnvelope,
   parentFrame?: FrameNode
 ): void {
-  const w = e.width;
-  const h = e.height;
+  const w = layoutW(e);
+  const h = layoutH(e);
   const d = ellipseArcPathD(w, h, e.arcData!);
   const shadow = nodeEffectsCss(e.effects, env, e, warnings, 'ellipse');
   const pos = insideFlex
@@ -2856,8 +2963,8 @@ function lineSvgLayout(ln: LineNode): {
   svgLeft: number;
   svgTop: number;
 } {
-  const w = ln.width;
-  const h = ln.height;
+  const w = layoutW(ln);
+  const h = layoutH(ln);
   const sw = ln.strokeWeight ?? 1;
   const pad = sw / 2;
   let p1 = { x: 0, y: 0 };
@@ -2902,8 +3009,8 @@ function emitLine(
   insideFlex: boolean,
   env: FileEnvelope
 ): void {
-  const w = ln.width;
-  const h = ln.height;
+  const w = layoutW(ln);
+  const h = layoutH(ln);
   const { vbW, vbH, x1, y1, x2, y2, svgW, svgH, svgLeft, svgTop } = lineSvgLayout(ln);
   const shadow = nodeEffectsCss(ln.effects, env, ln, warnings, 'line');
   const stroke = ln.strokes[0];
@@ -2935,8 +3042,8 @@ function emitPolygon(
   insideFlex: boolean,
   env: FileEnvelope
 ): void {
-  const w = p.width;
-  const h = p.height;
+  const w = layoutW(p);
+  const h = layoutH(p);
   const d = polygonPointsD(p.pointCount, w, h);
   const shadow = nodeEffectsCss(p.effects, env, p, warnings, 'polygon');
   const pos = insideFlex
@@ -2970,8 +3077,8 @@ function emitStar(
   insideFlex: boolean,
   env: FileEnvelope
 ): void {
-  const w = s.width;
-  const h = s.height;
+  const w = layoutW(s);
+  const h = layoutH(s);
   const d = starPathD(s.pointCount, s.innerRadius, w, h);
   const shadow = nodeEffectsCss(s.effects, env, s, warnings, 'star');
   const pos = insideFlex
@@ -2993,7 +3100,7 @@ function emitStar(
 }
 
 function normalizeRootBounds(root: SceneNode, raw: Bounds): Bounds {
-  return Number.isFinite(raw.minX) ? raw : { minX: 0, minY: 0, maxX: root.width, maxY: root.height };
+  return Number.isFinite(raw.minX) ? raw : { minX: 0, minY: 0, maxX: layoutW(root), maxY: layoutH(root) };
 }
 
 function compileRootScenes(
@@ -3005,10 +3112,18 @@ function compileRootScenes(
   if (roots.length === 0) {
     throw new Error('compileRootScenes: empty roots');
   }
-  /** Figma hugs auto-layout frame dimensions before render; mutate compile-time clone only. */
-  for (const root of roots) {
-    applyAutoLayoutIntrinsicSizingDeep(root, envelope);
-    syncHugTextLayoutMetricsDeep(root, envelope);
+  /** Overlay path writes patches only; legacy path mutates the compile clone in place. */
+  const stack = getActiveCompileStack();
+  if (stack) {
+    for (const root of roots) {
+      applyAutoLayoutIntrinsicSizingDeep(root, envelope);
+      syncHugTextLayoutMetricsDeep(root, envelope);
+    }
+  } else {
+    for (const root of roots) {
+      applyAutoLayoutIntrinsicSizingDeep(root, envelope);
+      syncHugTextLayoutMetricsDeep(root, envelope);
+    }
   }
   const warnings: string[] = [];
   instanceCssScopeStack.length = 0;
@@ -3071,8 +3186,8 @@ function compileRootScenes(
       ? {
           x: primary.x + shiftX,
           y: primary.y + shiftY,
-          width: primary.width,
-          height: primary.height,
+          width: layoutW(primary),
+          height: layoutH(primary),
         }
       : {
           x: bounds.minX + shiftX,
@@ -3108,29 +3223,59 @@ ${inline ? cssBlock : '/* css attached separately */'}
   };
 }
 
-export const designCompiler: DesignCompiler = {
-  compileSubtree({ envelope, rootNodeId, options }): CompiledDesign {
-    const env = structuredClone(envelope);
+function runCompileSubtreeBody(params: {
+  envelope: FileEnvelope;
+  rootNodeId: string;
+  options: CompileHtmlOptions;
+  renderContext?: CompileRenderContext;
+  graph?: GraphIndexes;
+}): CompiledDesign {
+  const { envelope, rootNodeId, options, renderContext, graph } = params;
+  const useOverlay = renderContext !== undefined;
+  const env = useOverlay ? envelope : structuredClone(envelope);
+  const run = (): CompiledDesign => {
     const page = findPageById(env, rootNodeId);
     if (page) {
       return compilePageNode(page, options, env);
     }
-    const root = findCompileRootNode(env, rootNodeId);
+    const root = findCompileRootNode(env, rootNodeId, graph);
     if (!root) {
       throw new Error(`compileSubtree: unknown node id ${rootNodeId}`);
     }
-    const containingPage = findPageForNode(env, rootNodeId);
+    const containingPage = findPageForNode(env, rootNodeId, graph);
     return compileRootScenes([root], options, env, containingPage?.backgrounds);
+  };
+  if (useOverlay) {
+    return withCompileStack(createCompileStack(renderContext), run);
+  }
+  return run();
+}
+
+export const designCompiler: DesignCompiler = {
+  compileSubtree(params): CompiledDesign {
+    compileGraphCache = undefined;
+    try {
+      return runCompileSubtreeBody(params);
+    } finally {
+      compileGraphCache = undefined;
+    }
   },
 
-  compileFirstPage({ envelope, options, pageId }): CompiledDesign {
-    const env = structuredClone(envelope);
-    const page = pageId
-      ? findPageById(env, pageId)
-      : env.document.children.find((c): c is PageNode => c.type === 'PAGE');
-    if (!page) {
-      throw new Error('compileFirstPage: unknown page');
+  compileFirstPage({ envelope, options, pageId, renderContext }): CompiledDesign {
+    compileGraphCache = undefined;
+    try {
+      const useOverlay = renderContext !== undefined;
+      const env = useOverlay ? envelope : structuredClone(envelope);
+      const page = pageId
+        ? findPageById(env, pageId)
+        : env.document.children.find((c): c is PageNode => c.type === 'PAGE');
+      if (!page) {
+        throw new Error('compileFirstPage: unknown page');
+      }
+      const run = () => compilePageNode(page, options, env);
+      return useOverlay ? withCompileStack(createCompileStack(renderContext), run) : run();
+    } finally {
+      compileGraphCache = undefined;
     }
-    return compilePageNode(page, options, env);
   },
 };

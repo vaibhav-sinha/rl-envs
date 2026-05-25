@@ -1,5 +1,12 @@
+import type { GraphIndexes } from '../engine/nodeIndex.js';
 import type { FileEnvelope, PageNode, PatternPaint, SceneNode } from '../model/types.js';
 import type { CompileHtmlOptions, CompiledDesign, DesignCompiler } from './DesignCompiler.js';
+import type { CompileRenderContext } from './compileRenderContext.js';
+import {
+  getCachedPatternTile,
+  patternTileCacheKey,
+  setCachedPatternTile,
+} from './patternTileCache.js';
 
 function findPageById(envelope: FileEnvelope, pageId: string): PageNode | null {
   return envelope.document.children.find((c): c is PageNode => c.type === 'PAGE' && c.id === pageId) ?? null;
@@ -177,6 +184,9 @@ export async function rasterizePatternTileDataUrls(params: {
   screenshot: PlaywrightScreenshotService;
   timeoutMs: number;
   designCompiler: DesignCompiler;
+  graph?: GraphIndexes;
+  renderContext?: CompileRenderContext;
+  filePath?: string | null;
 }): Promise<Record<string, string>> {
   const sourceIds = collectPatternSourceIds(params.envelope, params.rootNodeId);
   const out: Record<string, string> = {};
@@ -191,14 +201,29 @@ export async function rasterizePatternTileDataUrls(params: {
         tileType: 'RECTANGULAR',
         scalingFactor: maxScalingForSource(params.envelope, params.rootNodeId, sourceId),
       } satisfies PatternPaint);
-    const svg = buildPatternTileSvgDataUrl(params.envelope, rep);
+    const cacheKey = patternTileCacheKey(
+      params.filePath ?? null,
+      sourceId,
+      String(rep.scalingFactor)
+    );
+    const cached = getCachedPatternTile(cacheKey);
+    if (cached) {
+      out[sourceId] = cached;
+      continue;
+    }
+    const svg =
+      buildPatternTileSvgDataUrl(params.envelope, rep) ??
+      buildSyncPatternTileDataUrl(params.envelope, sourceId);
     if (svg) {
       out[sourceId] = svg;
+      setCachedPatternTile(cacheKey, svg);
       continue;
     }
     const compiled: CompiledDesign = params.designCompiler.compileSubtree({
       envelope: params.envelope,
       rootNodeId: sourceId,
+      graph: params.graph,
+      renderContext: params.renderContext,
       options: {
         ...params.compileOptions,
         viewportPaddingPx: 0,
@@ -214,7 +239,9 @@ export async function rasterizePatternTileDataUrls(params: {
       background: 'transparent',
       timeoutMs: params.timeoutMs,
     });
-    out[sourceId] = `data:image/png;base64,${shot.bytes.toString('base64')}`;
+    const dataUrl = `data:image/png;base64,${shot.bytes.toString('base64')}`;
+    out[sourceId] = dataUrl;
+    setCachedPatternTile(cacheKey, dataUrl);
   }
   return out;
 }
