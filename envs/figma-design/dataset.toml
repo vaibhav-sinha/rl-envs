@@ -39,5 +39,5 @@ digest = "sha256:e12c9e0b571a1813d996e88e35335d4a63ac738c578c006bca65a6af5954e11
 
 [[tasks]]
 name = "metaphi/figma-design-oker-create-apply-styles"
-digest = "sha256:bfa68069ced745f49433505768be9a14097ecc8ecc2ce692253be57a47a50bc7"
+digest = "sha256:58147d5625b8d9e062590dc723c73618953d0ed1d4b04deb8ae2219d6b600d16"
 
