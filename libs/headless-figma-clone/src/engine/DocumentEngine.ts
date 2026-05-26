@@ -56,6 +56,7 @@ import {
   applyAutoLayoutIntrinsicSizingDeep,
   syncTextNodeIntrinsicMetrics,
 } from '../render/autoLayoutIntrinsicSizing.js';
+import { applyTextAutoResizeLayoutSizing } from '../layout/textAutoResizeLayout.js';
 import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
 import {
   applyPreservableOverrideFields,
@@ -2306,6 +2307,39 @@ function applyAutoLayoutChildDefaults(parent: FrameNode, child: SceneNode): void
     if (child.layoutSizingVertical === undefined) child.layoutSizingVertical = 'HUG';
     if (child.layoutSizingHorizontal === undefined) child.layoutSizingHorizontal = 'HUG';
   }
+  applyTextAutoResizeLayoutSizing(child as TextNode, { onlyIfUnset: true });
+}
+
+function maybeSyncTextMetricsAfterEnginePatch(
+  working: FileEnvelope,
+  node: AnyTreeNode,
+  patch: Record<string, unknown>
+): void {
+  if (node.type !== 'TEXT') return;
+  const t = node as TextNode;
+  const affectsMetrics =
+    'width' in patch ||
+    'height' in patch ||
+    'layoutSizingHorizontal' in patch ||
+    'layoutSizingVertical' in patch ||
+    'textAutoResize' in patch ||
+    'characters' in patch ||
+    'fontSize' in patch ||
+    'fontName' in patch ||
+    'textStyleId' in patch ||
+    'lineHeight' in patch ||
+    'letterSpacing' in patch ||
+    'styledSegments' in patch;
+  if (!affectsMetrics) return;
+  applyTextAutoResizeLayoutSizing(t);
+  syncTextNodeIntrinsicMetrics(t, working, true);
+  const textParent = findParent(working.document, node.id);
+  if (
+    textParent?.type === 'FRAME' &&
+    (textParent.layoutMode === 'HORIZONTAL' || textParent.layoutMode === 'VERTICAL')
+  ) {
+    applyAutoLayoutIntrinsicSizingDeep(textParent, working);
+  }
 }
 
 /** Detach a scene node from the document tree (Figma reparent / embed). */
@@ -2678,6 +2712,9 @@ export function applyEngineOp(
       const fn = patch.fontName;
       if (fn === undefined || fn === null) delete t.fontName;
       else t.fontName = validateFontName(fn, 'fontName');
+    }
+    if (node.type === 'TEXT') {
+      maybeSyncTextMetricsAfterEnginePatch(working, node, patch);
     }
     if ((sceneShapeTypes as readonly string[]).includes(node.type)) {
       maybeApplyAutoLayoutIntrinsicSizingAfterChange(working, node as SceneNode, patch, effectiveCtx);
@@ -3712,6 +3749,7 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       const ar = patch.textAutoResize;
       if (ar === undefined || ar === null) delete t.textAutoResize;
       else t.textAutoResize = parseTextAutoResize(ar, 'textAutoResize');
+      applyTextAutoResizeLayoutSizing(t);
     }
     if ('textTruncation' in patch) {
       const tr = patch.textTruncation;
@@ -3782,11 +3820,18 @@ function applyPatch(env: FileEnvelope, node: AnyTreeNode, patch: Record<string, 
       'textStyleId' in patch ||
       'lineHeight' in patch ||
       'letterSpacing' in patch ||
-      'textAutoResize' in patch ||
       'styledSegments' in patch;
-    syncTextNodeIntrinsicMetrics(t, env, restyleMetrics);
+    const geometryChanged = 'width' in patch || 'height' in patch;
+    if (restyleMetrics) {
+      applyTextAutoResizeLayoutSizing(t);
+      syncTextNodeIntrinsicMetrics(t, env, true);
+    } else if (geometryChanged) {
+      applyTextAutoResizeLayoutSizing(t);
+      syncTextNodeIntrinsicMetrics(t, env, true);
+    }
     const textParent = findParent(env.document, node.id);
     if (
+      (restyleMetrics || geometryChanged) &&
       textParent?.type === 'FRAME' &&
       (textParent.layoutMode === 'HORIZONTAL' || textParent.layoutMode === 'VERTICAL')
     ) {

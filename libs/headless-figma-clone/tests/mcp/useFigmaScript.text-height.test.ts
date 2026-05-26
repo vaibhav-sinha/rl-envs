@@ -44,16 +44,17 @@ frame.appendChild(t);
 t.characters = 'You have reached your max attempts. Retry OTP generation after 15:00 minutes';
 t.resize(328, t.height);
 figma.currentPage.appendChild(frame);
-return { height: t.height, width: t.width };
+return { height: t.height, width: t.width, layoutSizingVertical: t.layoutSizingVertical };
 `.trim(),
         engine
       );
 
       expect(run.kind).toBe('ok');
       if (run.kind !== 'ok') return;
-      const r = run.result as { height: number; width: number };
+      const r = run.result as { height: number; width: number; layoutSizingVertical: string };
       expect(r.width).toBe(328);
-      expect(r.height).toBeGreaterThan(0);
+      expect(r.height).toBeGreaterThan(24);
+      expect(r.layoutSizingVertical).toBe('HUG');
     });
   });
 });

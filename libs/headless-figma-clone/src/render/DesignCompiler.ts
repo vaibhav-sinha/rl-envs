@@ -503,7 +503,7 @@ function textIsSingleLineBox(t: TextNode, env: FileEnvelope): boolean {
   if (t.textOnPath) return false;
   if (effectiveTextCharacters(t, env).includes('\n')) return false;
   if (t.textTruncation === 'DISABLED') return false;
-  if (t.textAutoResize === 'HEIGHT') return false;
+  if (t.textAutoResize === 'HEIGHT' || t.textAutoResize === 'WIDTH_AND_HEIGHT') return false;
   if (t.textTruncation === 'ENDING' && t.maxLines != null && t.maxLines > 1) return false;
   if (t.textAutoResize === 'TRUNCATE') return true;
   if (t.textTruncation === 'ENDING' && t.maxLines === 1) return true;

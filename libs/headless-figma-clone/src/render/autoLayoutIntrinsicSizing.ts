@@ -3,6 +3,7 @@ import {
   axisSizingToLayoutSizing,
   syncAxisSizingModesFromLayoutSizing,
 } from '../layout/layoutSizingAxisSync.js';
+import { applyTextAutoResizeLayoutSizing } from '../layout/textAutoResizeLayout.js';
 import type {
   AxisSizingMode,
   FileEnvelope,
@@ -448,14 +449,16 @@ export function syncHugTextLayoutMetricsDeep(n: SceneNode, env?: FileEnvelope): 
   if (n.type !== 'TEXT') return;
   const t = n as TextNode;
   if (t.textOnPath) return;
+  applyTextAutoResizeLayoutSizing(t);
   /** HUG/FILL, or legacy absolute text (no layout sizing + 0×0 defaults) — HTML needs a non-zero box. */
   const needsIntrinsicW =
     t.layoutSizingHorizontal === 'HUG' ||
     (t.layoutSizingHorizontal === 'FILL' && (t.width ?? 0) <= 0) ||
     (t.layoutSizingHorizontal !== 'FIXED' && (t.width ?? 0) <= 0);
   const needsIntrinsicH =
-    (t.layoutSizingVertical === 'HUG' &&
-      !(t.textAutoResize === 'HEIGHT' && (t.height ?? 0) > 0)) ||
+    t.textAutoResize === 'HEIGHT' ||
+    t.textAutoResize === 'WIDTH_AND_HEIGHT' ||
+    t.layoutSizingVertical === 'HUG' ||
     (t.layoutSizingVertical === 'FILL' && (t.height ?? 0) <= 0) ||
     (t.layoutSizingVertical !== 'FIXED' && (t.height ?? 0) <= 0);
   if (needsIntrinsicW) {
@@ -475,6 +478,7 @@ export function syncTextNodeIntrinsicMetrics(
   force = false
 ): void {
   if (t.textOnPath) return;
+  applyTextAutoResizeLayoutSizing(t);
   const needsIntrinsicW =
     force ||
     t.layoutSizingHorizontal === 'HUG' ||
@@ -492,6 +496,12 @@ export function syncTextNodeIntrinsicMetrics(
   }
   if (needsIntrinsicH) {
     t.height = hugTextIntrinsicHeightPx(t, env);
+  }
+  if (t.textAutoResize === 'HEIGHT' && (t.width ?? 0) > 0) {
+    const wrappedH = hugTextIntrinsicHeightPx(t, env);
+    if ((t.height ?? 0) < wrappedH) {
+      t.height = wrappedH;
+    }
   }
 }
 

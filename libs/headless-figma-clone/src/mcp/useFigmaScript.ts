@@ -79,6 +79,8 @@ import {
   syncLayoutSizingFromAxisSizingModes,
   type LayoutSizingAxisSyncTarget,
 } from '../layout/layoutSizingAxisSync.js';
+import { applyTextAutoResizeLayoutSizing, buildTextResizePatch } from '../layout/textAutoResizeLayout.js';
+import { syncTextNodeIntrinsicMetrics } from '../render/autoLayoutIntrinsicSizing.js';
 import {
   HFC_HANDLE_FLAG,
   HFC_HANDLE_MARKER,
@@ -799,23 +801,59 @@ function nodeSupportsResizeWithoutConstraints(type: string): boolean {
   return type === 'SECTION' || type === 'COMPONENT_SET';
 }
 
+function refreshRuntimeTextMetricsFromLive(ctx: ScriptContext, id: string, rt: RuntimeText): void {
+  const live = scriptLookup(ctx, id);
+  if (!live || live.type !== 'TEXT') return;
+  if (typeof live.width === 'number') rt.width = live.width;
+  if (typeof live.height === 'number') rt.height = live.height;
+  if (live.layoutSizingHorizontal !== undefined) {
+    rt.layoutSizingHorizontal = live.layoutSizingHorizontal;
+  }
+  if (live.layoutSizingVertical !== undefined) {
+    rt.layoutSizingVertical = live.layoutSizingVertical;
+  }
+}
+
+function syncDetachedRuntimeTextMetrics(ctx: ScriptContext, rt: RuntimeText): void {
+  const draft: TextNode = {
+    type: 'TEXT',
+    id: 'draft',
+    name: rt.name,
+    x: rt.x,
+    y: rt.y,
+    width: rt.width,
+    height: rt.height,
+    characters: rt.characters,
+    fontSize: rt.fontSize,
+    fontWeight: rt.fontWeight,
+    fontName: rt.fontName,
+    textAutoResize: rt.textAutoResize,
+    layoutSizingHorizontal: rt.layoutSizingHorizontal,
+    layoutSizingVertical: rt.layoutSizingVertical,
+    lineHeight: rt.lineHeight,
+    letterSpacing: rt.letterSpacing,
+  };
+  applyTextAutoResizeLayoutSizing(draft);
+  syncTextNodeIntrinsicMetrics(draft, ctx.working, true);
+  rt.width = draft.width ?? rt.width;
+  rt.height = draft.height ?? rt.height;
+  rt.layoutSizingHorizontal = draft.layoutSizingHorizontal;
+  rt.layoutSizingVertical = draft.layoutSizingVertical;
+}
+
 function queueResizeNode(ctx: ScriptContext, id: string, w: number, h: number): void {
   const live = scriptLookup(ctx, id);
-  let height = h;
-  if (live?.type === 'TEXT' && height <= 0) {
-    const intrinsic = live.height ?? 0;
-    if (intrinsic > 0) height = intrinsic;
+  if (live?.type === 'TEXT') {
+    let height = h;
+    if (height <= 0) {
+      const intrinsic = live.height ?? 0;
+      if (intrinsic > 0) height = intrinsic;
+    }
+    const patch = buildTextResizePatch(live as TextNode, w, height);
+    queueUpdate(ctx, id, patch);
+    return;
   }
-  const patch =
-    live?.type === 'TEXT'
-      ? {
-          width: w,
-          height,
-          layoutSizingHorizontal: 'FIXED' as const,
-          layoutSizingVertical: 'FIXED' as const,
-        }
-      : { width: w, height };
-  queueUpdate(ctx, id, patch);
+  queueUpdate(ctx, id, { width: w, height: h });
 }
 
 function readHandlePropertyValue(
@@ -2267,17 +2305,28 @@ class RuntimeText extends RuntimeSceneNode {
   }
 
   resize(w: number, h: number): void {
-    this.width = w;
-    this.height = h;
-    this.layoutSizingHorizontal = 'FIXED';
-    this.layoutSizingVertical = 'FIXED';
+    let height = h;
+    if (height <= 0 && this.height > 0) height = this.height;
+    const patch = buildTextResizePatch(this, w, height);
+    if (patch.width !== undefined) this.width = patch.width;
+    if (patch.height !== undefined) this.height = patch.height;
+    if (patch.layoutSizingHorizontal !== undefined) {
+      this.layoutSizingHorizontal = patch.layoutSizingHorizontal;
+    }
+    if (patch.layoutSizingVertical !== undefined) {
+      this.layoutSizingVertical = patch.layoutSizingVertical;
+    }
     if (this.attached && this._id !== null) {
-      queueUpdate(this.ctx, this._id, {
-        width: w,
-        height: h,
-        layoutSizingHorizontal: 'FIXED',
-        layoutSizingVertical: 'FIXED',
-      });
+      queueUpdate(this.ctx, this._id, patch);
+      const mode = this.textAutoResize ?? 'NONE';
+      if (mode === 'HEIGHT' || mode === 'WIDTH_AND_HEIGHT') {
+        refreshRuntimeTextMetricsFromLive(this.ctx, this._id, this);
+      }
+    } else {
+      const mode = this.textAutoResize ?? 'NONE';
+      if (mode === 'HEIGHT' || mode === 'WIDTH_AND_HEIGHT') {
+        syncDetachedRuntimeTextMetrics(this.ctx, this);
+      }
     }
   }
 }
