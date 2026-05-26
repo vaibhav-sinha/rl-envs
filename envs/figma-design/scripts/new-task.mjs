@@ -102,7 +102,7 @@ difficulty = "easy"
 category = "design"
 
 [verifier]
-timeout_sec = 600.0
+timeout_sec = 900.0
 
 [verifier.env]
 EVAL_JUDGE_MODEL = "\${EVAL_JUDGE_MODEL:-gemini/gemini-3.1-pro-preview}"

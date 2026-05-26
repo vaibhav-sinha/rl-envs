@@ -83,7 +83,7 @@ export function TaskBuilderTab({ onLog }: { onLog: (t: string, e?: boolean) => v
     description: '',
     difficulty: 'easy',
     category: 'design',
-    verifier_timeout_sec: 300,
+    verifier_timeout_sec: 900,
     agent_timeout_sec: 600,
   });
   const [evalSpec, setEvalSpec] = useState<EvalSpec>({
