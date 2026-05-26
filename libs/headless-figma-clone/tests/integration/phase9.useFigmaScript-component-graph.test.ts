@@ -93,6 +93,70 @@ return { instId: inst.id };
     });
   });
 
+  it('swapComponent preserves TEXT characters edited before swap', async () => {
+    await withWs(async () => {
+      const persistence = new JsonPersistence();
+      const engine = new DocumentEngine({ persistence, logger: createConsoleLogger('error') });
+      await engine.createEmptyFile({ fileName: 'Phase9Preserve' });
+      const base = structuredClone(engine.getActiveFile()!) as FileEnvelope;
+
+      const run = await runUseFigmaScript(
+        `
+const frameA = figma.createFrame();
+frameA.name = 'VariantA';
+frameA.resize(200, 60);
+const textA = figma.createText();
+textA.characters = 'Price';
+textA.fontSize = 16;
+frameA.appendChild(textA);
+figma.currentPage.appendChild(frameA);
+const compA = figma.createComponentFromNode(frameA);
+
+const frameB = figma.createFrame();
+frameB.name = 'VariantB';
+frameB.resize(200, 60);
+const textB = figma.createText();
+textB.characters = 'Price';
+textB.fontSize = 16;
+frameB.appendChild(textB);
+figma.currentPage.appendChild(frameB);
+const compB = figma.createComponentFromNode(frameB);
+
+const set = figma.combineAsVariants([compA, compB], figma.currentPage);
+const inst = figma.createComponentInstance(set.id);
+figma.currentPage.appendChild(inst);
+
+const textNode = inst.findOne(n => n.type === 'TEXT');
+textNode.characters = 'Category';
+inst.swapComponent(compB);
+
+return {
+  instId: inst.id,
+  chars: inst.findOne(n => n.type === 'TEXT')?.characters,
+};
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+
+      const envAfter = structuredClone(base) as FileEnvelope;
+      applyAll(envAfter, run.operations);
+
+      const r = run.result as { instId: string; chars: string };
+      expect(r.chars).toBe('Category');
+
+      const compiled = designCompiler.compileSubtree({
+        envelope: envAfter,
+        rootNodeId: r.instId,
+        options: { viewportPaddingPx: 0, includeCss: true, inlineCss: true },
+      });
+      expect(compiled.html).toContain('Category');
+      expect(compiled.html).not.toMatch(/>Price</);
+    });
+  });
+
   it('detachInstance replaces INSTANCE with detached FRAME', async () => {
     await withWs(async () => {
       const persistence = new JsonPersistence();

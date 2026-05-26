@@ -81,4 +81,107 @@ return {
       expect(run.touchedNodeIds).toContain(r.instanceId);
     });
   });
+
+  it('getStyledTextSegments on detached inst.findAll text before card append', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.createEmptyFile({ fileName: 'InstOverrideSegments' });
+
+      const run = await runUseFigmaScript(
+        `
+await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+const card = figma.createAutoLayout('VERTICAL', { name: 'Card' });
+const frame = figma.createFrame();
+frame.resize(200, 80);
+const title = figma.createText();
+title.characters = 'Ellementry';
+title.fontSize = 14;
+title.fontName = { family: 'Inter', style: 'Regular' };
+frame.appendChild(title);
+figma.currentPage.appendChild(frame);
+const comp = figma.createComponentFromNode(frame);
+
+const inst = comp.createInstance();
+card.appendChild(inst);
+
+const texts = inst.findAll((n) => n.type === 'TEXT');
+const segs = texts[0].getStyledTextSegments(['fontName']);
+await figma.loadFontAsync(segs[0].fontName);
+texts[0].characters = 'Dyson';
+
+figma.currentPage.appendChild(card);
+
+return {
+  masterTextId: texts[0].id,
+  instanceId: inst.id,
+  segLen: segs.length,
+  fontFamily: segs[0].fontName.family,
+  editedChars: texts[0].characters,
+};
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+
+      const r = run.result as {
+        masterTextId: string;
+        instanceId: string;
+        segLen: number;
+        fontFamily: string;
+        editedChars: string;
+      };
+      expect(r.segLen).toBeGreaterThan(0);
+      expect(r.fontFamily).toBeTruthy();
+      expect(r.editedChars).toBe('Dyson');
+
+      const env = engine.getActiveFile()!;
+      expect(masterTextCharacters(env, r.masterTextId)).toBe('Ellementry');
+
+      const instance = findEnvelopeNode(env, r.instanceId);
+      expect(instance?.type).toBe('INSTANCE');
+      const overrides = (instance as InstanceNode).overrides ?? {};
+      expect(overrides[r.masterTextId]?.characters).toBe('Dyson');
+    });
+  });
+
+  it('getStyledTextSegments reflects instance fontName override on detached text', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.createEmptyFile({ fileName: 'InstOverrideFontMerge' });
+
+      const run = await runUseFigmaScript(
+        `
+await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+await figma.loadFontAsync({ family: 'Inter', style: 'Bold' });
+const frame = figma.createFrame();
+frame.resize(200, 80);
+const title = figma.createText();
+title.characters = 'Label';
+title.fontSize = 14;
+frame.appendChild(title);
+figma.currentPage.appendChild(frame);
+const comp = figma.createComponentFromNode(frame);
+
+const inst = figma.createInstance(comp);
+const textNode = inst.findOne((n) => n.type === 'TEXT');
+textNode.fontName = { family: 'Inter', style: 'Bold' };
+const segs = textNode.getStyledTextSegments(['fontName']);
+return { style: segs[0].fontName.style };
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+      expect((run.result as { style: string }).style).toBe('Bold');
+    });
+  });
 });

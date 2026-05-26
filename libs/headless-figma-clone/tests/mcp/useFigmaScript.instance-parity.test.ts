@@ -232,6 +232,72 @@ return {
     });
   });
 
+  it('setProperties on nested INSTANCE from findOne inside parent instance', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.createEmptyFile({ fileName: 'NestedSetProps' });
+
+      const run = await runUseFigmaScript(
+        `
+const outer = figma.createFrame();
+outer.resize(160, 48);
+const label = figma.createText();
+label.characters = 'Row';
+label.fontSize = 12;
+outer.appendChild(label);
+
+const innerShell = figma.createFrame();
+innerShell.resize(20, 20);
+innerShell.name = '_Variants/Checkbox-Radio';
+figma.currentPage.appendChild(innerShell);
+const innerComp = figma.createComponentFromNode(innerShell);
+innerComp.componentPropertyDefinitions = {
+  'Active?': { type: 'VARIANT', defaultValue: 'Yes', variantOptions: ['Yes', 'No'] },
+  'State': { type: 'VARIANT', defaultValue: 'Default', variantOptions: ['Default'] },
+  'Checkbox vs Radio': { type: 'VARIANT', defaultValue: 'Checkbox', variantOptions: ['Checkbox'] },
+};
+
+const innerInst = innerComp.createInstance();
+innerInst.name = '_Variants/Checkbox-Radio';
+outer.appendChild(innerInst);
+
+figma.currentPage.appendChild(outer);
+const rowComp = figma.createComponentFromNode(outer);
+
+const row = rowComp.createInstance();
+figma.currentPage.appendChild(row);
+
+const cb = row.findOne(n => n.name === '_Variants/Checkbox-Radio');
+const hasSetProperties = typeof cb?.setProperties;
+if (hasSetProperties === 'function') {
+  cb.setProperties({ 'Active?': 'No' });
+}
+
+return {
+  hasSetProperties,
+  active: cb?.componentProperties?.['Active?']?.value,
+  cbType: cb?.type,
+};
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+      const r = run.result as {
+        hasSetProperties: string;
+        active: string;
+        cbType: string;
+      };
+      expect(r.hasSetProperties).toBe('function');
+      expect(r.cbType).toBe('INSTANCE');
+      expect(r.active).toBe('No');
+    });
+  });
+
   it('clone instance then setProperties keeps children', async () => {
     await withWs(async () => {
       const engine = new DocumentEngine({

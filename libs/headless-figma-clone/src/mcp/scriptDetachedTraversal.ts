@@ -46,6 +46,10 @@ function createSubtreeHandle(
   instanceOwner: DetachedTraversalContainer | undefined,
   nodeId: string
 ): unknown {
+  const live = findEnvelopeNode(ctx.working, nodeId, ctx.nodeIndex);
+  if (live?.type === 'INSTANCE') {
+    return ctx.createHandle(nodeId);
+  }
   if (instanceOwner?.type === 'INSTANCE' && ctx.createInstanceMasterHandle) {
     return ctx.createInstanceMasterHandle(instanceOwner, nodeId);
   }

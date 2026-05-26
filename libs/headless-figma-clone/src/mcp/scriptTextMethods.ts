@@ -1,4 +1,5 @@
 import type {
+  ComponentOverrideFields,
   FontName,
   Paint,
   TextBoundVariableField,
@@ -9,6 +10,7 @@ import type {
   TextRangeStyle,
   StyledSegment,
 } from '../model/types.js';
+import { DEFAULT_FONT } from '../fonts/fontTypes.js';
 import { ValidationErr } from '../util/errors.js';
 
 function deepClone<T>(v: T): T {
@@ -19,6 +21,69 @@ export interface TextScriptDeps {
   deletedIds: Set<string>;
   lookup: (id: string) => TextNode | null;
   update: (id: string, patch: Record<string, unknown>) => void;
+}
+
+/** TEXT fields on {@link ComponentOverrideFields} merged over the component master for instance handles. */
+const TEXT_OVERRIDE_MERGE_KEYS: ReadonlyArray<keyof ComponentOverrideFields> = [
+  'fills',
+  'characters',
+  'fontSize',
+  'fontWeight',
+  'fontName',
+  'textAlignHorizontal',
+  'textAlignVertical',
+  'textAutoResize',
+  'textTruncation',
+  'maxLines',
+  'lineHeight',
+  'letterSpacing',
+  'leadingTrim',
+  'paragraphSpacing',
+  'textCase',
+  'textDecoration',
+  'textStyleId',
+  'styledSegments',
+];
+
+export function mergeTextWithOverride(
+  master: TextNode,
+  override?: ComponentOverrideFields
+): TextNode {
+  const merged: TextNode = { ...master };
+  for (const key of TEXT_OVERRIDE_MERGE_KEYS) {
+    if (override?.[key] !== undefined) {
+      (merged as unknown as Record<string, unknown>)[key] = override[key];
+    }
+  }
+  if (!merged.fontName) {
+    merged.fontName = DEFAULT_FONT;
+  }
+  return merged;
+}
+
+export interface InstanceOverrideTextDepsConfig {
+  overrides?: Record<string, ComponentOverrideFields>;
+  lookupMasterText: (masterNodeId: string) => TextNode | null;
+  applyOverride: (masterNodeId: string, patch: Record<string, unknown>) => void;
+}
+
+export function createInstanceOverrideTextDeps(config: InstanceOverrideTextDepsConfig): TextScriptDeps {
+  return {
+    deletedIds: new Set(),
+    lookup: (id) => {
+      const master = config.lookupMasterText(id);
+      if (!master) return null;
+      return mergeTextWithOverride(master, config.overrides?.[id]);
+    },
+    update: (id, patch) => config.applyOverride(id, patch),
+  };
+}
+
+export function createInstanceOverrideTextMethods(
+  config: InstanceOverrideTextDepsConfig,
+  masterNodeId: string
+): Record<string, unknown> {
+  return createTextHandleMethodTable(createInstanceOverrideTextDeps(config), masterNodeId);
 }
 
 function liveText(deps: TextScriptDeps, id: string): TextNode {

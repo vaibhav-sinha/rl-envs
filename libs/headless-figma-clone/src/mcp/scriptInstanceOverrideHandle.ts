@@ -1,6 +1,10 @@
-import type { ComponentOverrideFields } from '../model/types.js';
+import type { ComponentOverrideFields, TextNode } from '../model/types.js';
 import { ENGINE_MATRIX } from '../engine/phase-matrix.js';
 import { throwIfAborted } from './inFlightAbort.js';
+import {
+  createInstanceOverrideTextMethods,
+  TEXT_HANDLE_METHOD_KEYS,
+} from './scriptTextMethods.js';
 import { ValidationErr } from '../util/errors.js';
 import { HFC_HANDLE_FLAG, HFC_HANDLE_MARKER } from './scriptNodeSnapshot.js';
 
@@ -14,6 +18,7 @@ export interface InstanceOverrideOwner {
 export interface InstanceOverrideHandleContext {
   signal?: AbortSignal;
   lookupMasterNode: (masterNodeId: string) => { type: string; name?: string; [key: string]: unknown } | null;
+  lookupMasterText: (masterNodeId: string) => TextNode | null;
   touchInstance: (instanceReservedId: string) => void;
 }
 
@@ -60,6 +65,29 @@ export function createInstanceOverrideHandle(
   owner: InstanceOverrideOwner,
   masterNodeId: string
 ): unknown {
+  let cachedTextMethods: Record<string, unknown> | null = null;
+  const textMethods = (): Record<string, unknown> => {
+    if (!cachedTextMethods) {
+      cachedTextMethods = createInstanceOverrideTextMethods(
+        {
+          get overrides() {
+            return owner.overrides;
+          },
+          lookupMasterText: ctx.lookupMasterText,
+          applyOverride: (id, patch) => {
+            const master = ctx.lookupMasterNode(id);
+            if (!master) {
+              throw new ValidationErr('UNKNOWN_NODE', `Unknown node ${id}`);
+            }
+            applyOverridePatch(owner, id, master.type, patch, ctx);
+          },
+        },
+        masterNodeId
+      );
+    }
+    return cachedTextMethods;
+  };
+
   return new Proxy(
     { id: masterNodeId, [HFC_HANDLE_MARKER]: true as const, [HFC_HANDLE_FLAG]: true as const },
     {
@@ -72,6 +100,9 @@ export function createInstanceOverrideHandle(
         const master = ctx.lookupMasterNode(masterNodeId);
         if (!master) return undefined;
         const override = owner.overrides?.[masterNodeId];
+        if (master.type === 'TEXT' && typeof prop === 'string' && TEXT_HANDLE_METHOD_KEYS.has(prop)) {
+          return textMethods()[prop];
+        }
         if (prop === 'type') return master.type;
         if (prop === 'name') return master.name;
         if (typeof prop === 'string' && isPatchKeyForType(master.type, prop)) {
@@ -101,6 +132,7 @@ export function createInstanceOverrideHandle(
         const master = ctx.lookupMasterNode(masterNodeId);
         if (!master || typeof prop !== 'string') return false;
         if (prop === 'type' || prop === 'name') return true;
+        if (master.type === 'TEXT' && TEXT_HANDLE_METHOD_KEYS.has(prop)) return true;
         return isPatchKeyForType(master.type, prop) || Object.prototype.hasOwnProperty.call(master, prop);
       },
       ownKeys() {
@@ -109,6 +141,9 @@ export function createInstanceOverrideHandle(
         const keys = new Set<string>(['id', 'type', 'name', HFC_HANDLE_FLAG]);
         const m = ENGINE_MATRIX.patchKeysByType as Record<string, Set<string> | undefined>;
         for (const k of m[master.type] ?? []) keys.add(k);
+        if (master.type === 'TEXT') {
+          for (const k of TEXT_HANDLE_METHOD_KEYS) keys.add(k);
+        }
         return [...keys];
       },
       getOwnPropertyDescriptor() {

@@ -513,6 +513,10 @@ function detachedTraversalContext(ctx: ScriptContext): DetachedTraversalContext 
             const live = scriptLookup(ctx, id);
             return live ? ({ ...live, type: live.type, name: live.name } as { type: string; name?: string; [key: string]: unknown }) : null;
           },
+          lookupMasterText: (id) => {
+            const live = scriptLookup(ctx, id);
+            return live?.type === 'TEXT' ? (live as TextNode) : null;
+          },
           touchInstance: (instanceId) => {
             ctx.touchedIds.add(instanceId);
           },

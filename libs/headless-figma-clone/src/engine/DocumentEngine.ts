@@ -45,6 +45,7 @@ import { cloneTimingEnabled, elapsedMs, logCloneTiming } from './cloneTiming.js'
 import { applyEnvelopeOperation, isEnvelopeOperation, type EnvelopeOperation } from './envelopeOps.js';
 import { applyComponentPropertiesToInstanceChildren } from '../instances/componentProperties.js';
 import {
+  resolveComponentRootFrameInEnvelope,
   resolveInstanceRootFrameInEnvelope,
   resolveInstanceRootFrameOptional,
   resolveNodeInEnvelope,
@@ -56,6 +57,13 @@ import {
   syncTextNodeIntrinsicMetrics,
 } from '../render/autoLayoutIntrinsicSizing.js';
 import { normalizePathDataToOrigin } from '../render/vectorPathBounds.js';
+import {
+  applyPreservableOverrideFields,
+  buildDetachedSubtreeNodeMap,
+  buildDetachedToMasterNodeMap,
+  mergeDetachedEditsIntoInstanceOverrides,
+  mergePreservedFieldsFromSnapshot,
+} from '../render/instanceOverridePreserve.js';
 import { normalizeLayoutGrids } from './figmaInterop.js';
 import {
   parseGridTrackSizes,
@@ -2081,12 +2089,24 @@ function collectInstanceDetachedPreorder(inst: InstanceNode): PreorderSceneEntry
   return out;
 }
 
+function applyPreservedDetachedNodeFields(
+  cloned: SceneNode,
+  nodeId: string,
+  oldNodesById: Map<string, SceneNode> | undefined
+): void {
+  if (!oldNodesById) return;
+  const oldNode = oldNodesById.get(nodeId);
+  if (!oldNode || oldNode.type !== cloned.type) return;
+  applyPreservableOverrideFields(cloned, oldNode);
+}
+
 export function cloneSceneSubtreePreservingIds(
   working: FileEnvelope,
   node: SceneNode,
   oldPreorder: PreorderSceneEntry[],
   cursor: { index: number },
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  oldNodesById?: Map<string, SceneNode>
 ): SceneNode {
   engineThrowIfAborted(signal);
   const oldEntry = oldPreorder[cursor.index];
@@ -2101,8 +2121,9 @@ export function cloneSceneSubtreePreservingIds(
   ) {
     const cloned = shallowCloneSceneNodeShell(node, newId) as FrameNode;
     cloned.children = node.children.map((c) =>
-      cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal)
+      cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal, oldNodesById)
     );
+    applyPreservedDetachedNodeFields(cloned, newId, oldNodesById);
     return cloned;
   }
 
@@ -2110,8 +2131,9 @@ export function cloneSceneSubtreePreservingIds(
     const cloned = shallowCloneSceneNodeShell(node, newId) as BooleanOperationNode;
     cloned.children = node.children.map(
       (c) =>
-        cloneSceneSubtreePreservingIds(working, c as SceneNode, oldPreorder, cursor, signal) as BooleanOperationNode['children'][number]
+        cloneSceneSubtreePreservingIds(working, c as SceneNode, oldPreorder, cursor, signal, oldNodesById) as BooleanOperationNode['children'][number]
     );
+    applyPreservedDetachedNodeFields(cloned, newId, oldNodesById);
     return cloned;
   }
 
@@ -2119,28 +2141,42 @@ export function cloneSceneSubtreePreservingIds(
     const cloned = shallowCloneSceneNodeShell(node, newId) as InstanceNode;
     if (node.children?.length) {
       cloned.children = node.children.map((c) =>
-        cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal)
+        cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal, oldNodesById)
       );
     }
+    applyPreservedDetachedNodeFields(cloned, newId, oldNodesById);
     return cloned;
   }
 
-  return shallowCloneSceneNodeShell(node, newId);
+  const cloned = shallowCloneSceneNodeShell(node, newId);
+  applyPreservedDetachedNodeFields(cloned, newId, oldNodesById);
+  return cloned;
 }
 
 /** Rebuild detached children when variant root changes; reuse ids by preorder + type alignment. */
 export function refreshInstanceChildrenPreservingIds(
   working: FileEnvelope,
   inst: InstanceNode,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  prevComponentId?: string
 ): void {
   try {
     const root = resolveInstanceRootFrame(working, inst);
+    const oldNodesById = buildDetachedSubtreeNodeMap(inst);
+    const detachedToMaster =
+      prevComponentId && inst.children?.length
+        ? buildDetachedToMasterNodeMap(
+            inst.children,
+            resolveComponentRootFrameInEnvelope(working, prevComponentId)
+          )
+        : new Map<string, SceneNode | undefined>();
     const oldPreorder = collectInstanceDetachedPreorder(inst);
     const cursor = { index: 0 };
     inst.children = root.children.map((c) =>
-      cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal)
+      cloneSceneSubtreePreservingIds(working, c, oldPreorder, cursor, signal, oldNodesById)
     );
+    mergePreservedFieldsFromSnapshot(inst, oldNodesById, detachedToMaster);
+    mergeDetachedEditsIntoInstanceOverrides(inst);
   } catch {
     // Keep existing detached subtree when master resolution fails.
   }
@@ -2174,7 +2210,7 @@ function syncInstanceAfterComponentProperties(
     applyComponentPropertiesToInstanceChildren(inst, nextProps);
   } else {
     inst.mainComponentId = nextCompId;
-    refreshInstanceChildrenPreservingIds(env, inst);
+    refreshInstanceChildrenPreservingIds(env, inst, undefined, prevCompId);
     applyComponentPropertiesToInstanceChildren(inst, nextProps);
   }
 }
