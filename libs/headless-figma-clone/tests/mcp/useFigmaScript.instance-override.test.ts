@@ -184,4 +184,60 @@ return { style: segs[0].fontName.style };
       expect((run.result as { style: string }).style).toBe('Bold');
     });
   });
+
+  it('findOne().set() batch-updates detached instance overrides', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.createEmptyFile({ fileName: 'InstOverrideSet' });
+
+      const run = await runUseFigmaScript(
+        `
+await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+const frame = figma.createFrame();
+frame.resize(200, 80);
+const title = figma.createText();
+title.characters = 'Collections';
+title.fontSize = 14;
+frame.appendChild(title);
+figma.currentPage.appendChild(frame);
+const comp = figma.createComponentFromNode(frame);
+
+const inst = figma.createInstance(comp);
+const textNode = inst.findOne((n) => n.type === 'TEXT');
+textNode.set({ characters: 'Order details' });
+figma.currentPage.appendChild(inst);
+
+return {
+  masterTextId: textNode.id,
+  instanceId: inst.id,
+  overrideKey: textNode.id,
+  editedChars: textNode.characters,
+};
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+
+      const r = run.result as {
+        masterTextId: string;
+        instanceId: string;
+        overrideKey: string;
+        editedChars: string;
+      };
+      expect(r.editedChars).toBe('Order details');
+
+      const env = engine.getActiveFile()!;
+      expect(masterTextCharacters(env, r.masterTextId)).toBe('Collections');
+
+      const instance = findEnvelopeNode(env, r.instanceId);
+      expect(instance?.type).toBe('INSTANCE');
+      const overrides = (instance as InstanceNode).overrides ?? {};
+      expect(overrides[r.overrideKey]?.characters).toBe('Order details');
+    });
+  });
 });

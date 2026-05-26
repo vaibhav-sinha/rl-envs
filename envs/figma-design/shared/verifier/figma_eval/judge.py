@@ -327,7 +327,7 @@ def run_llm_judge(
         )
 
     payload: dict[str, Any] = {
-        "model": model or os.environ.get("EVAL_JUDGE_MODEL", "gemini/gemini-3-flash-preview"),
+        "model": model or os.environ.get("EVAL_JUDGE_MODEL", "gemini/gemini-3.1-pro-preview"),
         "prompt": prompt,
         "images": payload_images,
     }

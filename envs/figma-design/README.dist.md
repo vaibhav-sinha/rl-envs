@@ -73,7 +73,7 @@ These are read from your host environment and passed into the verifier container
 | `GEMINI_API_KEY` | Yes (default judge model) | LLM judges for visual/metadata checks |
 | `OPENAI_API_KEY` | If using OpenAI models | LLM judges |
 | `ANTHROPIC_API_KEY` | If using Anthropic models | LLM judges |
-| `EVAL_JUDGE_MODEL` | No | Judge model (default: `gemini/gemini-3-flash-preview`) |
+| `EVAL_JUDGE_MODEL` | No | Judge model (default: `gemini/gemini-3.1-pro-preview`) |
 
 ## Tasks in this bundle
 

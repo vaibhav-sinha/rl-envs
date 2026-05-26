@@ -117,8 +117,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("EVAL_JUDGE_MODEL", "gemini/gemini-3-flash-preview"),
-        help="LiteLLM model id (default: EVAL_JUDGE_MODEL or gemini/gemini-3-flash-preview).",
+        default=os.environ.get("EVAL_JUDGE_MODEL", "gemini/gemini-3.1-pro-preview"),
+        help="LiteLLM model id (default: EVAL_JUDGE_MODEL or gemini/gemini-3.1-pro-preview).",
     )
     parser.add_argument(
         "--output",

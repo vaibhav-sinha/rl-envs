@@ -159,7 +159,7 @@ These three checks together close the "looks right, breaks the system" loophole:
 
 ### 7.4 Visual Checks (LLM Judge)
 
-Visual rubrics use a vision-capable LLM (configurable via `EVAL_JUDGE_MODEL`, default `gemini/gemini-3-flash-preview`) and the Figma Clone renderer to grade what the eye actually sees. Five spec types in `eval-spec.json`, each with a type-specific default weight inside the visual category (overridable per check via `weight`):
+Visual rubrics use a vision-capable LLM (configurable via `EVAL_JUDGE_MODEL`, default `gemini/gemini-3.1-pro-preview`) and the Figma Clone renderer to grade what the eye actually sees. Five spec types in `eval-spec.json`, each with a type-specific default weight inside the visual category (overridable per check via `weight`):
 
 | Type | Default weight | What it judges |
 |---|---|---|

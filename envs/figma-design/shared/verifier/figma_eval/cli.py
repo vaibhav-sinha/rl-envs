@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     score_p.add_argument("--evaluation-instructions")
     score_p.add_argument(
         "--model",
-        default=os.environ.get("EVAL_JUDGE_MODEL", "gemini/gemini-3-flash-preview"),
+        default=os.environ.get("EVAL_JUDGE_MODEL", "gemini/gemini-3.1-pro-preview"),
     )
     score_p.add_argument("--output", "-o")
     score_p.add_argument("--pretty", action="store_true")

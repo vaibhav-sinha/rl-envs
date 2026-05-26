@@ -101,6 +101,8 @@ interface ImportContext {
   componentRootFrames: Map<string, FrameNode>;
   /** COMPONENT scene wrappers for masters page lookup (variants under sets, etc.). */
   componentSceneNodes: Map<string, ComponentNode>;
+  /** COMPONENT_SET stubs for masters page discovery (variant sets, checkbox sets, etc.). */
+  componentSetSceneNodes: Map<string, ComponentSetNode>;
   /** Figma `key` → HFC component id */
   componentByKey: Map<string, string>;
   /** Variant display name (e.g. `Property 1=Coffee, Property 2=6`) → HFC component ids (many files reuse names). */
@@ -194,6 +196,7 @@ export function importFigmaPluginSnapshot(
     report,
     componentRootFrames: new Map(),
     componentSceneNodes: new Map(),
+    componentSetSceneNodes: new Map(),
     componentByKey: new Map(),
     componentByVariantName: new Map(),
     deferredInstances: [],
@@ -228,7 +231,13 @@ export function importFigmaPluginSnapshot(
 
   linkDeferredInstanceMainComponents(ctx);
 
-  attachComponentMasterRoots(document, ctx.componentRootFrames, ctx.componentSceneNodes, idMap);
+  attachComponentMasterRoots(
+    document,
+    ctx.componentRootFrames,
+    ctx.componentSceneNodes,
+    ctx.componentSetSceneNodes,
+    idMap
+  );
 
   const envelope: FileEnvelope = {
     schemaVersion: 1,
@@ -284,9 +293,16 @@ function attachComponentMasterRoots(
   document: DocumentNode,
   componentRootFrames: Map<string, FrameNode>,
   componentSceneNodes: Map<string, ComponentNode>,
+  componentSetSceneNodes: Map<string, ComponentSetNode>,
   idMap: FigmaIdMap
 ): void {
-  if (componentRootFrames.size === 0 && componentSceneNodes.size === 0) return;
+  if (
+    componentRootFrames.size === 0 &&
+    componentSceneNodes.size === 0 &&
+    componentSetSceneNodes.size === 0
+  ) {
+    return;
+  }
 
   let mastersPage = document.children.find((p) => p.name === COMPONENT_MASTERS_PAGE_NAME);
   if (!mastersPage) {
@@ -303,6 +319,9 @@ function attachComponentMasterRoots(
     document.children.push(mastersPage);
   }
 
+  for (const set of componentSetSceneNodes.values()) {
+    mastersPage.children.push({ ...set });
+  }
   for (const comp of componentSceneNodes.values()) {
     mastersPage.children.push(comp);
   }
@@ -593,7 +612,7 @@ function importSceneNode(
         componentIds,
         baseComponentId
       );
-      return {
+      const setNode = {
         ...base,
         type: 'COMPONENT_SET',
         x: b.x,
@@ -610,6 +629,8 @@ function importSceneNode(
           : {}),
         ...(defs ? { componentPropertyDefinitions: defs } : {}),
       } as ComponentSetNode;
+      ctx.componentSetSceneNodes.set(setNode.id, setNode);
+      return setNode as SceneNode;
     }
     report.skippedNodes.push({
       figmaId: node.id,

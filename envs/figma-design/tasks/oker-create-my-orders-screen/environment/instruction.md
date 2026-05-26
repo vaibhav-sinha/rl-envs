@@ -18,4 +18,4 @@ You must not read these paths directly (no Read tool, `cat`, or other file acces
 - Items may arrive in multiple shipments. Hence for each product we must show its status (Ordered, Shipped, Delivered, Cancelled)
 - If a product is in Shipped status, we must show when was the status last updated
 - Image of each product must be displayed
-- For each Order in the list, there should be a way to navigate to the order details screen
+- For each Order in the list, there should be a way to navigate to the order details screen. You don't need to create order details screen.

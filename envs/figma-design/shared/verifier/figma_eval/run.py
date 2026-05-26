@@ -66,7 +66,7 @@ def run_eval(
     work = Path(work_dir)
     work.mkdir(parents=True, exist_ok=True)
 
-    model = os.environ.get("EVAL_JUDGE_MODEL", "gemini/gemini-3-flash-preview")
+    model = os.environ.get("EVAL_JUDGE_MODEL", "gemini/gemini-3.1-pro-preview")
     log(f"judge model={model} skip_llm={skip_llm} parallel={parallel}")
 
     log("running gates")

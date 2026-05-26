@@ -320,7 +320,13 @@ function readVariantProperties(
 }
 
 function scriptParentHandle(ctx: ScriptContext, nodeId: string): unknown | null {
-  const par = resolveParentNode(getGraphIndexes(ctx), nodeId);
+  const graph = getGraphIndexes(ctx);
+  const live = scriptLookup(ctx, nodeId);
+  if (live?.type === 'COMPONENT') {
+    const set = findComponentSetForComponent(graph, nodeId);
+    if (set) return createHandleProxy(ctx, set.id);
+  }
+  const par = resolveParentNode(graph, nodeId);
   if (!par) return null;
   if (par.type === 'DOCUMENT') {
     return { id: par.id, type: par.type, name: par.name };
@@ -392,6 +398,40 @@ function applyScriptCreateNodeOp(
 
 function scriptLookup(ctx: ScriptContext, nodeId: string): ReturnType<typeof findEnvelopeNode> {
   return findEnvelopeNode(ctx.working, nodeId, getNodeIndex(ctx));
+}
+
+function findInstanceSubtreeNodeIdForClone(
+  ctx: ScriptContext,
+  instanceId: string,
+  masterNodeId: string
+): string | null {
+  const inst = scriptLookup(ctx, instanceId);
+  if (!inst || inst.type !== 'INSTANCE' || !inst.children?.length) return null;
+  const master = scriptLookup(ctx, masterNodeId);
+  const targetName = master?.name;
+
+  const walk = (nodes: SceneNode[]): string | null => {
+    for (const n of nodes) {
+      if (n.id === masterNodeId) return n.id;
+      if (targetName && n.name === targetName) return n.id;
+      const kids =
+        n.type === 'FRAME' ||
+        n.type === 'TRANSFORM_GROUP' ||
+        n.type === 'GROUP' ||
+        n.type === 'SECTION' ||
+        n.type === 'BOOLEAN_OPERATION' ||
+        n.type === 'INSTANCE'
+          ? (n as SceneNode & { children: SceneNode[] }).children
+          : null;
+      if (kids?.length) {
+        const inner = walk(kids);
+        if (inner) return inner;
+      }
+    }
+    return null;
+  };
+
+  return walk(inst.children);
 }
 
 function scriptQueryDeps(ctx: ScriptContext): ScriptQueryDeps {
@@ -519,6 +559,21 @@ function detachedTraversalContext(ctx: ScriptContext): DetachedTraversalContext 
           },
           touchInstance: (instanceId) => {
             ctx.touchedIds.add(instanceId);
+          },
+          cloneOverrideNode: (masterNodeId) => {
+            const instanceId = inst.getAttachedIdOrNull();
+            if (!instanceId) {
+              throw new ValidationErr(
+                'VALIDATION_ERROR',
+                'clone requires the node to be appended to the document'
+              );
+            }
+            const resolved =
+              findInstanceSubtreeNodeIdForClone(ctx, instanceId, masterNodeId) ?? masterNodeId;
+            const op: EngineOperation = { op: 'duplicateNode', nodeId: resolved };
+            ctx.ops.push(op);
+            const cloneId = applyScriptEngineOp(ctx, op)!;
+            return createHandleProxy(ctx, cloneId);
           },
         },
         overrideOwner,

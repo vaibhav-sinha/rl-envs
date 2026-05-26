@@ -20,6 +20,8 @@ export interface InstanceOverrideHandleContext {
   lookupMasterNode: (masterNodeId: string) => { type: string; name?: string; [key: string]: unknown } | null;
   lookupMasterText: (masterNodeId: string) => TextNode | null;
   touchInstance: (instanceReservedId: string) => void;
+  /** When the owning instance is in the document, duplicate the mapped subtree node. */
+  cloneOverrideNode?: (masterNodeId: string) => unknown;
 }
 
 function isPatchKeyForType(nodeType: string, key: string): boolean {
@@ -105,6 +107,23 @@ export function createInstanceOverrideHandle(
         }
         if (prop === 'type') return master.type;
         if (prop === 'name') return master.name;
+        if (prop === 'set') {
+          return (props: Record<string, unknown>): unknown => {
+            applyOverridePatch(owner, masterNodeId, master.type, props, ctx);
+            return createInstanceOverrideHandle(ctx, owner, masterNodeId);
+          };
+        }
+        if (prop === 'clone' || prop === 'duplicate') {
+          return (): unknown => {
+            if (!ctx.cloneOverrideNode) {
+              throw new ValidationErr(
+                'VALIDATION_ERROR',
+                'clone requires the node to be appended to the document'
+              );
+            }
+            return ctx.cloneOverrideNode!(masterNodeId);
+          };
+        }
         if (typeof prop === 'string' && isPatchKeyForType(master.type, prop)) {
           return mergedField(master, override, prop);
         }
@@ -131,14 +150,14 @@ export function createInstanceOverrideHandle(
         if (prop === 'removed' || prop === 'parent') return true;
         const master = ctx.lookupMasterNode(masterNodeId);
         if (!master || typeof prop !== 'string') return false;
-        if (prop === 'type' || prop === 'name') return true;
+        if (prop === 'type' || prop === 'name' || prop === 'set' || prop === 'clone' || prop === 'duplicate') return true;
         if (master.type === 'TEXT' && TEXT_HANDLE_METHOD_KEYS.has(prop)) return true;
         return isPatchKeyForType(master.type, prop) || Object.prototype.hasOwnProperty.call(master, prop);
       },
       ownKeys() {
         const master = ctx.lookupMasterNode(masterNodeId);
         if (!master) return ['id', HFC_HANDLE_FLAG];
-        const keys = new Set<string>(['id', 'type', 'name', HFC_HANDLE_FLAG]);
+        const keys = new Set<string>(['id', 'type', 'name', 'set', 'clone', 'duplicate', HFC_HANDLE_FLAG]);
         const m = ENGINE_MATRIX.patchKeysByType as Record<string, Set<string> | undefined>;
         for (const k of m[master.type] ?? []) keys.add(k);
         if (master.type === 'TEXT') {

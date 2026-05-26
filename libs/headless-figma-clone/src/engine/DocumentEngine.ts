@@ -136,11 +136,14 @@ function lookupNodeForOp(
   nodeId: string,
   ctx?: EngineOpContext
 ): AnyTreeNode | null {
-  if (ctx?.indexes) {
-    const hit = ctx.indexes.nodes.get(nodeId);
+  const indexes = ctx?.indexes ?? getEnvelopeGraphIndexes(working);
+  if (indexes) {
+    const hit = indexes.nodes.get(nodeId);
     if (hit) return hit;
   }
-  return findNode(working.document, nodeId);
+  const hit = findNode(working.document, nodeId);
+  if (hit) return hit;
+  return resolveNodeInEnvelope(working, nodeId, indexes) as AnyTreeNode | null;
 }
 
 function lookupParentForOp(
@@ -148,8 +151,9 @@ function lookupParentForOp(
   nodeId: string,
   ctx?: EngineOpContext
 ): ReturnType<typeof findParentNode> {
-  if (ctx?.indexes) {
-    const par = resolveParentNode(ctx.indexes, nodeId);
+  const indexes = ctx?.indexes ?? getEnvelopeGraphIndexes(working);
+  if (indexes) {
+    const par = resolveParentNode(indexes, nodeId);
     if (par) return par as ReturnType<typeof findParentNode>;
   }
   return findParent(working.document, nodeId);
@@ -1982,7 +1986,10 @@ export function duplicateNodeInEnvelope(
   const t0 = timing ? performance.now() : 0;
 
   const node = lookupNodeForOp(working, nodeId, ctx);
-  if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') {
+  if (!node) {
+    throw new ValidationErr('VALIDATION_ERROR', `duplicate: unknown node ${nodeId}`);
+  }
+  if (node.type === 'DOCUMENT' || node.type === 'PAGE') {
     throw new ValidationErr('VALIDATION_ERROR', 'duplicate: node must be a scene node');
   }
   const tAfterFindNode = timing ? performance.now() : 0;

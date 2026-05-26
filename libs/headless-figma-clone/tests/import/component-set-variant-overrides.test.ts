@@ -151,6 +151,14 @@ describe('COMPONENT_SET nodeIdMapByComponentId + variant overrides', () => {
     expect(set!.nodeIdMapByComponentId![largeId]![smallText!.id]).toBe(largeText!.id);
   });
 
+  it('mirrors COMPONENT_SET stubs on __Component Masters for discovery', () => {
+    const masters = envelope.document.children.find((p) => p.name === '__Component Masters');
+    expect(masters).toBeDefined();
+    const sets = masters!.children.filter((n) => n.type === 'COMPONENT_SET');
+    expect(sets.length).toBeGreaterThan(0);
+    expect(sets.some((s) => s.name === 'Badge')).toBe(true);
+  });
+
   it('applies base-keyed overrides on the selected variant at compile time', () => {
     const inst = findInstance(envelope);
     expect(inst?.mainComponentId).toBe(findComponentSet(envelope)?.id);

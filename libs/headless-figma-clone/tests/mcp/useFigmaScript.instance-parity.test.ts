@@ -298,6 +298,69 @@ return {
     });
   });
 
+  it('clone nested INSTANCE from findOne inside attached parent instance', async () => {
+    await withWs(async () => {
+      const engine = new DocumentEngine({
+        persistence: new JsonPersistence(),
+        logger: createConsoleLogger('error'),
+      });
+      await engine.createEmptyFile({ fileName: 'NestedClone' });
+
+      const run = await runUseFigmaScript(
+        `
+const outer = figma.createFrame();
+outer.resize(160, 48);
+const label = figma.createText();
+label.characters = 'Row';
+label.fontSize = 12;
+outer.appendChild(label);
+
+const innerShell = figma.createFrame();
+innerShell.resize(20, 20);
+innerShell.name = '_Variants/Checkbox-Radio';
+figma.currentPage.appendChild(innerShell);
+const innerComp = figma.createComponentFromNode(innerShell);
+
+const innerInst = innerComp.createInstance();
+innerInst.name = '_Variants/Checkbox-Radio';
+outer.appendChild(innerInst);
+
+figma.currentPage.appendChild(outer);
+const rowComp = figma.createComponentFromNode(outer);
+
+const row = rowComp.createInstance();
+figma.currentPage.appendChild(row);
+
+const cb = row.findOne(n => n.name === '_Variants/Checkbox-Radio');
+const clone = cb.clone();
+
+return {
+  sourceId: cb.id,
+  cloneId: clone.id,
+  sameId: cb.id === clone.id,
+  cloneName: clone.name,
+  cloneType: clone.type,
+};
+`.trim(),
+        engine
+      );
+
+      expect(run.kind).toBe('ok');
+      if (run.kind !== 'ok') return;
+      const r = run.result as {
+        sourceId: string;
+        cloneId: string;
+        sameId: boolean;
+        cloneName: string;
+        cloneType: string;
+      };
+      expect(r.sameId).toBe(false);
+      expect(r.cloneId).toBeTruthy();
+      expect(r.cloneName).toBe('_Variants/Checkbox-Radio');
+      expect(r.cloneType).toBe('INSTANCE');
+    });
+  });
+
   it('clone instance then setProperties keeps children', async () => {
     await withWs(async () => {
       const engine = new DocumentEngine({
