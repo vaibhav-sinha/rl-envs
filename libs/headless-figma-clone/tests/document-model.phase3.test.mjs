@@ -29,7 +29,7 @@ function assertGradientPaint(p, label) {
 function assertImagePaint(p, label, assetIds) {
   assert.equal(p.type, 'IMAGE', `${label} type`);
   assert.ok(typeof p.imageHash === 'string' && SHA256.test(p.imageHash), `${label} imageHash`);
-  assert.ok(['FILL', 'FIT', 'TILE', 'STRETCH'].includes(p.scaleMode), `${label} scaleMode`);
+  assert.ok(['FILL', 'FIT', 'CROP', 'TILE'].includes(p.scaleMode), `${label} scaleMode`);
   assert.ok(assetIds.has(p.imageHash), `${label} imageHash must exist in assets.byId`);
 }
 

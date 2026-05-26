@@ -61,7 +61,14 @@ export interface ImagePaint extends PaintBase {
   type: 'IMAGE';
   /** Registry key: must match `AssetRecord.sha256` for active file. */
   imageHash: string;
-  scaleMode: 'FILL' | 'FIT' | 'TILE' | 'STRETCH';
+  /** @see Figma Plugin API ImagePaint.scaleMode */
+  scaleMode: 'FILL' | 'FIT' | 'CROP' | 'TILE';
+  /** Applicable for `scaleMode === "CROP"` — 2×3 affine row-major subset. */
+  imageTransform?: [[number, number, number], [number, number, number]];
+  /** Applicable for `scaleMode === "TILE"`. */
+  scalingFactor?: number;
+  /** Applicable for `scaleMode === "TILE" | "FILL" | "FIT"` (increments of 90°). */
+  rotation?: number;
 }
 
 export interface PatternPaint extends PaintBase {

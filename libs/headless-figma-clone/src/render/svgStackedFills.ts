@@ -13,7 +13,6 @@ function rgbaFromRgba(c: { r: number; g: number; b: number; a?: number }): strin
 
 function imagePatternPreserveAspectRatio(scaleMode: ImagePaint['scaleMode'] | undefined): string {
   if (scaleMode === 'FIT') return 'xMidYMid meet';
-  if (scaleMode === 'STRETCH') return 'none';
   return 'xMidYMid slice';
 }
 

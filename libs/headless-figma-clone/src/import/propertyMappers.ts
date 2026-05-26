@@ -100,14 +100,33 @@ export function mapPaints(
       const figmaHash = str(p.imageHash);
       const remapped = imageHashRemap(figmaHash);
       if (!remapped) continue;
-      out.push({
+      const rawMode = p.scaleMode;
+      const scaleMode: 'FILL' | 'FIT' | 'CROP' | 'TILE' =
+        rawMode === 'FIT' || rawMode === 'CROP' || rawMode === 'TILE' ? rawMode : 'FILL';
+      const image: import('../model/types.js').ImagePaint = {
         type: 'IMAGE',
         imageHash: remapped,
-        scaleMode: (p.scaleMode as 'FILL' | 'FIT' | 'TILE' | 'STRETCH') ?? 'FILL',
+        scaleMode,
         visible: bool(p.visible),
         opacity: optNum(p.opacity),
         blendMode: p.blendMode as BlendMode | undefined,
-      });
+      };
+      const it = p.imageTransform;
+      if (
+        Array.isArray(it) &&
+        it.length === 2 &&
+        Array.isArray(it[0]) &&
+        Array.isArray(it[1]) &&
+        it[0].length === 3 &&
+        it[1].length === 3
+      ) {
+        image.imageTransform = it as [[number, number, number], [number, number, number]];
+      }
+      const sf = optNum(p.scalingFactor);
+      if (sf !== undefined && sf > 0) image.scalingFactor = sf;
+      const rot = optNum(p.rotation);
+      if (rot !== undefined) image.rotation = rot;
+      out.push(image);
     } else if (type === 'VARIABLE_COLOR') {
       const variableId = str(p.variableId);
       if (!variableId) continue;

@@ -706,7 +706,7 @@ function stackedFillsCss(
       }
       let size = 'cover';
       if (fill.scaleMode === 'FIT') size = 'contain';
-      if (fill.scaleMode === 'STRETCH') size = '100% 100%';
+      if (fill.scaleMode === 'CROP') size = 'cover';
       if (fill.scaleMode === 'TILE') size = 'auto';
       const repeat = fill.scaleMode === 'TILE' ? 'repeat' : 'no-repeat';
       images.push(`url("${escapeAttr(url)}")`);
@@ -835,7 +835,7 @@ function fillBackgroundStyles(
     }
     let size = 'cover';
     if (fill.scaleMode === 'FIT') size = 'contain';
-    if (fill.scaleMode === 'STRETCH') size = '100% 100%';
+    if (fill.scaleMode === 'CROP') size = 'cover';
     if (fill.scaleMode === 'TILE') size = 'auto';
     const opacity =
       fill.opacity !== undefined && fill.opacity < 1 ? `opacity:${String(fill.opacity)};` : '';

@@ -109,6 +109,30 @@ describe('validatePaints', () => {
     if (p.type === 'IMAGE') expect(p.scaleMode).toBe('FIT');
   });
 
+  it('accepts IMAGE paint with CROP scaleMode', () => {
+    const hash = 'b'.repeat(64);
+    env.assets = {
+      byId: {
+        [hash]: { id: hash, sha256: hash, mimeType: 'image/png', byteLength: 4 },
+      },
+    };
+    const p = assertPaint({ type: 'IMAGE', imageHash: hash, scaleMode: 'CROP' }, 'fills[0]', env);
+    expect(p.type).toBe('IMAGE');
+    if (p.type === 'IMAGE') expect(p.scaleMode).toBe('CROP');
+  });
+
+  it('rejects IMAGE paint with legacy STRETCH scaleMode', () => {
+    const hash = 'c'.repeat(64);
+    env.assets = {
+      byId: {
+        [hash]: { id: hash, sha256: hash, mimeType: 'image/png', byteLength: 4 },
+      },
+    };
+    expect(() =>
+      assertPaint({ type: 'IMAGE', imageHash: hash, scaleMode: 'STRETCH' }, 'fills[0]', env)
+    ).toThrow(/scaleMode must be FILL\|FIT\|CROP\|TILE/);
+  });
+
   it('rejects PATTERN with missing source node', () => {
     expect(() =>
       assertPaint(

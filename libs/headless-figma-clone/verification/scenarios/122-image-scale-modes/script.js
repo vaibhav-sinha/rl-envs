@@ -14,7 +14,7 @@ figma.currentPage.appendChild(root);
 const img = await figma.createImageAsync(
   'https://upload.wikimedia.org/wikipedia/commons/3/3a/Cat03.jpg'
 );
-const modes = ['FILL', 'FIT', 'TILE'];
+const modes = ['FILL', 'FIT', 'CROP', 'TILE'];
 const panel = createAutoLayout('HORIZONTAL');
 panel.resize(420, 150);
 panel.x = 30;

@@ -146,6 +146,34 @@ function imageHashValidationMessage(p: Record<string, unknown>, label: string): 
   );
 }
 
+function assertAffineTransform(
+  raw: unknown,
+  label: string
+): [[number, number, number], [number, number, number]] {
+  if (
+    !Array.isArray(raw) ||
+    raw.length !== 2 ||
+    !Array.isArray(raw[0]) ||
+    !Array.isArray(raw[1]) ||
+    raw[0].length !== 3 ||
+    raw[1].length !== 3
+  ) {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: must be 2×3 numeric matrix`);
+  }
+  const matrix: [[number, number, number], [number, number, number]] = [
+    [Number(raw[0][0]), Number(raw[0][1]), Number(raw[0][2])],
+    [Number(raw[1][0]), Number(raw[1][1]), Number(raw[1][2])],
+  ];
+  for (const row of matrix) {
+    for (const v of row) {
+      if (!Number.isFinite(v)) {
+        throw new ValidationErr('VALIDATION_ERROR', `${label}: must be finite`);
+      }
+    }
+  }
+  return matrix;
+}
+
 function assertImage(
   p: Record<string, unknown>,
   label: string,
@@ -163,10 +191,10 @@ function assertImage(
     throw new ValidationErr('VALIDATION_ERROR', `${label}: unknown imageHash (upload asset first)`);
   }
   const sm = p.scaleMode;
-  if (sm !== 'FILL' && sm !== 'FIT' && sm !== 'TILE' && sm !== 'STRETCH') {
-    throw new ValidationErr('VALIDATION_ERROR', `${label}: scaleMode must be FILL|FIT|TILE|STRETCH`);
+  if (sm !== 'FILL' && sm !== 'FIT' && sm !== 'CROP' && sm !== 'TILE') {
+    throw new ValidationErr('VALIDATION_ERROR', `${label}: scaleMode must be FILL|FIT|CROP|TILE`);
   }
-  return {
+  const out: import('../model/types.js').ImagePaint = {
     type: 'IMAGE',
     imageHash: hit.sha256,
     scaleMode: sm,
@@ -174,6 +202,24 @@ function assertImage(
     opacity: p.opacity as number | undefined,
     blendMode: p.blendMode as import('../model/types.js').ImagePaint['blendMode'],
   };
+  if (p.imageTransform !== undefined) {
+    out.imageTransform = assertAffineTransform(p.imageTransform, `${label}.imageTransform`);
+  }
+  if (p.scalingFactor !== undefined) {
+    const sf = p.scalingFactor;
+    if (typeof sf !== 'number' || !Number.isFinite(sf) || sf <= 0) {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}: scalingFactor must be a positive finite number`);
+    }
+    out.scalingFactor = sf;
+  }
+  if (p.rotation !== undefined) {
+    const rot = p.rotation;
+    if (typeof rot !== 'number' || !Number.isFinite(rot)) {
+      throw new ValidationErr('VALIDATION_ERROR', `${label}: rotation must be a finite number`);
+    }
+    out.rotation = rot;
+  }
+  return out;
 }
 
 function assertPattern(p: Record<string, unknown>, label: string, document: DocumentNode): PatternPaint {

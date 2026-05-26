@@ -416,7 +416,7 @@ export interface GradientPaint extends PaintBase {
 export interface ImagePaint extends PaintBase {
   type: 'IMAGE';
   imageHash: string;                 // references AssetRegistry key
-  scaleMode: 'FILL' | 'FIT' | 'TILE' | 'STRETCH';
+  scaleMode: 'FILL' | 'FIT' | 'CROP' | 'TILE';
   imageTransform?: [[number, number, number], [number, number, number]];
 }
 
