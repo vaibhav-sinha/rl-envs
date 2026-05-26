@@ -212,6 +212,12 @@ def parse_task_completeness(text: str) -> dict[str, Any]:
         if "quality_acceptable" not in entry and "satisfied" in entry:
             entry["quality_acceptable"] = bool(entry["satisfied"])
         entry["satisfied"] = bool(entry.get("present")) and bool(entry.get("quality_acceptable"))
+        if "explanation" in entry:
+            explanation = str(entry["explanation"]).strip()
+            if explanation:
+                entry["explanation"] = explanation
+            else:
+                entry.pop("explanation", None)
         normalized_requirements.append(entry)
         requirement_scores.append(_requirement_entry_score(entry))
 

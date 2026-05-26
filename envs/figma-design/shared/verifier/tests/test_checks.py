@@ -43,6 +43,26 @@ def test_must_contain_text_new_frames(load_fixture):
     assert "I21" in r.details["matched_node_ids"]
 
 
+def test_must_contain_text_inside_instance_children(load_fixture):
+    before = load_fixture("minimal", "before")
+    after = load_fixture("text-in-instance", "after")
+    graph = build_edit_graph(before, after)
+    r = run_spec_check(
+        {
+            "id": "x",
+            "type": "must_contain_text",
+            "scope": "new_frames",
+            "contains": "category",
+        },
+        before,
+        after,
+        graph,
+        build_catalog(before),
+    )
+    assert r.score == 1.0
+    assert "I23" in r.details["matched_node_ids"]
+
+
 def test_must_contain_image_any(load_fixture):
     before = load_fixture("minimal", "before")
     after = load_fixture("with-image", "after")

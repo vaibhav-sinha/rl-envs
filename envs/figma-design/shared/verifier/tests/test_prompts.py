@@ -26,6 +26,7 @@ def test_task_completeness_prompt_includes_quality_gate():
     assert '"present"' in prompt
     assert '"quality_acceptable"' in prompt
     assert '"structurally_complete"' in prompt
+    assert '"explanation"' in prompt
 
 
 def test_design_consistency_prompt_includes_explanations():

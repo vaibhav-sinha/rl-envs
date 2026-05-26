@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..edit_graph import EditGraph
-from ..tree import descendant_ids, find_all_nodes, find_node, node_exists
+from ..tree import descendant_ids_deep, find_node, node_exists
 from ..types import Envelope, TreeNode
 
 FRAME_SCOPE_TYPES = frozenset({"FRAME", "SECTION"})
@@ -30,14 +30,14 @@ def resolve_check_scope(
             return set(), "missing_node_id"
         if not node_exists(envelope, node_id):
             return set(), "scope_missing_in_after"
-        return descendant_ids(envelope, node_id), None
+        return descendant_ids_deep(envelope, node_id), None
     if scope == "new_frames":
         frame_ids = added_frame_ids(graph, envelope)
         if not frame_ids:
             return set(), None
         ids: set[str] = set()
         for fid in frame_ids:
-            ids |= descendant_ids(envelope, fid)
+            ids |= descendant_ids_deep(envelope, fid)
         return ids, None
     return set(), "unknown_scope"
 
@@ -45,7 +45,12 @@ def resolve_check_scope(
 def _nodes_in_scope(envelope: Envelope, scope_ids: set[str]) -> list[TreeNode]:
     if not scope_ids:
         return []
-    return [n for n in find_all_nodes(envelope) if n.get("id") in scope_ids]
+    nodes: list[TreeNode] = []
+    for node_id in scope_ids:
+        node = find_node(envelope, node_id)
+        if node is not None:
+            nodes.append(node)
+    return nodes
 
 
 def text_nodes_containing(

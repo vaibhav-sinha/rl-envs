@@ -481,8 +481,9 @@ def _run_task_completeness(
         model=model,
         parse_fn=parse_task_completeness,
         retry_hint=(
-            'Return ONLY valid JSON with keys "requirements", "structurally_complete", '
-            '"quality_acceptable", and "completed". No markdown.'
+            'Return ONLY valid JSON with keys "requirements" (each with "description", '
+            '"present", "quality_acceptable", "satisfied", and "explanation"), '
+            '"structurally_complete", "quality_acceptable", and "completed". No markdown.'
         ),
     )
     return _visual_result(

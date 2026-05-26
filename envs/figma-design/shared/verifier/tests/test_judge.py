@@ -95,6 +95,26 @@ def test_parse_task_completeness_splits_structure_and_quality():
     assert out["requirements"][0]["satisfied"] is False
 
 
+def test_parse_task_completeness_preserves_explanations():
+    text = json.dumps(
+        {
+            "requirements": [
+                {
+                    "description": "Sale section exists",
+                    "present": True,
+                    "quality_acceptable": False,
+                    "explanation": "  Placeholder block instead of real content.  ",
+                },
+            ],
+            "completed": False,
+        }
+    )
+    out = parse_task_completeness(text)
+    assert out["requirements"][0]["explanation"] == (
+        "Placeholder block instead of real content."
+    )
+
+
 def test_aggregate_good_design_score_caps_severe_placeholder_defect():
     scores = {
         "no_placeholders_or_broken_media": 0.0,

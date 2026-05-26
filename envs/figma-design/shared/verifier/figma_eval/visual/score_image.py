@@ -222,7 +222,11 @@ def score_image(
             images=[{"role": "after", "path": str(image_path)}],
             model=model,
             parse_fn=parse_task_completeness,
-            retry_hint='Return ONLY valid JSON with keys "requirements" and "completed". No markdown.',
+            retry_hint=(
+                'Return ONLY valid JSON with keys "requirements" (each with "description", '
+                '"present", "quality_acceptable", "satisfied", and "explanation"), '
+                '"structurally_complete", "quality_acceptable", and "completed". No markdown.'
+            ),
         )
         return {
             "check_type": "task_completeness",

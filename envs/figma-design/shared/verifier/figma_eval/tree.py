@@ -62,7 +62,7 @@ def _build_node_ref_index(envelope: Envelope) -> dict[str, str]:
 
     def walk(node: TreeNode) -> None:
         _register_node_ref(index, node)
-        for ch in _children(node):
+        for ch in node.get("children") or []:
             walk(ch)
 
     doc = envelope.get("document")
@@ -110,7 +110,7 @@ def _find_node_by_hfc_id(envelope: Envelope, node_id: str) -> TreeNode | None:
     def walk(node: TreeNode) -> TreeNode | None:
         if node.get("id") == node_id:
             return node
-        for ch in _children(node):
+        for ch in node.get("children") or []:
             found = walk(ch)
             if found is not None:
                 return found
@@ -128,9 +128,11 @@ def _find_node_by_hfc_id(envelope: Envelope, node_id: str) -> TreeNode | None:
 def find_node(envelope: Envelope, node_ref: str) -> TreeNode | None:
     """Find a node by HFC id or Figma ``sourceFigmaId`` (eval-spec SME ids)."""
     hfc_id = resolve_config_node_id(envelope, node_ref)
-    if not hfc_id:
-        return None
-    return _find_node_by_hfc_id(envelope, hfc_id)
+    if hfc_id:
+        return _find_node_by_hfc_id(envelope, hfc_id)
+    if node_ref:
+        return _find_node_by_hfc_id(envelope, node_ref)
+    return None
 
 
 def iter_nodes(root: TreeNode) -> Iterator[TreeNode]:
@@ -138,6 +140,14 @@ def iter_nodes(root: TreeNode) -> Iterator[TreeNode]:
         yield root
     for ch in _children(root):
         yield from iter_nodes(ch)
+
+
+def iter_nodes_deep(root: TreeNode) -> Iterator[TreeNode]:
+    """Walk all nested children, including inside INSTANCE subtrees."""
+    if root.get("type") != "DOCUMENT":
+        yield root
+    for ch in root.get("children") or []:
+        yield from iter_nodes_deep(ch)
 
 
 def find_all_nodes(envelope: Envelope) -> list[TreeNode]:
@@ -155,6 +165,14 @@ def descendant_ids(envelope: Envelope, root_ref: str) -> set[str]:
     if not root:
         return set()
     return {n["id"] for n in iter_nodes(root) if n.get("id")}
+
+
+def descendant_ids_deep(envelope: Envelope, root_ref: str) -> set[str]:
+    """Descendants including nodes nested under INSTANCE (and other non-container) nodes."""
+    root = find_node(envelope, root_ref)
+    if not root:
+        return set()
+    return {n["id"] for n in iter_nodes_deep(root) if n.get("id")}
 
 
 def is_node_under_roots(envelope: Envelope, node_id: str, root_ids: list[str]) -> bool:

@@ -239,7 +239,8 @@ def build_task_completeness_prompt(
         "Review the screenshot of the design region that contains all changes."
         f"{composite_screenshot_note(composite=composite, frame_count=frame_count)}\n"
         "1. List each concrete requirement implied by the task.\n"
-        "2. For each requirement, judge present and quality_acceptable separately.\n"
+        "2. For each requirement, judge present and quality_acceptable separately and "
+        "provide a brief explanation (1-2 sentences) justifying both judgments.\n"
         "3. Set structurally_complete to true only if every requirement is present.\n"
         "4. Set quality_acceptable to true only if every present requirement also has "
         "quality_acceptable true.\n"
@@ -251,7 +252,8 @@ def build_task_completeness_prompt(
         '      "description": "...",\n'
         '      "present": true|false,\n'
         '      "quality_acceptable": true|false,\n'
-        '      "satisfied": true|false\n'
+        '      "satisfied": true|false,\n'
+        '      "explanation": "..."\n'
         "    }\n"
         "  ],\n"
         '  "structurally_complete": true|false,\n'
