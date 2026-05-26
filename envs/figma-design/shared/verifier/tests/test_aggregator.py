@@ -11,12 +11,12 @@ def test_aggregate_bounded_score():
     assert 0 <= report.score <= 10
 
 
-def test_completion_gate_failed_gate_caps_at_0_2():
+def test_completion_gate_failed_gate_caps_at_0_4():
     gate_results = [
         SubCheckResult("gates.no_detached_nodes", "gates", 0.0, True),
     ]
     gate = compute_completion_gate(gate_results, [], {})
-    assert gate == 0.2
+    assert gate == 0.4
 
 
 def test_completion_gate_required_check():

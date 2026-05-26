@@ -120,7 +120,7 @@ Gates affect `completion_gate` only — they are not averaged into the quality s
 | `additions_only` | No edits or deletes to existing nodes |
 | `no_detached_nodes` | No nodes created but never attached to the document |
 
-If any applicable gate scores below 1, `completion_gate` is capped at **0.2**. If any applicable **required** structural check scores below 1, it is capped at **0.3**.
+If any applicable gate scores below 1, `completion_gate` is capped at **0.4**. If any applicable **required** structural check scores below 1, it is capped at **0.3**.
 
 ### Structural checks
 

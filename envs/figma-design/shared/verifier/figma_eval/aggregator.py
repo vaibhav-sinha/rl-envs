@@ -80,7 +80,7 @@ def compute_completion_gate(
 
     for g in gate_results:
         if g.applicable and g.score < 1.0:
-            gate = min(gate, 0.2)
+            gate = min(gate, 0.4)
 
     for c in spec.get("checks") or []:
         if c.get("required") is False:

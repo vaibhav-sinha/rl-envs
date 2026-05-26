@@ -10,7 +10,11 @@ def build_diff_prompt(*, task_instruction: str, diff_summary: str) -> str:
         f"{diff_summary}\n\n"
         "Judge whether the diff shows the task was completed. "
         "Return a single score from 0-10 (0=not done, 10=fully done).\n\n"
+        "Provide a brief explanation (1-2 sentences) justifying the score.\n\n"
         "Respond with JSON only:\n"
-        '{"score": 0-10}\n'
+        "{\n"
+        '  "score": 0-10,\n'
+        '  "explanation": "..."\n'
+        "}\n"
         "Do not include markdown fences."
     )

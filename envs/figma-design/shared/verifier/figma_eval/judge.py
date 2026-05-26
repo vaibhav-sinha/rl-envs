@@ -259,7 +259,12 @@ def parse_numeric_score(text: str, *, scale: int = 10) -> dict[str, Any]:
     raw = data.get("score", data.get("mean_score", 0))
     score = float(raw)
     normalize = _normalize_0_to_10 if scale == 10 else lambda v: max(0.0, min(1.0, v))
-    return {"score": score, "mean_score": normalize(score)}
+    result: dict[str, Any] = {"score": score, "mean_score": normalize(score)}
+    if "explanation" in data:
+        explanation = str(data["explanation"]).strip()
+        if explanation:
+            result["explanation"] = explanation
+    return result
 
 
 def parse_response(text: str) -> dict[str, Any]:

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from figma_eval.edit_graph import build_edit_graph
+from figma_eval.metadata.prompts import build_diff_prompt
 from figma_eval.metadata.run_metadata import run_metadata_check
 
 
@@ -40,6 +41,34 @@ def _before_after_with_new_paint_style() -> tuple[dict, dict]:
         ],
     }
     return before, after
+
+
+def test_diff_prompt_includes_explanation():
+    prompt = build_diff_prompt(task_instruction="Create styles", diff_summary="added: 1 style")
+    assert '"explanation"' in prompt
+    assert "justifying the score" in prompt
+
+
+@patch("figma_eval.metadata.run_metadata.run_llm_judge")
+def test_diff_check_propagates_explanation(mock_judge, load_fixture):
+    before = load_fixture("minimal", "before")
+    after = load_fixture("add-frame", "after")
+    mock_judge.return_value = {
+        "mean_score": 0.8,
+        "score": 8.0,
+        "explanation": "A new frame was added as required.",
+    }
+
+    result = run_metadata_check(
+        spec={"id": "d1", "type": "diff"},
+        graph=build_edit_graph(before, after),
+        before=before,
+        after=after,
+        task_instruction="Add a frame",
+        skip_llm=False,
+        model="test",
+    )
+    assert result.details["explanation"] == "A new frame was added as required."
 
 
 @patch("figma_eval.metadata.run_metadata.run_llm_judge")

@@ -45,13 +45,14 @@ def _run_diff_check(
         images=None,
         model=model,
         parse_fn=lambda text: parse_numeric_score(text, scale=10),
-        retry_hint='Return ONLY valid JSON: {"score": 0-10}. No markdown.',
+        retry_hint=(
+            'Return ONLY valid JSON: {"score": 0-10, "explanation": "..."}. No markdown.'
+        ),
     )
-    return _metadata_result(
-        spec,
-        llm["mean_score"],
-        {"check": "diff", "raw_score": llm.get("score")},
-    )
+    details: dict[str, Any] = {"check": "diff", "raw_score": llm.get("score")}
+    if llm.get("explanation"):
+        details["explanation"] = llm["explanation"]
+    return _metadata_result(spec, llm["mean_score"], details)
 
 
 def run_metadata_check(

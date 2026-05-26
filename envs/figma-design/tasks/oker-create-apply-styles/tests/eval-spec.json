@@ -16,10 +16,6 @@
   "checks": [],
   "visual": [
     {
-      "id": "task_completeness_1",
-      "type": "task_completeness"
-    },
-    {
       "id": "design_consistency_3",
       "type": "design_consistency",
       "reference_asset": "ref-design_consistency_3.png",

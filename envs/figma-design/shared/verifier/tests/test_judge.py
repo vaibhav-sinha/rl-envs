@@ -221,6 +221,19 @@ def test_parse_numeric_score_normalizes_to_unit_interval():
     assert out["mean_score"] == pytest.approx(0.7)
 
 
+def test_parse_numeric_score_extracts_explanation():
+    text = json.dumps({"score": 8, "explanation": "  New paint styles were created.  "})
+    out = parse_numeric_score(text, scale=10)
+    assert out["mean_score"] == pytest.approx(0.8)
+    assert out["explanation"] == "New paint styles were created."
+
+
+def test_parse_numeric_score_omits_blank_explanation():
+    text = json.dumps({"score": 8, "explanation": "   "})
+    out = parse_numeric_score(text, scale=10)
+    assert "explanation" not in out
+
+
 def test_parse_response_from_markdown_fence():
     text = '```json\n{"dimensions": {"spacing": 3}, "mean_score": 0.5}\n```'
     out = parse_response(text)

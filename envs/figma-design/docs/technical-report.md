@@ -128,7 +128,7 @@ The verifier is a Python evaluation engine that runs in-process inside the trial
 
 ### 7.1 Hard Gates
 
-Gates encode the structural invariants of the task. **Failing a gate caps the final reward at 20% of raw**, which is what makes it a *gate* and not a soft check.
+Gates encode the structural invariants of the task. **Failing a gate caps the final reward at 40% of raw**, which is what makes it a *gate* and not a soft check.
 
 - **Require change** — the design must actually differ from the baseline. *Prevents:* agents that "complete" the task by saying they did and never invoking `use_figma`.
 - **Preserve specified nodes** — listed nodes must still exist in the result. *Prevents:* agents that delete or recreate the file to satisfy a check, breaking the surrounding design.
@@ -221,7 +221,7 @@ Scoring has two layers that must not be conflated:
 
 ```
 completion_gate = 1.0
-  → min(0.2) if any applicable gate scores below 1.0
+  → min(0.4) if any applicable gate scores below 1.0
   → min(0.3) if any applicable required structural check scores below 1.0
 
 raw = Σ (category_mean × normalized_importance)

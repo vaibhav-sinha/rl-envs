@@ -138,7 +138,7 @@ final_0_10 = clamp(0, 10, completion_gate × raw × 10)
 
 | Failure | Multiplier |
 |---------|------------|
-| Any applicable gate with score &lt; 1 | × 0.2 |
+| Any applicable gate with score &lt; 1 | × 0.4 |
 | Any applicable **required** structural check with score &lt; 1 | × 0.3 |
 
 Gates (`require_change`, `preserve_ids`, `allowed_change_inside_ids`, `additions_only`, `no_detached_nodes`) only affect `completion_gate`. Optional structural checks use `"required": false` and do not trigger the 0.3 cap.
